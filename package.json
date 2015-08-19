@@ -1,0 +1,24 @@
+{
+	"name": "system-platform",
+	"version": "0.0.1",
+	"description": "Run JavaScript on different platform",
+	"dependencies": {
+		"babel": "*",
+		"babel-core": "*",
+		"systemjs": "*",
+		"@dmail/promise-es6": "*",
+		"@dmail/set-immediate": "*",
+		"@dmail/object-assign": "*",
+		"@dmail/url-search-params": "*",
+		"@dmail/url": "*",
+		"system-node-sourcemap": "*",
+		"open": "*"
+	},
+	"scripts": {
+
+	},
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/dmail/system-platform"
+	}
+}
