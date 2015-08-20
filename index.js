@@ -5,6 +5,8 @@
 	var platform = {
 		logLevel: 'info',
 
+		readyListeners: [],
+
 		info: function(){
 			if( this.logLevel === 'info' ){
 				console.info.apply(console, arguments);
@@ -12,7 +14,15 @@
 		},
 
 		ready: function(listener){
-			this.onready = listener;
+			this.readyListeners.push(listener);
+		},
+
+		onready: function(){
+			return this.readyListeners.reduce(function(previous, listener){
+				return previous.then(function(){
+					return Promise.resolve(listener());
+				});
+			}, Promise.resolve());
 		},
 
 		error: function(error){
