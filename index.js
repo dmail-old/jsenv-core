@@ -105,8 +105,9 @@
 		platform.name = agent.name;
 		platform.version = parseVersion(agent.version);
 		platform.os = navigator.platform.toLowerCase();
+		platform.dirname = './'; // il faut remonter la balise script poursavoir où on se trouve je crois
 
-		platform.systemLocation = './node_modules/systemjs/system.js';
+		platform.systemLocation = platform.dirname + 'node_modules/systemjs/system.js';
 	}
 	else{
 		platform.include = function(url, done){
@@ -147,8 +148,9 @@
 		// https://nodejs.org/api/process.html#process_process_platform
 		// 'darwin', 'freebsd', 'linux', 'sunos', 'win32'
 		platform.os = process.platform === 'win32' ? 'windows' : process.platform;
+		platform.dirname = __dirname;
 
-		platform.systemLocation = './lib/system.js';
+		platform.systemLocation = platform.dirname + 'lib/system.js';
 
 		if( process.argv.indexOf('--silent') != -1 ){
 			platform.logLevel = 'error';
@@ -162,7 +164,7 @@
 
 	dependencies.push({
 		name: 'URLSearchParams',
-		url: './node_modules/@dmail/url-search-params/index.js',
+		url: platform.dirname + 'node_modules/@dmail/url-search-params/index.js',
 		condition: function(){
 			return false === 'URLSearchParams' in platform.global;
 		}
@@ -171,7 +173,7 @@
 	/*
 	dependencies.push({
 		name: 'URL',
-		url: './node_modules/@dmail/url/index.js',
+		url: platform.dirname + 'node_modules/@dmail/url/index.js',
 		condition: function(){
 			return false === 'URL' in platform.global;
 		}
@@ -180,7 +182,7 @@
 
 	dependencies.push({
 		name: 'Object.assign',
-		url: './node_modules/@dmail/object-assign/index.js',
+		url: platform.dirname + 'node_modules/@dmail/object-assign/index.js',
 		condition: function(){
 			return false === 'assign' in Object;
 		}
@@ -188,7 +190,7 @@
 
 	dependencies.push({
 		name: 'setImmediate',
-		url: './node_modules/@dmail/set-immediate/index.js',
+		url: platform.dirname + 'node_modules/@dmail/set-immediate/index.js',
 		condition: function(){
 			return false === 'setImmediate' in platform.global;
 		}
@@ -196,7 +198,7 @@
 
 	dependencies.push({
 		name: 'Promise',
-		url: './node_modules/@dmail/promise-es6/index.js',
+		url: platform.dirname + 'node_modules/@dmail/promise-es6/index.js',
 		condition: function(){
 			return true; // force because of node promise not implementing unhandled rejection
 			//return false === 'Promise' in platform.global;
@@ -211,7 +213,7 @@
 		},
 		instantiate: function(){
 			System.transpiler = 'babel';
-			System.paths.babel = './node_modules/babel-core/browser.js';
+			System.paths.babel = platform.dirname + 'node_modules/babel-core/browser.js';
 			System.babelOptions = {
 
 			};
@@ -294,7 +296,7 @@
 					name = name.replace(conditional, conditionals[key]);
 				}
 			}
-			return normalize.call(this, arguments);
+			return normalize.apply(this, arguments);
 		};
 
 		if( platform.type === 'process' ){
