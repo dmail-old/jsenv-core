@@ -148,7 +148,7 @@
 		// https://nodejs.org/api/process.html#process_process_platform
 		// 'darwin', 'freebsd', 'linux', 'sunos', 'win32'
 		platform.os = process.platform === 'win32' ? 'windows' : process.platform;
-		platform.dirname = __dirname;
+		platform.dirname = (platform.os == 'windows' ? __dirname.replace(/\\/g, '/') : __dirname) + '/';
 
 		platform.systemLocation = platform.dirname + 'lib/system.js';
 
@@ -213,12 +213,14 @@
 		},
 		instantiate: function(){
 			System.transpiler = 'babel';
-			System.paths.babel = platform.dirname + 'node_modules/babel-core/browser.js';
+			//System.paths.babel = 'file:///' + platform.dirname + 'node_modules/babel-core/browser.js';
 			System.babelOptions = {
 
 			};
 
 			if( platform.type === 'process' ){
+				System.paths.babel = 'file:///' + platform.dirname + 'node_modules/babel-core/browser.js';
+
 				var transformError = require('system-node-sourcemap');
 				require('babel/polyfill');
 				platform.error = function(error){
@@ -230,6 +232,9 @@
 				platform.global.require = function(module){
 					return require(module);
 				};
+			}
+			else{
+				System.paths.babel = platform.dirname + 'node_modules/babel-core/browser.js';
 			}
 		}
 	});
