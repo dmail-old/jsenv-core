@@ -19,9 +19,7 @@
 
 		onready: function(){
 			return this.readyListeners.reduce(function(previous, listener){
-				return previous.then(function(){
-					return Promise.resolve(listener());
-				});
+				return previous.then(listener, function(e){ return Promise.reject(e); });
 			}, Promise.resolve());
 		},
 
