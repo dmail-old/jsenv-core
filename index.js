@@ -305,8 +305,10 @@
 				var name = load.address.slice(System.baseURL.length);
 
 				if( nativeModules.indexOf(name) != -1 ){
-					return 'module.exports = require("' + name + '")';
+					name = name.slice('node/'.length);
+					return Promise.resolve('export default require("' + name + '")');
 				}
+
 				return fetch.call(this, load);
 			};
 
