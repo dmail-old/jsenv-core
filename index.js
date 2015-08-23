@@ -173,7 +173,6 @@
 		}
 	});
 
-	/*
 	dependencies.push({
 		name: 'URL',
 		url: 'node_modules/@dmail/url/index.js',
@@ -181,7 +180,6 @@
 			return false === 'URL' in platform.global;
 		}
 	});
-	*/
 
 	dependencies.push({
 		name: 'Object.assign',
