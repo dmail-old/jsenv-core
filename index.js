@@ -106,6 +106,7 @@
 		platform.location = document.scripts[document.scripts.length - 1].src;
 
 		platform.systemLocation = 'node_modules/systemjs/dist/system.js';
+		platform.polyfillLocation = 'node_modules/babel-core/browser-polyfill.js';
 	}
 	else{
 		platform.include = function(url, done){
@@ -153,6 +154,7 @@
 		platform.location = 'file:///' + (platform.os == 'windows' ? __filename.replace(/\\/g, '/') : __filename);
 
 		platform.systemLocation = 'node_modules/systemjs/index.js';
+		platform.polyfillLocation = 'node_modules/babel/polyfill.js';
 
 		if( process.argv.indexOf('--silent') != -1 ){
 			platform.logLevel = 'error';
@@ -207,6 +209,11 @@
 	});
 
 	dependencies.push({
+		name: 'babel-polyfill',
+		url: platform.polyfillLocation
+	});
+
+	dependencies.push({
 		name: 'System',
 		url: platform.systemLocation,
 		condition: function(){
@@ -214,15 +221,11 @@
 		},
 		instantiate: function(){
 			System.transpiler = 'babel';
-			//System.paths.babel = 'file:///' + platform.dirname + 'node_modules/babel-core/browser.js';
-			System.babelOptions = {
-
-			};
+			System.babelOptions = {};
 			System.paths.babel =  platform.dirname + '/node_modules/babel-core/browser.js';
 
 			if( platform.type === 'process' ){				
 				var transformError = require('system-node-sourcemap');
-				require('babel/polyfill');
 				platform.error = function(error){
 					transformError(error);
 					this.onerror(error);
