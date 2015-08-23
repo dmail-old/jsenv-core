@@ -103,13 +103,17 @@
 		platform.name = agent.name;
 		platform.version = parseVersion(agent.version);
 		platform.os = navigator.platform.toLowerCase();
-		platform.dirname = './'; // il faut remonter la balise script poursavoir où on se trouve je crois
+		platform.location = document.scripts[document.scripts.length - 1].src;
 
-		platform.systemLocation = platform.dirname + 'node_modules/systemjs/system.js';
+		platform.systemLocation = 'node_modules/systemjs/dist/system.js';
 	}
 	else{
 		platform.include = function(url, done){
 			var error;
+
+			if( url.indexOf('file:///') === 0 ){
+				url = url.slice('file:///'.length);
+			}
 
 			try{
 				require(url);
@@ -126,7 +130,7 @@
 		};
 
 		baseURL = (function(){
-			var base = 'file://' + process.cwd();
+			var base = 'file:///' + process.cwd();
 
 			if( process.platform.match(/^win/) ){
 				base = base.replace(/\\/g, '/');
@@ -146,23 +150,24 @@
 		// https://nodejs.org/api/process.html#process_process_platform
 		// 'darwin', 'freebsd', 'linux', 'sunos', 'win32'
 		platform.os = process.platform === 'win32' ? 'windows' : process.platform;
-		platform.dirname = (platform.os == 'windows' ? __dirname.replace(/\\/g, '/') : __dirname) + '/';
+		platform.location = 'file:///' + (platform.os == 'windows' ? __filename.replace(/\\/g, '/') : __filename);
 
-		platform.systemLocation = platform.dirname + 'lib/system.js';
+		platform.systemLocation = 'node_modules/systemjs/index.js';
 
 		if( process.argv.indexOf('--silent') != -1 ){
 			platform.logLevel = 'error';
 		}
 	}
-
-	platform.info(platform.name, platform.version);
+		
+	platform.dirname = platform.location.slice(0, platform.location.lastIndexOf('/'));
 	platform.global.platform = platform;
+	platform.info(platform.name, String(platform.version), platform.location);
 
 	var dependencies = [];
 
 	dependencies.push({
 		name: 'URLSearchParams',
-		url: platform.dirname + 'node_modules/@dmail/url-search-params/index.js',
+		url: 'node_modules/@dmail/url-search-params/index.js',
 		condition: function(){
 			return false === 'URLSearchParams' in platform.global;
 		}
@@ -171,7 +176,7 @@
 	/*
 	dependencies.push({
 		name: 'URL',
-		url: platform.dirname + 'node_modules/@dmail/url/index.js',
+		url: 'node_modules/@dmail/url/index.js',
 		condition: function(){
 			return false === 'URL' in platform.global;
 		}
@@ -180,7 +185,7 @@
 
 	dependencies.push({
 		name: 'Object.assign',
-		url: platform.dirname + 'node_modules/@dmail/object-assign/index.js',
+		url: 'node_modules/@dmail/object-assign/index.js',
 		condition: function(){
 			return false === 'assign' in Object;
 		}
@@ -188,7 +193,7 @@
 
 	dependencies.push({
 		name: 'setImmediate',
-		url: platform.dirname + 'node_modules/@dmail/set-immediate/index.js',
+		url: 'node_modules/@dmail/set-immediate/index.js',
 		condition: function(){
 			return false === 'setImmediate' in platform.global;
 		}
@@ -196,7 +201,7 @@
 
 	dependencies.push({
 		name: 'Promise',
-		url: platform.dirname + 'node_modules/@dmail/promise-es6/index.js',
+		url: 'node_modules/@dmail/promise-es6/index.js',
 		condition: function(){
 			return true; // force because of node promise not implementing unhandled rejection
 			//return false === 'Promise' in platform.global;
@@ -215,10 +220,9 @@
 			System.babelOptions = {
 
 			};
+			System.paths.babel =  platform.dirname + '/node_modules/babel-core/browser.js';
 
-			if( platform.type === 'process' ){
-				System.paths.babel = 'file:///' + platform.dirname + 'node_modules/babel-core/browser.js';
-
+			if( platform.type === 'process' ){				
 				var transformError = require('system-node-sourcemap');
 				require('babel/polyfill');
 				platform.error = function(error){
@@ -230,9 +234,6 @@
 				platform.global.require = function(module){
 					return require(module);
 				};
-			}
-			else{
-				System.paths.babel = platform.dirname + 'node_modules/babel-core/browser.js';
 			}
 		}
 	});
@@ -248,11 +249,11 @@
 
 		function includeNext(error){
 			if( error ){
-				platform.info('include error', error);
+				//platform.info('include error', error);
 				done(error);
 			}
 			else if( i === j ){
-				platform.info('all dependencies included', error);
+				platform.info('all dependencies included');
 				done();
 			}
 			else{
@@ -261,6 +262,7 @@
 
 				if( !dependency.condition || dependency.condition() ){
 					platform.info('loading', dependency.name);
+					dependency.url = platform.dirname + '/' + dependency.url;
 					platform.include(dependency.url, function(error){
 						if( error ){
 							includeNext(error);
@@ -283,24 +285,13 @@
 		includeNext();
 	}
 
-	includeDependencies(dependencies, function(error){
-		if( error ) throw error;
-
-		var conditionals = {
-			'platform': platform.type
-		};
-
-		var normalize = System.normalize;
-		System.normalize = function(name){
-			for(var key in conditionals ){
-				var conditional = '{' + key +  '}';
-
-				if( name.indexOf(conditional) != -1 ){
-					name = name.replace(conditional, conditionals[key]);
-				}
-			}
-			return normalize.apply(this, arguments);
-		};
+	function setup(){
+		System.set('platform', System.newModule({
+			default: platform
+		}));
+		System.set('platform-type', System.newModule({
+			default: platform.type
+		}));
 
 		if( platform.type === 'process' ){
 			var nativeModules = ['http', 'https', 'fs', 'stream', 'path', 'url', 'querystring', 'child_process'];
@@ -326,6 +317,15 @@
 		}
 
 		platform.onready();
+	}
+
+	includeDependencies(dependencies, function(error){
+		if( error ){
+			throw error;
+		}
+		else{
+			setup();
+		}
 	});
 
 })();

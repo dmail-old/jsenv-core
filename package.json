@@ -15,7 +15,7 @@
 		"open": "*"
 	},
 	"scripts": {
-
+		"test": "node ./test/ready.js & node ./test/import.js"
 	},
 	"repository": {
 		"type": "git",
