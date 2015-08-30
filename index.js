@@ -320,6 +320,7 @@
 
 			process.on('unhandledRejection', function(error, p){
 				if( error ){
+					console.log('unhandled');
 					platform.error(error);
 				}
 			});
