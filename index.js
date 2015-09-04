@@ -166,7 +166,7 @@
 			platform.logLevel = 'error';
 		}
 	}
-		
+
 	platform.dirname = platform.location.slice(0, platform.location.lastIndexOf('/'));
 	platform.global.platform = platform;
 	platform.info(platform.name, String(platform.version), platform.location);
@@ -230,7 +230,7 @@
 			System.babelOptions = {};
 			System.paths.babel =  platform.dirname + '/node_modules/babel-core/browser.js';
 
-			if( platform.type === 'process' ){				
+			if( platform.type === 'process' ){
 				var transformError = require('system-node-sourcemap');
 				platform.error = function(error){
 					transformError(error);
@@ -294,10 +294,10 @@
 
 	function setup(){
 		System.set('platform', System.newModule({
-			default: platform
+			"default": platform
 		}));
 		System.set('platform-type', System.newModule({
-			default: platform.type
+			"default": platform.type
 		}));
 
 		if( platform.type === 'process' ){
