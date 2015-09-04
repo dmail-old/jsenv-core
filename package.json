@@ -3,6 +3,7 @@
 	"version": "0.0.1",
 	"description": "Run JavaScript on different platform",
 	"dependencies": {
+		"postlink": "git+https://github.com/dmail/postlink",
 		"babel": "*",
 		"babel-core": "*",
 		"systemjs": "*",
@@ -15,7 +16,8 @@
 		"open": "*"
 	},
 	"scripts": {
-		"test": "node test"
+		"test": "node test",
+		"postinstall": "postlink"
 	},
 	"repository": {
 		"type": "git",
