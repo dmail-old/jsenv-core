@@ -19,7 +19,7 @@
 
 		onready: function(){
 			return this.readyListeners.reduce(function(previous, listener){
-				return previous.then(listener, function(e){ return Promise.reject(e); });
+				return previous.then(listener);
 			}, Promise.resolve());
 		},
 
@@ -31,8 +31,14 @@
 			if( error.stackTrace ){
 				console.error(String(error));
 			}
-			else{
+			else if( error instanceof Error ){
 				throw error;
+			}
+			else if( error ){
+				console.error('onerror called with a non error object', error);
+			}
+			else{
+				console.error('onerror called without error object');
 			}
 		}
 	};
@@ -314,6 +320,7 @@
 
 			process.on('unhandledRejection', function(error, p){
 				if( error ){
+					console.log('unhandled');
 					platform.error(error);
 				}
 			});
