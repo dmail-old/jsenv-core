@@ -46,6 +46,16 @@
 			else{
 				console.error('onerror called without error object');
 			}
+		},
+
+		locate: function(location, stripFile){
+			var href = new URL(location, this.baseURL).href;
+
+			if( stripFile && href.indexOf('file:///') === 0 ){
+				href = href.slice('file:///'.length);
+			}
+
+			return href;
 		}
 	};
 
@@ -244,8 +254,10 @@
 				};
 				//System.babelOptions.retainLines = true;
 
-				platform.global.require = function(module){
-					return require(module);
+				//global.require = require;
+				platform.global.require = function(moduleId){
+					//console.log('use global require on', moduleId);
+					return require(moduleId);
 				};
 			}
 		}
