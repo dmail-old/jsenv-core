@@ -15,8 +15,11 @@
 		"system-node-sourcemap": "*",
 		"open": "*"
 	},
+	"bin": {
+		"system-run": "./bin/run"
+	},
 	"scripts": {
-		"test": "node test",
+		"test": "node ./bin/run test/index.js",
 		"postinstall": "postlink"
 	},
 	"repository": {

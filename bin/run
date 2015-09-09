@@ -1,0 +1,9 @@
+#!/usr/bin/env node
+
+require('../index.js');
+
+var path = process.argv[2];
+
+global.platform.ready(function(){
+	return System.import(path);
+});

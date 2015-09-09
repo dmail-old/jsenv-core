@@ -13,6 +13,12 @@
 			}
 		},
 
+		debug: function(){
+			if( this.logLevel === 'debug' ){
+				console.log.apply(console, arguments);
+			}
+		},
+
 		ready: function(listener){
 			this.readyListeners.push(listener);
 		},
@@ -260,7 +266,7 @@
 				done(error);
 			}
 			else if( i === j ){
-				platform.info('all dependencies included');
+				platform.debug('all dependencies included');
 				done();
 			}
 			else{
@@ -268,7 +274,7 @@
 				i++;
 
 				if( !dependency.condition || dependency.condition() ){
-					platform.info('loading', dependency.name);
+					platform.debug('loading', dependency.name);
 					dependency.url = platform.dirname + '/' + dependency.url;
 					platform.include(dependency.url, function(error){
 						if( error ){
@@ -283,7 +289,7 @@
 					});
 				}
 				else{
-					platform.info('skipping', dependency.name);
+					platform.debug('skipping', dependency.name);
 					includeNext();
 				}
 			}
@@ -301,22 +307,23 @@
 		}));
 
 		if( platform.type === 'process' ){
-			var nativeModules = ['http', 'https', 'fs', 'stream', 'path', 'url', 'querystring', 'child_process'];
-			nativeModules = nativeModules.map(function(name){
-				return 'node/' + name;
+			var nativeModules = [
+				'assert',
+				'http',
+				'https',
+				'fs',
+				'stream',
+				'path',
+				'url',
+				'querystring',
+				'child_process'
+			];
+
+			nativeModules.forEach(function(name){
+				System.set('node/' + name, System.newModule({
+					"default": require(name)
+				}));
 			});
-
-			var fetch = System.fetch;
-			System.fetch = function(load){
-				var name = load.address.slice(System.baseURL.length);
-
-				if( nativeModules.indexOf(name) != -1 ){
-					name = name.slice('node/'.length);
-					return Promise.resolve('export default require("' + name + '")');
-				}
-
-				return fetch.call(this, load);
-			};
 
 			process.on('unhandledRejection', function(error, p){
 				if( error ){
