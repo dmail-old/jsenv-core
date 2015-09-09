@@ -16,7 +16,7 @@
 		"open": "*"
 	},
 	"bin": {
-		"system-run": "./bin/run"
+		"system-platform": "./bin/run"
 	},
 	"scripts": {
 		"test": "node ./bin/run test/index.js",

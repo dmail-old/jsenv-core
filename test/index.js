@@ -1,13 +1,11 @@
 import assert from 'node/assert';
+import childProcess from 'node/child_process';
 
-System.import('./test/modules/a.js').then(function(exports){
-	assert.equal(exports.default, 'a');
-});
+import a from './test/modules/a.js';
+import http from 'node/http';
 
-System.import('node/http').then(function(exports){
-	assert.equal(typeof exports.default.createServer, 'function');
-});
-
+assert.equal(a, 'a');
+assert.equal(typeof http.createServer, 'function');
 // ensure functionalities are present
 assert('Promise' in global);
 assert('assign' in Object);
