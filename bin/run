@@ -1,13 +1,7 @@
 #!/usr/bin/env node
 
-require('../index.js');
-
+var run = require('../run.js');
 var path = process.argv[2];
-
 process.argv.splice(2, 1);
 
-global.platform.ready(function(){
-	global.platform.info('running', global.platform.locate(path));
-
-	return System.import(path);
-});
+run(path);
