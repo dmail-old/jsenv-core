@@ -41,7 +41,7 @@
 				throw error;
 			}
 			else if( error ){
-				console.error('onerror called with a non error object', error);
+				console.error('onerror called with a non error object', typeof error, error);
 			}
 			else{
 				console.error('onerror called without error object');

@@ -2,6 +2,7 @@
 
 var run = require('../run.js');
 var path = process.argv[2];
+process.chdir(path);
 process.argv.splice(2, 1);
 
 run(path);
