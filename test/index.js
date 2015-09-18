@@ -15,3 +15,5 @@ assert('Symbol' in global);
 assert('setImmediate' in global);
 
 assert(typeof require('assert'), 'function');
+
+console.log('all tests passed');

@@ -35,9 +35,11 @@
 
 		onerror: function(error){
 			if( error.stackTrace ){
+				console.log('transformed error');
 				console.error(String(error));
 			}
 			else if( error instanceof Error ){
+				console.log('error object');
 				throw error;
 			}
 			else if( error ){
@@ -185,7 +187,7 @@
 
 	platform.dirname = platform.location.slice(0, platform.location.lastIndexOf('/'));
 	platform.global.platform = platform;
-	platform.info(platform.name, String(platform.version), platform.location);
+	platform.info(platform.name, String(platform.version), platform.location, platform.baseURL);
 
 	var dependencies = [];
 
@@ -274,7 +276,7 @@
 
 		function includeNext(error){
 			if( error ){
-				//platform.info('include error', error);
+				platform.debug('include error', error);
 				done(error);
 			}
 			else if( i === j ){
@@ -350,9 +352,13 @@
 
 	includeDependencies(dependencies, function(error){
 		if( error ){
+			platform.debug('error ocurred');
+
 			throw error;
 		}
 		else{
+			platform.debug('call setup');
+
 			setup();
 		}
 	});
