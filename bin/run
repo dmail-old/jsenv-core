@@ -1,8 +1,11 @@
 #!/usr/bin/env node
 
 var run = require('../run.js');
-var path = process.argv[2];
-process.chdir(path);
+var path = require('path');
+var fileLocation = process.argv[2];
+var directoryPath = path.dirname(path.resolve(process.cwd(), fileLocation));
+
+process.chdir(directoryPath);
 process.argv.splice(2, 1);
 
-run(path);
+run(fileLocation);
