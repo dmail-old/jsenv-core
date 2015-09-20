@@ -58,6 +58,16 @@
 			}
 
 			return href;
+		},
+
+		locateFromRoot: function(location){
+			var href = new URL(location, this.location).href;
+
+			if( href.indexOf('file:///') === 0 ){
+				href = href.slice('file:///'.length);
+			}
+
+			return href;
 		}
 	};
 
