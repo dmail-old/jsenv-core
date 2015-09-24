@@ -340,7 +340,8 @@
 				'path',
 				'url',
 				'querystring',
-				'child_process'
+				'child_process',
+				'util'
 			];
 
 			nativeModules.forEach(function(name){
