@@ -329,6 +329,7 @@
 		System.set('platform-type', System.newModule({
 			"default": platform.type
 		}));
+		System.paths.proto = platform.dirname + '/node_modules/@dmail/proto/index.js';
 
 		if( platform.type === 'process' ){
 			var nativeModules = [

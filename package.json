@@ -2,6 +2,7 @@
 	"name": "system-platform",
 	"version": "0.0.1",
 	"description": "Run JavaScript on different platform",
+	"license": "UNLICENSED",
 	"dependencies": {
 		"babel": "*",
 		"babel-core": "*",
@@ -11,6 +12,7 @@
 		"@dmail/object-assign": "*",
 		"@dmail/url-search-params": "*",
 		"@dmail/url": "*",
+		"@dmail/proto": "*",
 		"system-node-sourcemap": "*",
 		"open": "*"
 	},
