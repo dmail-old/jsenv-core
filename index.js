@@ -190,7 +190,7 @@
 		platform.systemLocation = 'node_modules/systemjs/index.js';
 		platform.polyfillLocation = 'node_modules/babel/polyfill.js';
 
-		if( process.argv.indexOf('--silent') != -1 ){
+		if( process.argv.indexOf('-silent') != -1 ){
 			platform.logLevel = 'error';
 		}
 	}
