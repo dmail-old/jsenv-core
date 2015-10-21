@@ -33,7 +33,7 @@
 		},
 
 		onerror: function(error){
-			if( error.stackTrace ){
+			if( error && error.stackTrace ){
 				console.log('transformed error');
 				console.error(String(error));
 			}
@@ -42,10 +42,10 @@
 				throw error;
 			}
 			else if( error ){
-				console.error('onerror called with a non error object', typeof error, error);
+				console.log('platform error : ' + error);
 			}
 			else{
-				console.error('onerror called without error object');
+				console.log('onerror called without error argument');
 			}
 		},
 
@@ -352,7 +352,7 @@
 
 			process.on('unhandledRejection', function(error, p){
 				if( error ){
-					console.log('unhandled');
+					console.log('unhandledRejection catched');
 					platform.error(error);
 				}
 			});
