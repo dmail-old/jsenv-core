@@ -4,9 +4,10 @@ function run(location){
 	var fsFileLocation = path.resolve(cwd, location);
 	var dirname = path.dirname(fsFileLocation);
 
-	process.chdir(dirname);
-	location = path.basename(location);
+	location = location.replace(/\\/g, '/');
+	location = 'file:///' + location;
 
+	// require platform
 	require(path.resolve(__dirname, './index.js'));
 
 	global.platform.ready(function(){
