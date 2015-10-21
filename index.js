@@ -3,8 +3,7 @@
 (function(){
 
 	var platform = {
-		logLevel: 'info',
-
+		logLevel: 'error',
 		readyListeners: [],
 
 		info: function(){
@@ -190,8 +189,8 @@
 		platform.systemLocation = 'node_modules/systemjs/index.js';
 		platform.polyfillLocation = 'node_modules/babel/polyfill.js';
 
-		if( process.argv.indexOf('-silent') != -1 ){
-			platform.logLevel = 'error';
+		if( process.argv.indexOf('-verbose') != -1 ){
+			platform.logLevel = 'info';
 		}
 	}
 
