@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-var run = require('../run.js');
+var run = require('../index.js');
 var fileLocation = process.argv[2];
 
 process.argv.splice(2, 1);

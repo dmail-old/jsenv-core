@@ -141,7 +141,7 @@
 		platform.systemLocation = 'node_modules/systemjs/dist/system.js';
 		platform.polyfillLocation = 'node_modules/babel-core/browser-polyfill.js';
 	}
-	else{
+	else if( typeof process != 'undefined' ){
 		platform.include = function(url, done){
 			var error;
 
@@ -192,6 +192,26 @@
 		if( process.argv.indexOf('-verbose') != -1 ){
 			platform.logLevel = 'info';
 		}
+
+		var run = function(location){
+			var path = require('path');
+
+			location = location.replace(/\\/g, '/');
+			location = 'file:///' + location;
+
+			// require platform
+			require(path.resolve(__dirname, './index.js'));
+
+			platform.ready(function(){
+				platform.info('running', platform.locate(location));
+				return System.import(location);
+			});
+		};
+
+		module.exports = run;
+	}
+	else{
+		throw new Error('unknown platform');
 	}
 
 	platform.dirname = platform.location.slice(0, platform.location.lastIndexOf('/'));
