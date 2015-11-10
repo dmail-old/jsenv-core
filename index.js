@@ -139,7 +139,7 @@
 		platform.location = document.scripts[document.scripts.length - 1].src;
 
 		platform.systemLocation = 'node_modules/systemjs/dist/system.js';
-		platform.polyfillLocation = 'node_modules/babel-core/browser-polyfill.js';
+		platform.polyfillLocation = 'node_modules/babel-polyfill/dist/polyfill.js';
 	}
 	else if( typeof process != 'undefined' ){
 		platform.include = function(url, done){
@@ -187,7 +187,7 @@
 		platform.location = 'file:///' + (platform.os == 'windows' ? __filename.replace(/\\/g, '/') : __filename);
 
 		platform.systemLocation = 'node_modules/systemjs/index.js';
-		platform.polyfillLocation = 'node_modules/babel/polyfill.js';
+		platform.polyfillLocation = 'node_modules/babel-polyfill/lib/index.js';
 
 		if( process.argv.indexOf('-verbose') != -1 ){
 			platform.logLevel = 'info';
