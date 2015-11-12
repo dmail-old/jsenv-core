@@ -378,7 +378,23 @@
 			});
 		}
 
-		platform.onready();
+		System.import(platform.dirname + '/namespace.js').then(function(exports){
+			var NameSpaceConfig = exports['default'];
+			var nameSpaceConfig = NameSpaceConfig.create();
+
+			nameSpaceConfig.add({
+				namespace: 'dmail',
+				path: 'file:///C:/Users/Damien/Documents/Github'
+			});
+
+			var normalize = System.normalize;
+			System.normalize = function(moduleName, parentModuleName, parentModuleUrl){
+				moduleName = nameSpaceConfig.locate(moduleName);
+				return normalize.apply(this, arguments);
+			};
+
+			platform.onready();
+		}, platform.onerror);
 	}
 
 	includeDependencies(dependencies, function(error){
