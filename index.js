@@ -245,6 +245,14 @@
 	});
 
 	dependencies.push({
+		name: 'Object.complete',
+		url: 'node_modules/@dmail/object-complete/index.js',
+		condition: function(){
+			return false === 'complete' in Object;
+		}
+	});
+
+	dependencies.push({
 		name: 'setImmediate',
 		url: 'node_modules/@dmail/set-immediate/index.js',
 		condition: function(){
