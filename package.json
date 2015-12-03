@@ -10,7 +10,7 @@
 		"@dmail/promise-es6": "*",
 		"@dmail/set-immediate": "*",
 		"@dmail/object-assign": "*",
-		"@dmail/object-complete": "*",
+		"@dmail/object-complete": "git+https://github.com/dmail/object-complete",
 		"@dmail/url-search-params": "*",
 		"@dmail/url": "*",
 		"@dmail/proto": "*",

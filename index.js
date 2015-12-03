@@ -286,11 +286,30 @@
 			System.paths.babel =  platform.dirname + '/node_modules/babel-core/browser.js';
 
 			if( platform.type === 'process' ){
-				var transformError = require('system-node-sourcemap');
+				require('system-node-sourcemap').install();
+
+				platform.trace = function(error){
+					var stackTrace;
+
+					if( error ){
+						stackTrace = error.stack;
+					}
+					else{
+						error = new Error();
+						stackTrace = error.stack;
+						stackTrace.callSites.pop(); // remove this line of the stack trace (not really usefull thanks to getAssertionCaller)
+					}
+
+					return stackTrace;
+				};
+
+				/*
+				var transformError =
 				platform.error = function(error){
 					transformError(error);
 					this.onerror(error);
 				};
+				*/
 				//System.babelOptions.retainLines = true;
 
 				//global.require = require;
