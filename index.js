@@ -297,7 +297,7 @@
 					else{
 						error = new Error();
 						stackTrace = error.stack;
-						stackTrace.callSites.pop(); // remove this line of the stack trace (not really usefull thanks to getAssertionCaller)
+						stackTrace.callSites.shift(); // remove this line of the stack trace
 					}
 
 					return stackTrace;
