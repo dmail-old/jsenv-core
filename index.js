@@ -49,8 +49,8 @@
 			}
 		},
 
-		locate: function(location, stripFile){
-			var href = new URL(location, this.baseURL).href;
+		locateFrom: function(location, baseLocation, stripFile){
+			var href = new URL(location, baseLocation).href;
 
 			if( stripFile && href.indexOf('file:///') === 0 ){
 				href = href.slice('file:///'.length);
@@ -59,14 +59,20 @@
 			return href;
 		},
 
+		locate: function(location, stripFile){
+			return this.locateFrom(location, this.baseURL, stripFile);
+		},
+
+		locateRelative: function(location, stripFile){
+			var trace = platform.trace();
+
+			trace.callSites.shift();
+
+			return this.locateFrom(location, trace.fileName, stripFile);
+		},
+
 		locateFromRoot: function(location){
-			var href = new URL(location, this.location).href;
-
-			if( href.indexOf('file:///') === 0 ){
-				href = href.slice('file:///'.length);
-			}
-
-			return href;
+			return this.locateFrom(location, this.location, true);
 		}
 	};
 
@@ -400,6 +406,7 @@
 			process.on('unhandledRejection', function(error, p){
 				if( error ){
 					console.log('unhandledRejection catched');
+					// shouldn't we setImmediate(function(){ platform.error(error); })
 					platform.error(error);
 				}
 			});
