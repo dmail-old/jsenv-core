@@ -33,20 +33,7 @@
 		},
 
 		onerror: function(error){
-			if( error && error.stackTrace ){
-				console.log('transformed error');
-				console.error(String(error));
-			}
-			else if( error instanceof Error ){
-				console.log('error object');
-				throw error;
-			}
-			else if( error ){
-				console.log('platform error : ' + error);
-			}
-			else{
-				console.log('onerror called without error argument');
-			}
+			throw error;
 		},
 
 		locateFrom: function(location, baseLocation, stripFile){
@@ -292,30 +279,35 @@
 			System.paths.babel =  platform.dirname + '/node_modules/babel-core/browser.js';
 
 			if( platform.type === 'process' ){
-				require('system-node-sourcemap').install();
+				var nodeSourceMap = require('system-node-sourcemap');
+				nodeSourceMap.install();
+
+				platform.error = function(error){
+					console.error(error);
+					process.exit(1);
+				};
 
 				platform.trace = function(error){
-					var stackTrace;
+					var stack, stackTrace;
 
-					if( error ){
-						stackTrace = error.stack;
+					if( arguments.length > 0 ){
+						if( false === error instanceof Error ){
+							throw new TypeError('platform.trace() first argument must be an error');
+						}
+
+						stack = error.stack; // will set error.stackTrace
+						stackTrace = error.stackTrace;
 					}
 					else{
 						error = new Error();
-						stackTrace = error.stack;
+						stack = error.stack; // will set error.stackTrace
+						stackTrace = error.stackTrace;
 						stackTrace.callSites.shift(); // remove this line of the stack trace
 					}
 
 					return stackTrace;
 				};
 
-				/*
-				var transformError =
-				platform.error = function(error){
-					transformError(error);
-					this.onerror(error);
-				};
-				*/
 				//System.babelOptions.retainLines = true;
 
 				//global.require = require;
@@ -404,11 +396,8 @@
 			});
 
 			process.on('unhandledRejection', function(error, p){
-				if( error ){
-					console.log('unhandledRejection catched');
-					// shouldn't we setImmediate(function(){ platform.error(error); })
-					platform.error(error);
-				}
+				// we should maybe wait a moment checking if promise gets finally handled
+				platform.error(error);
 			});
 		}
 
@@ -428,7 +417,7 @@
 			};
 
 			platform.onready();
-		}, platform.onerror);
+		}, platform.error);
 	}
 
 	includeDependencies(dependencies, function(error){
