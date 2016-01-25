@@ -28,12 +28,70 @@
 			}, Promise.resolve());
 		},
 
-		error: function(error){
-			this.onerror(error);
+		throw: function(error){
+			throw error;
 		},
 
-		onerror: function(error){
-			throw error;
+		exceptions: [],
+		exceptionHandlers: [],
+		catch: function(exceptionHandler){
+			this.exceptionHandlers.push(exceptionHandler);
+		},
+		/*
+		// wait 1000ms before throwing any error
+		platform.catch(function(e){
+			return new Promise(function(res){ setTimeout(res, 1000); });
+		});
+		// do not throw unhandled error with code itsok
+		platform.catch(function(e){
+			return e && e instanceof Error && e.code === 'itsok' ? undefined : Promise.reject(e);
+		});
+		*/
+
+		raise: function(exceptionValue){
+			var exception = {
+				value: exceptionValue,
+				catched: false,
+				catch: function(){
+					if( false === this.catched ){
+						this.catched = true;
+						platform.exceptions.splice(platform.exceptions.indexOf(this));
+					}
+				}
+			};
+
+			this.exceptions.push(exception);
+
+			this.exceptionHandlers.reduce(function(previous, exceptionHandler){
+				return previous.catch(exceptionHandler);
+			}, Promise.reject(exception.value)).catch(function(value){
+				// if we get there it means not rejectionHandler could catch this rejectionValue
+				// if the promise is still unhandled
+				if( false === exception.catched ){
+					// then just throw the error
+					platform.throw(value);
+				}
+			});
+
+			return exception;
+		},
+
+		error: function(error){
+			this.raise(error);
+		},
+
+		unhandledRejection: function(value, promise){
+			var exception = this.raise(value);
+			exception.promise = promise;
+		},
+
+		rejectionHandled: function(promise){
+			for(var exception in this.exceptions){
+				if( 'promise' in exception && exception.promise == promise ){
+					exception.catch();
+					break;
+				}
+			}
 		},
 
 		locateFrom: function(location, baseLocation, stripFile){
@@ -282,7 +340,7 @@
 				var nodeSourceMap = require('system-node-sourcemap');
 				nodeSourceMap.install();
 
-				platform.error = function(error){
+				platform.throw = function(error){
 					console.error(error);
 					process.exit(1);
 				};
@@ -395,10 +453,26 @@
 				}));
 			});
 
-			process.on('unhandledRejection', function(error, p){
-				// we should maybe wait a moment checking if promise gets finally handled
+			process.on('unhandledRejection', function(error, promise){
+				platform.unhandledRejection(error, promise);
+			});
+			process.on('rejectionHandled', function(promise){
+				platform.rejectionHandled(promise);
+			});
+			process.on('uncaughtException', function(error){
 				platform.error(error);
 			});
+		}
+		else if( platform.type === 'browser' ){
+			window.addEventListener('unhandledRejection', function(error, promise){
+				platform.unhandledRejection(error, promise);
+			});
+			window.addEventListener('rejectionHandled', function(promise){
+				platform.rejectionHandled(promise);
+			});
+			window.onerror = function(errorMsg, url, lineNumber, column, error){
+				platform.error(error);
+			};
 		}
 
 		System.import(platform.dirname + '/namespace.js').then(function(exports){
@@ -417,7 +491,7 @@
 			};
 
 			platform.onready();
-		}, platform.error);
+		});
 	}
 
 	includeDependencies(dependencies, function(error){
