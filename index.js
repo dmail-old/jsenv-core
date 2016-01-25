@@ -260,6 +260,16 @@
 		};
 
 		module.exports = run;
+
+		platform.throw = function(error){
+			console.error(error);
+			process.exit(1);
+		};
+
+		platform.global.require = function(moduleId){
+			//console.log('use global require on', moduleId);
+			return require(moduleId);
+		};
 	}
 	else{
 		throw new Error('unknown platform');
@@ -340,11 +350,6 @@
 				var nodeSourceMap = require('system-node-sourcemap');
 				nodeSourceMap.install();
 
-				platform.throw = function(error){
-					console.error(error);
-					process.exit(1);
-				};
-
 				platform.trace = function(error){
 					var stack, stackTrace;
 
@@ -364,14 +369,6 @@
 					}
 
 					return stackTrace;
-				};
-
-				//System.babelOptions.retainLines = true;
-
-				//global.require = require;
-				platform.global.require = function(moduleId){
-					//console.log('use global require on', moduleId);
-					return require(moduleId);
 				};
 			}
 		}
