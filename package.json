@@ -6,7 +6,7 @@
 	"dependencies": {
 		"babel-core": "^5.8.22",
 		"babel-polyfill": "6.0.16",
-		"systemjs": "*",
+		"systemjs": "git+https://github.com/dmail/systemjs",
 		"@dmail/promise-es6": "*",
 		"@dmail/set-immediate": "*",
 		"@dmail/object-assign": "*",
