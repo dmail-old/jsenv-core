@@ -34,61 +34,101 @@
 
 		exceptions: [],
 		exceptionHandlers: [],
-		catch: function(exceptionHandler){
+		addExceptionHandler: function(exceptionHandler){
 			this.exceptionHandlers.push(exceptionHandler);
 		},
 		/*
 		// wait 1000ms before throwing any error
-		platform.catch(function(e){
-			return new Promise(function(res){ setTimeout(res, 1000); });
+		platform.addExceptionHandler(function(e){
+			return new Promise(function(res, rej){ setTimeout(function(){ rej(e); }, 1000); });
 		});
-		// do not throw unhandled error with code itsok
-		platform.catch(function(e){
+		// do not throw error with code itsok
+		platform.addExceptionHandler(function(e){
 			return e && e instanceof Error && e.code === 'itsok' ? undefined : Promise.reject(e);
 		});
 		*/
-
-		raise: function(exceptionValue){
+		createException: function(exceptionValue){
 			var exception = {
 				value: exceptionValue,
-				catched: false,
-				catch: function(){
-					if( false === this.catched ){
-						this.catched = true;
+				recovered: false,
+
+				createStatusPromise: function(){
+					return this.recovered ? Promise.resolve(this.value) : Promise.reject(this.value);
+				},
+
+				nextHandler: function(){
+					if( this.index < this.handlers.length ){
+						var value = this.value;
+						var handler = this.handlers[this.index];
+						this.index++;
+
+						return new Promise(function(res){
+							res(handler(value));
+						}).then(
+							function(resolutionValue){
+								this.recover();
+								return this.createStatusPromise();
+							}.bind(this),
+							function(rejectionValue){
+								if( rejectionValue != value ){
+									// an error occured during exception handling, log it and consider exception as not recovered
+									console.error('the following occurred during exception handling : ', rejectionValue);
+									return this.createStatusPromise();
+								}
+								else{
+									return this.nextHandler();
+								}
+							}.bind(this)
+						);
+					}
+					else{
+						return this.createStatusPromise();
+					}
+				},
+
+				// returns a promise rejected if the exception could not recover using its handlers
+				attemptToRecover: function(){
+					this.index = 0;
+					this.handlers = [].concat(platform.exceptionHandlers);
+					return this.nextHandler();
+				},
+
+				recover: function(){
+					if( false === this.recovered ){
+						this.recovered = true;
 						platform.exceptions.splice(platform.exceptions.indexOf(this));
 					}
+				},
+
+				raise: function(){
+					platform.exceptions.push(this);
+
+					this.attemptToRecover().catch(function(){
+						platform.throw(this.value);
+					}.bind(this));
 				}
 			};
-
-			this.exceptions.push(exception);
-
-			this.exceptionHandlers.reduce(function(previous, exceptionHandler){
-				return previous.catch(exceptionHandler);
-			}, Promise.reject(exception.value)).catch(function(value){
-				// if we get there it means not rejectionHandler could catch this rejectionValue
-				// if the promise is still unhandled
-				if( false === exception.catched ){
-					// then just throw the error
-					platform.throw(value);
-				}
-			});
 
 			return exception;
 		},
 
 		error: function(error){
-			this.raise(error);
+			var exception = this.createException(error);
+			exception.raise();
+			return exception;
 		},
 
 		unhandledRejection: function(value, promise){
-			var exception = this.raise(value);
+			var exception = this.createException(value);
 			exception.promise = promise;
+			exception.raise();
+			return exception;
 		},
 
 		rejectionHandled: function(promise){
 			for(var exception in this.exceptions){
 				if( 'promise' in exception && exception.promise == promise ){
-					exception.catch();
+					exception.recover();
 					break;
 				}
 			}
@@ -156,6 +196,16 @@
 			document.head.appendChild(script);
 		};
 
+		window.addEventListener('unhandledRejection', function(error, promise){
+			platform.unhandledRejection(error, promise);
+		});
+		window.addEventListener('rejectionHandled', function(promise){
+			platform.rejectionHandled(promise);
+		});
+		window.onerror = function(errorMsg, url, lineNumber, column, error){
+			platform.error(error);
+		};
+
 		var agent = (function(){
 			var ua = navigator.userAgent.toLowerCase();
 			var regex = /(opera|ie|firefox|chrome|version)[\s\/:]([\w\d\.]+(?:\.\d+)?)?.*?(safari|version[\s\/:]([\w\d\.]+)|$)/;
@@ -193,6 +243,15 @@
 		platform.polyfillLocation = 'node_modules/babel-polyfill/dist/polyfill.js';
 	}
 	else if( typeof process != 'undefined' ){
+		platform.restart = function(){
+			process.kill(2);
+		};
+
+		platform.throw = function(error){
+			console.error(error);
+			process.exit(1);
+		};
+
 		platform.include = function(url, done){
 			var error;
 
@@ -210,9 +269,15 @@
 			done(error);
 		};
 
-		platform.restart = function(){
-			process.kill(2);
-		};
+		process.on('unhandledRejection', function(error, promise){
+			platform.unhandledRejection(error, promise);
+		});
+		process.on('rejectionHandled', function(promise){
+			platform.rejectionHandled(promise);
+		});
+		process.on('uncaughtException', function(error){
+			platform.error(error);
+		});
 
 		baseURL = (function(){
 			var base = 'file:///' + process.cwd();
@@ -244,6 +309,11 @@
 			platform.logLevel = 'info';
 		}
 
+		platform.global.require = function(moduleId){
+			//console.log('use global require on', moduleId);
+			return require(moduleId);
+		};
+
 		var run = function(location){
 			var path = require('path');
 
@@ -260,16 +330,6 @@
 		};
 
 		module.exports = run;
-
-		platform.throw = function(error){
-			console.error(error);
-			process.exit(1);
-		};
-
-		platform.global.require = function(moduleId){
-			//console.log('use global require on', moduleId);
-			return require(moduleId);
-		};
 	}
 	else{
 		throw new Error('unknown platform');
@@ -449,27 +509,9 @@
 					"default": require(name)
 				}));
 			});
-
-			process.on('unhandledRejection', function(error, promise){
-				platform.unhandledRejection(error, promise);
-			});
-			process.on('rejectionHandled', function(promise){
-				platform.rejectionHandled(promise);
-			});
-			process.on('uncaughtException', function(error){
-				platform.error(error);
-			});
 		}
 		else if( platform.type === 'browser' ){
-			window.addEventListener('unhandledRejection', function(error, promise){
-				platform.unhandledRejection(error, promise);
-			});
-			window.addEventListener('rejectionHandled', function(promise){
-				platform.rejectionHandled(promise);
-			});
-			window.onerror = function(errorMsg, url, lineNumber, column, error){
-				platform.error(error);
-			};
+			// noop
 		}
 
 		System.import(platform.dirname + '/namespace.js').then(function(exports){
