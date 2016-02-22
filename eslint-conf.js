@@ -54,7 +54,9 @@ module.exports = {
 		'default-case': 2,
 		'dot-notation': 2,
 		'dot-location': [2, 'property'],
-		'eqeqeq': 2,
+		// 'eqeqeq': 2,
+		// update below by damien
+		'eqeqeq': 0,
 		'guard-for-in': 2,
 		'no-alert': 2,
 		'no-caller': 2,
@@ -104,7 +106,8 @@ module.exports = {
 		'no-void': 2,
 		'no-warning-comments': 1,
 		'no-with': 2,
-		'radix': 2,
+		// disabled by damien
+		// 'radix': 2,
 		'wrap-iife': [2, 'inside'],
 		'yoda': 2,
 
@@ -173,7 +176,7 @@ module.exports = {
 		'semi-spacing': [2, {before: false, after: true}],
 		'semi': [2, 'always'],
 		'space-before-blocks': [2, 'always'],
-		'space-before-function-paren': [2, {anonymous: 'always', named: 'never'}],
+
 		'space-in-parens': [2, 'never'],
 		'space-infix-ops': 2,
 		'space-unary-ops': 2,
@@ -191,6 +194,18 @@ module.exports = {
 		'no-this-before-super': 2,
 		'no-useless-constructor': 2,
 		'template-curly-spacing': 2,
-		'yield-star-spacing': [2, 'both']
+		'yield-star-spacing': [2, 'both'],
+
+		'valid-jsdoc': [2, {requireReturn: false, prefer: {returns: 'return'}}],
+		// disabled by damien
+		// 'require-jsdoc': 1,
+		'space-before-function-paren': [2, 'never'],
+
+		// added by damien
+		'max-len': [1, 100, 4, {
+			ignoreComments: true,
+			ignoreUrls: true,
+			ignorePattern: "^\\s*var\\s.+=\\s.+\\/.*?\\/;$"
+		}]
 	}
 };
