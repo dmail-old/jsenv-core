@@ -202,7 +202,7 @@ module.exports = {
 		'space-before-function-paren': [2, 'never'],
 
 		// added by damien
-		'max-len': [1, 100, 4, {
+		'max-len': [1, 120, 4, {
 			ignoreComments: true,
 			ignoreUrls: true,
 			ignorePattern: "^\\s*var\\s.+=\\s.+\\/.*?\\/;$"
