@@ -1,40 +1,39 @@
-/* global System */
+/* eslint-env browser, node */
 
-(function(){
-
+(function() {
 	var platform = {
 		logLevel: 'error',
 		readyListeners: [],
 
-		info: function(){
-			if( this.logLevel === 'info' ){
+		info: function() {
+			if (this.logLevel === 'info') {
 				console.info.apply(console, arguments);
 			}
 		},
 
-		debug: function(){
-			if( this.logLevel === 'debug' ){
+		debug: function() {
+			if (this.logLevel === 'debug') {
 				console.log.apply(console, arguments);
 			}
 		},
 
-		ready: function(listener){
+		ready: function(listener) {
 			this.readyListeners.push(listener);
 		},
 
-		onready: function(){
-			return this.readyListeners.reduce(function(previous, listener){
+		onready: function() {
+			return this.readyListeners.reduce(function(previous, listener) {
 				return previous.then(listener);
 			}, Promise.resolve());
 		},
 
-		throw: function(error){
+		throw: function(error) {
 			throw error;
 		},
 
 		exceptions: [],
 		exceptionHandlers: [],
-		addExceptionHandler: function(exceptionHandler){
+		addExceptionHandler: function(exceptionHandler) {
 			this.exceptionHandlers.push(exceptionHandler);
 		},
 		/*
@@ -47,63 +46,79 @@
 			return e && e instanceof Error && e.code === 'itsok' ? undefined : Promise.reject(e);
 		});
 		*/
-		createException: function(exceptionValue){
+		createException: function(exceptionValue) {
 			var exception = {
 				value: exceptionValue,
 				recovered: false,
 
-				createStatusPromise: function(){
-					return this.recovered ? Promise.resolve(this.value) : Promise.reject(this.value);
+				createStatusPromise: function() {
+					var promise;
+					if (this.recovered) {
+						promise = Promise.resolve(this.value);
+					} else {
+						promise = Promise.reject(this.value);
+					}
+
+					return promise;
 				},
 
-				nextHandler: function(){
-					if( this.index < this.handlers.length ){
+				nextHandler: function() {
+					var promise;
+
+					if (this.index < this.handlers.length) {
 						var value = this.value;
 						var handler = this.handlers[this.index];
 						this.index++;
 
-						return new Promise(function(res){
+						promise = new Promise(function(res) {
 							res(handler(value));
 						}).then(
-							function(resolutionValue){
+							function(/* resolutionValue */) {
 								this.recover();
 								return this.createStatusPromise();
 							}.bind(this),
-							function(rejectionValue){
-								if( rejectionValue != value ){
+							function(rejectionValue) {
+								var promise;
+
+								if (rejectionValue === value) {
+									promise = this.nextHandler();
+								} else {
 									// an error occured during exception handling, log it and consider exception as not recovered
-									console.error('the following occurred during exception handling : ', rejectionValue);
-									return this.createStatusPromise();
+									console.error(
+										'the following occurred during exception handling : ',
+										rejectionValue
+									);
+									promise = this.createStatusPromise();
 								}
-								else{
-									return this.nextHandler();
-								}
+
+								return promise;
 							}.bind(this)
 						);
+					} else {
+						promise = this.createStatusPromise();
 					}
-					else{
-						return this.createStatusPromise();
-					}
+
+					return promise;
 				},
 
 				// returns a promise rejected if the exception could not recover using its handlers
-				attemptToRecover: function(){
+				attemptToRecover: function() {
 					this.index = 0;
 					this.handlers = [].concat(platform.exceptionHandlers);
 					return this.nextHandler();
 				},
 
-				recover: function(){
-					if( false === this.recovered ){
+				recover: function() {
+					if (this.recovered === false) {
 						this.recovered = true;
 						platform.exceptions.splice(platform.exceptions.indexOf(this));
 					}
 				},
 
-				raise: function(){
+				raise: function() {
 					platform.exceptions.push(this);
 
-					this.attemptToRecover().catch(function(){
+					this.attemptToRecover().catch(function() {
 						platform.throw(this.value);
 					}.bind(this));
 				}
@@ -112,43 +127,43 @@
 			return exception;
 		},
 
-		error: function(error){
+		error: function(error) {
 			var exception = this.createException(error);
 			exception.raise();
 			return exception;
 		},
 
-		unhandledRejection: function(value, promise){
+		unhandledRejection: function(value, promise) {
 			var exception = this.createException(value);
 			exception.promise = promise;
 			exception.raise();
 			return exception;
 		},
 
-		rejectionHandled: function(promise){
-			for(var exception in this.exceptions){
-				if( 'promise' in exception && exception.promise == promise ){
+		rejectionHandled: function(promise) {
+			for (var exception in this.exceptions) {
+				if ('promise' in exception && exception.promise === promise) {
 					exception.recover();
 					break;
 				}
 			}
 		},
 
-		locateFrom: function(location, baseLocation, stripFile){
+		locateFrom: function(location, baseLocation, stripFile) {
 			var href = new URL(location, baseLocation).href;
 
-			if( stripFile && href.indexOf('file:///') === 0 ){
+			if (stripFile && href.indexOf('file:///') === 0) {
 				href = href.slice('file:///'.length);
 			}
 
 			return href;
 		},
 
-		locate: function(location, stripFile){
+		locate: function(location, stripFile) {
 			return this.locateFrom(location, this.baseURL, stripFile);
 		},
 
-		locateRelative: function(location, stripFile){
+		locateRelative: function(location, stripFile) {
 			var trace = platform.trace();
 
 			trace.callSites.shift();
@@ -156,57 +171,57 @@
 			return this.locateFrom(location, trace.fileName, stripFile);
 		},
 
-		locateFromRoot: function(location){
+		locateFromRoot: function(location) {
 			return this.locateFrom(location, this.location, true);
 		}
 	};
 
 	var baseURL;
 
-	function parseVersion(version){
+	function parseVersion(version) {
 		var parts = String(version).split('.');
 
 		return {
 			major: parseInt(parts[0]),
 			minor: parts[1] ? parseInt(parts[1]) : 0,
 			patch: parts[2] ? parseInt(parts[2]) : 0,
-			toString: function(){
+			toString: function() {
 				return this.major + '.' + this.minor + '.' + this.patch;
 			}
 		};
 	}
 
-	if( typeof window !== 'undefined' ){
-		platform.restart = function(){
+	if (typeof window !== 'undefined') {
+		platform.restart = function() {
 			window.reload();
 		};
 
-		platform.include = function(url, done){
+		platform.include = function(url, done) {
 			var script = document.createElement('script');
 
 			script.src = url;
 			script.type = 'text/javascript';
-			script.onload = function(){
+			script.onload = function() {
 				done();
 			};
-			script.onerror = function(error){
+			script.onerror = function(error) {
 				done(error);
 			};
 
 			document.head.appendChild(script);
 		};
 
-		window.addEventListener('unhandledRejection', function(error, promise){
+		window.addEventListener('unhandledRejection', function(error, promise) {
 			platform.unhandledRejection(error, promise);
 		});
-		window.addEventListener('rejectionHandled', function(promise){
+		window.addEventListener('rejectionHandled', function(promise) {
 			platform.rejectionHandled(promise);
 		});
-		window.onerror = function(errorMsg, url, lineNumber, column, error){
+		window.onerror = function(errorMsg, url, lineNumber, column, error) {
 			platform.error(error);
 		};
 
-		var agent = (function(){
+		var agent = (function() {
 			var ua = navigator.userAgent.toLowerCase();
 			var regex = /(opera|ie|firefox|chrome|version)[\s\/:]([\w\d\.]+(?:\.\d+)?)?.*?(safari|version[\s\/:]([\w\d\.]+)|$)/;
 			var UA = ua.match(regex) || [null, 'unknown', 0];
@@ -214,9 +229,13 @@
 			var version;
 
 			// version
-			if( UA[1] == 'ie' && document.documentMode ) version = document.documentMode;
-			else if( UA[1] == 'opera' && UA[4] ) version = UA[4];
-			else version = UA[2];
+			if (UA[1] == 'ie' && document.documentMode) {
+				version = document.documentMode;
+			} else if (UA[1] == 'opera' && UA[4]) {
+				version = UA[4];
+			} else {
+				version = UA[2];
+			}
 
 			return {
 				name: name,
@@ -224,7 +243,7 @@
 			};
 		})();
 
-		baseURL = (function(){
+		baseURL = (function() {
 			var href = window.location.href.split('#')[0].split('?')[0];
 			var base = href.slice(0, href.lastIndexOf('/') + 1);
 
@@ -241,52 +260,50 @@
 
 		platform.systemLocation = 'node_modules/systemjs/dist/system.js';
 		platform.polyfillLocation = 'node_modules/babel-polyfill/dist/polyfill.js';
-	}
-	else if( typeof process != 'undefined' ){
-		platform.restart = function(){
+	} else if (typeof process != 'undefined') { // eslint-disable-line no-negated-condition
+		platform.restart = function() {
 			process.kill(2);
 		};
 
-		platform.throw = function(error){
+		platform.throw = function(error) {
 			console.error(error);
 			process.exit(1);
 		};
 
-		platform.include = function(url, done){
+		platform.include = function(url, done) {
 			var error;
 
-			if( url.indexOf('file:///') === 0 ){
+			if (url.indexOf('file:///') === 0) {
 				url = url.slice('file:///'.length);
 			}
 
-			try{
+			try {
 				require(url);
-			}
-			catch(e){
+			} catch (e) {
 				error = e;
 			}
 
 			done(error);
 		};
 
-		process.on('unhandledRejection', function(error, promise){
+		process.on('unhandledRejection', function(error, promise) {
 			platform.unhandledRejection(error, promise);
 		});
-		process.on('rejectionHandled', function(promise){
+		process.on('rejectionHandled', function(promise) {
 			platform.rejectionHandled(promise);
 		});
-		process.on('uncaughtException', function(error){
+		process.on('uncaughtException', function(error) {
 			platform.error(error);
 		});
 
-		baseURL = (function(){
+		baseURL = (function() {
 			var base = 'file:///' + process.cwd();
 
-			if( process.platform.match(/^win/) ){
+			if (process.platform.match(/^win/)) {
 				base = base.replace(/\\/g, '/');
 			}
-			if( base[base.length - 1] != '/' ){
-				base+= '/';
+			if (base[base.length - 1] != '/') {
+				base += '/';
 			}
 
 			return base;
@@ -305,16 +322,16 @@
 		platform.systemLocation = 'node_modules/systemjs/index.js';
 		platform.polyfillLocation = 'node_modules/babel-polyfill/lib/index.js';
 
-		if( process.argv.indexOf('-verbose') != -1 ){
+		if (process.argv.indexOf('-verbose') != -1) {
 			platform.logLevel = 'info';
 		}
 
-		platform.global.require = function(moduleId){
-			//console.log('use global require on', moduleId);
+		platform.global.require = function(moduleId) {
+			// console.log('use global require on', moduleId);
 			return require(moduleId);
 		};
 
-		var run = function(location){
+		var run = function(location) {
 			var path = require('path');
 
 			location = location.replace(/\\/g, '/');
@@ -323,15 +340,14 @@
 			// require platform
 			require(path.resolve(__dirname, './index.js'));
 
-			platform.ready(function(){
+			platform.ready(function() {
 				platform.info('running', platform.locate(location));
 				return System.import(location);
 			});
 		};
 
 		module.exports = run;
-	}
-	else{
+	} else {
 		throw new Error('unknown platform');
 	}
 
@@ -344,49 +360,49 @@
 	dependencies.push({
 		name: 'URLSearchParams',
 		url: 'node_modules/@dmail/url-search-params/index.js',
-		condition: function(){
-			return false === 'URLSearchParams' in platform.global;
+		condition: function() {
+			return ('URLSearchParams' in platform.global) === false;
 		}
 	});
 
 	dependencies.push({
 		name: 'URL',
 		url: 'node_modules/@dmail/url/index.js',
-		condition: function(){
-			return false === 'URL' in platform.global;
+		condition: function() {
+			return ('URL' in platform.global) === false;
 		}
 	});
 
 	dependencies.push({
 		name: 'Object.assign',
 		url: 'node_modules/@dmail/object-assign/index.js',
-		condition: function(){
-			return false === 'assign' in Object;
+		condition: function() {
+			return ('assign' in Object) === false;
 		}
 	});
 
 	dependencies.push({
 		name: 'Object.complete',
 		url: 'node_modules/@dmail/object-complete/index.js',
-		condition: function(){
-			return false === 'complete' in Object;
+		condition: function() {
+			return ('complete' in Object) === false;
 		}
 	});
 
 	dependencies.push({
 		name: 'setImmediate',
 		url: 'node_modules/@dmail/set-immediate/index.js',
-		condition: function(){
-			return false === 'setImmediate' in platform.global;
+		condition: function() {
+			return ('setImmediate' in platform.global) === false;
 		}
 	});
 
 	dependencies.push({
 		name: 'Promise',
 		url: 'node_modules/@dmail/promise-es6/index.js',
-		condition: function(){
+		condition: function() {
 			return true; // force because of node promise not implementing unhandled rejection
-			//return false === 'Promise' in platform.global;
+			// return false === 'Promise' in platform.global;
 		}
 	});
 
@@ -398,30 +414,30 @@
 	dependencies.push({
 		name: 'System',
 		url: platform.systemLocation,
-		condition: function(){
-			return false === 'System' in platform.global;
+		condition: function() {
+			return ('System' in platform.global) === false;
 		},
-		instantiate: function(){
+		instantiate: function() {
 			System.transpiler = 'babel';
 			System.babelOptions = {};
-			System.paths.babel =  platform.dirname + '/node_modules/babel-core/browser.js';
+			System.paths.babel = platform.dirname + '/node_modules/babel-core/browser.js';
 
-			if( platform.type === 'process' ){
+			if (platform.type === 'process') {
 				var nodeSourceMap = require('system-node-sourcemap');
 				nodeSourceMap.install();
 
-				platform.trace = function(error){
-					var stack, stackTrace;
+				platform.trace = function(error) {
+					var stack; // eslint-disable-line no-unused-vars
+					var stackTrace;
 
-					if( arguments.length > 0 ){
-						if( false === error instanceof Error ){
+					if (arguments.length > 0) {
+						if ((error instanceof Error) === false) {
 							throw new TypeError('platform.trace() first argument must be an error');
 						}
 
 						stack = error.stack; // will set error.stackTrace
 						stackTrace = error.stackTrace;
-					}
-					else{
+					} else {
 						error = new Error();
 						stack = error.stack; // will set error.stackTrace
 						stackTrace = error.stackTrace;
@@ -434,44 +450,42 @@
 		}
 	});
 
-	function includeDependencies(dependencies, callback){
-		var i = 0, j = dependencies.length, dependency;
+	function includeDependencies(dependencies, callback) {
+		var i = 0;
+		var j = dependencies.length;
+		var dependency;
 
-		function done(error){
-			setImmediate(function(){
+		function done(error) {
+			setImmediate(function() {
 				callback(error);
 			});
 		}
 
-		function includeNext(error){
-			if( error ){
+		function includeNext(error) {
+			if (error) {
 				platform.debug('include error', error);
 				done(error);
-			}
-			else if( i === j ){
+			} else if (i === j) {
 				platform.debug('all dependencies included');
 				done();
-			}
-			else{
+			} else {
 				dependency = dependencies[i];
 				i++;
 
-				if( !dependency.condition || dependency.condition() ){
+				if (!dependency.condition || dependency.condition()) {
 					platform.debug('loading', dependency.name);
 					dependency.url = platform.dirname + '/' + dependency.url;
-					platform.include(dependency.url, function(error){
-						if( error ){
+					platform.include(dependency.url, function(error) {
+						if (error) {
 							includeNext(error);
-						}
-						else{
-							if( dependency.instantiate ){
+						} else {
+							if (dependency.instantiate) {
 								dependency.instantiate();
 							}
 							includeNext();
 						}
 					});
-				}
-				else{
+				} else {
 					platform.debug('skipping', dependency.name);
 					includeNext();
 				}
@@ -481,16 +495,21 @@
 		includeNext();
 	}
 
-	function setup(){
-		System.set('platform', System.newModule({
-			"default": platform
-		}));
-		System.set('platform-type', System.newModule({
-			"default": platform.type
-		}));
+	function setup() {
+		function createModuleExportingDefault(defaultExportsValue) {
+			/* eslint-disable quote-props */
+			return System.newModule({
+				"default": defaultExportsValue
+			});
+			/* eslint-enable quote-props */
+		}
+
+		System.set('platform', createModuleExportingDefault(platform));
+		System.set('platform-type', createModuleExportingDefault(platform.type));
+
 		System.paths.proto = platform.dirname + '/node_modules/@dmail/proto/index.js';
 
-		if( platform.type === 'process' ){
+		if (platform.type === 'process') {
 			var nativeModules = [
 				'assert',
 				'http',
@@ -504,18 +523,15 @@
 				'util'
 			];
 
-			nativeModules.forEach(function(name){
-				System.set('node/' + name, System.newModule({
-					"default": require(name)
-				}));
+			nativeModules.forEach(function(name) {
+				System.set('node/' + name, createModuleExportingDefault(require(name)));
 			});
-		}
-		else if( platform.type === 'browser' ){
+		} else if (platform.type === 'browser') {
 			// noop
 		}
 
-		System.import(platform.dirname + '/namespace.js').then(function(exports){
-			var NameSpaceConfig = exports['default'];
+		System.import(platform.dirname + '/namespace.js').then(function(exports) {
+			var NameSpaceConfig = exports['default']; // eslint-disable-line dot-notation
 			var nameSpaceConfig = NameSpaceConfig.create();
 
 			nameSpaceConfig.add({
@@ -524,7 +540,7 @@
 			});
 
 			var normalize = System.normalize;
-			System.normalize = function(moduleName, parentModuleName, parentModuleUrl){
+			System.normalize = function(moduleName/* , parentModuleName, parentModuleUrl */) {
 				moduleName = nameSpaceConfig.locate(moduleName);
 				return normalize.apply(this, arguments);
 			};
@@ -533,17 +549,15 @@
 		});
 	}
 
-	includeDependencies(dependencies, function(error){
-		if( error ){
+	includeDependencies(dependencies, function(error) {
+		if (error) {
 			platform.debug('error ocurred');
 
 			throw error;
-		}
-		else{
+		} else {
 			platform.debug('call setup');
 
 			setup();
 		}
 	});
-
 })();
