@@ -600,66 +600,129 @@
         System.paths.proto = engine.dirname + '/node_modules/@dmail/proto/index.js';
     });
 
-    // language config
+    // language config, language used by the agent (firefox, node, ...)
     engine.config(function() {
-        // language used by the agent
-        engine.language = {
-            name: 'en',
+        var language = {
+            default: 'en',
+            proposeds: [],
+            name: '',
             locale: '',
 
             toString: function() {
                 return this.name + '-' + this.locale;
             },
 
-            set: function(language) {
-                var parts = (language || '').split('-');
+            set: function(string) {
+                var parts = string.split('-');
 
                 this.name = parts[0].toLowerCase();
                 this.locale = parts[1] ? parts[1].toLowerCase() : '';
+
+                engine.registerCoreModule('engine-language', this.toString());
+            },
+
+            listPreferences: function() {
+                return '';
+            },
+
+            /*
+            we can't known the availableLanguages without doing a request somewhere to get the list.
+            a .config() call can set proposed languages by any means
+
+            once language.init is called we known the best language to use, it's set into engine-language core module
+            most of the time we'll then add a .run() call to load the right i18n file that we're going to populate on I18N module
+            when is the I18N module loaded -> System.import('i18n') in a run() followed by i18n population with the loaded file
+
+            https://github.com/systemjs/systemjs/blob/master/lib/conditionals.js
+
+            we cannot have a conditional static loader:
+                - we would prevent module from loading the english translations when engine-language is not en
+                but we cannot force this only if there is a language for this module
+
+            current proposed solution:
+                - let every module load his default language then when we wants to use this default language
+                check the global I18N object if there is a better language for this module, if so use it
+                else populate i18n of this module with the default languague not overiding any existing key
+                -> we're loading a useless file that may never be useful, for now it's ok
+
+            If we don't load the default language for each module what happens?
+            the module has noi18n file so i18n will fails all the time
+            we may consider that once engine.config are done
+            we try to load the most appropriate i18n file right from where we are /i18n/$[language.name}.js
+            se we don't load a useless file
+            that would be a great solution but let's imagine this
+
+            main/
+                index.js -> will load i18/en.js but will not load dependency/i18n/en.js
+                i18n/
+                    en.js
+            dependency/
+                index.js
+                i18n/
+                    en.js
+
+            and we can't check for every import if the file i18n-ified
+            i18n should be automated and it's not fat from the way to go, keep thinking
+            a sort of meta inside index.js saying hey I got i18n files could be amazing
+            maybe a special export const i18nFolder = './i18n' would do the trick
+            */
+            init: function() {
+                return Promise.resolve(this.listPreferences()).then(function(preferenceString) {
+                    var preferences = preferenceString.split(',');
+                    var best;
+
+                    // get first language matching exactly
+                    best = preferences.find(function(preference) {
+                        return this.proposeds.findIndex(function(proposed) {
+                            return proposed.toLowerCase() === preference.toLowerCase();
+                        });
+                    }, this);
+
+                    if (!best) {
+                        // else get languague ignoring locale
+                        best = preferences.find(function(preference) {
+                            return this.proposeds.findIndex(function(proposed) {
+                                return proposed.split('-')[0].toLowerCase() === preference.split('-')[0].toLowerCase();
+                            });
+                        }, this);
+                    }
+
+                    if (!best) {
+                        best = this.default;
+                    }
+
+                    this.set(best);
+                }.bind(this));
             }
         };
 
-        /*
-        stuff about language still requires a bit of attention
-        engine.defaultLanguage = 'en';
-        if (!engine.language) {
-            engine.language = engine.defaultLanguage;
-        }
-        // here test if platform.language is set, else set it to the defaultLanguage
-        // + we should take into account locale
-        engine.registerCoreModule('engine-language', engine.language);
-        */
-
-        /*
-        // here we may want to load some i18n file for languages or any other configuration file
-        // as developement or production variables
-        // this setup logic should be accessible to the consumer of this library by any mean, maybe it should
-        // not be part of this but be done like so:
-        // global.platform.ready(function() {
-            // load some config files, do anything you want before
-            // System.import('module_starting_the_application');
-        // });
-        // it would allow anyone to put his own configuration logic and is the way to go concerning user setup
-
-        // this will be part of a nother module called eco-system that will be what most future module will depends on
-        // eco-system takes care of module dependency, hot reloading from github etc...
-        System.import(platform.dirname + '/namespace.js').then(function(exports) {
-            var NameSpaceConfig = exports['default']; // eslint-disable-line dot-notation
-            var nameSpaceConfig = NameSpaceConfig.create();
-
-            nameSpaceConfig.add({
-                namespace: 'dmail',
-                path: 'file:///C:/Users/Damien/Documents/Github'
-            });
-
-            var normalize = System.normalize;
-            System.normalize = function(moduleName , parentModuleName, parentModuleUrl) {
-                moduleName = nameSpaceConfig.locate(moduleName);
-                return normalize.apply(this, arguments);
-            };
-        });
-        */
+        engine.language = language;
     });
+
+    engine.run(function() {
+        // the first function to run is to set the language now config is done loading and registering custom langs
+        engine.language.init();
+    });
+
+    /*
+    // this will be part of a nother module called eco-system that will be what most future module will depends on
+    // eco-system takes care of module dependency, hot reloading from github etc...
+    System.import(platform.dirname + '/namespace.js').then(function(exports) {
+        var NameSpaceConfig = exports['default']; // eslint-disable-line dot-notation
+        var nameSpaceConfig = NameSpaceConfig.create();
+
+        nameSpaceConfig.add({
+            namespace: 'dmail',
+            path: 'file:///C:/Users/Damien/Documents/Github'
+        });
+
+        var normalize = System.normalize;
+        System.normalize = function(moduleName , parentModuleName, parentModuleUrl) {
+            moduleName = nameSpaceConfig.locate(moduleName);
+            return normalize.apply(this, arguments);
+        };
+    });
+    */
 
     // file config
     engine.config(function() {

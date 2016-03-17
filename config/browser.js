@@ -1,5 +1,12 @@
 /* eslint-env browser */
-/* global engine */
+
+var engine = window.engine;
+
+engine.restart = function() {
+    window.reload();
+};
+
+engine.platform.setName(navigator.platform);
 
 var agent = (function() {
     var ua = navigator.userAgent.toLowerCase();
@@ -23,12 +30,21 @@ var agent = (function() {
     };
 })();
 
-engine.platform.setName(navigator.platform);
 engine.agent.setName(agent.name);
 engine.agent.setVersion(agent.version);
-// platform.engine.setName(); // spider monkey, v8, etc
-engine.language.set(navigator.language || navigator.userLanguage || navigator.browserLanguage);
 
-engine.restart = function() {
-    window.reload();
+engine.language.listPreferences = function() {
+    if ('languages' in navigator) {
+        return navigator.languages.join();
+    }
+    if ('language' in navigator) {
+        return navigator.language;
+    }
+    if ('userLanguage' in navigator) {
+        return navigator.userLanguage;
+    }
+    if ('browserLanguage' in navigator) {
+        return navigator.browserLanguage;
+    }
+    return '';
 };
