@@ -1,11 +1,4 @@
-/* global */
-
-import platform from 'platform';
-
-platform.setVersion(require('os').release());
-platform.engine.setName(parseInt(process.version.match(/^v(\d+)\./)[1]) >= 1 ? 'iojs' : 'node');
-platform.engine.setVersion(process.version.slice(1));
-platform.language.set(process.env.lang);
+/* global engine */
 
 // https://github.com/sindresorhus/os-locale/blob/master/index.js
 var nativeModules = [
@@ -23,5 +16,12 @@ var nativeModules = [
 ];
 
 nativeModules.forEach(function(name) {
-    platform.registerCoreModule('node/' + name, require(name));
+    engine.registerCoreModule('node/' + name, require(name));
 });
+
+// https://nodejs.org/api/process.html#process_process_platform
+// 'darwin', 'freebsd', 'linux', 'sunos', 'win32'
+engine.setName(process.platform === 'win32' ? 'windows' : process.platform);
+engine.setVersion(process.version.slice(1));
+engine.platform.setVersion(require('os').release());
+engine.language.set(process.env.lang);

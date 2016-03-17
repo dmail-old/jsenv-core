@@ -1,6 +1,4 @@
-/* global navigator, document */
-
-import platform from 'platform';
+/* global engine, navigator, document */
 
 var agent = (function() {
     var ua = navigator.userAgent.toLowerCase();
@@ -24,7 +22,8 @@ var agent = (function() {
     };
 })();
 
-platform.name = agent.name;
-platform.setVersion(agent.version);
+engine.platform.setName(navigator.platform);
+engine.agent.setName(agent.name);
+engine.agent.setVersion(agent.version);
 // platform.engine.setName(); // spider monkey, v8, etc
-platform.language.set(navigator.language || navigator.userLanguage || navigator.browserLanguage);
+engine.language.set(navigator.language || navigator.userLanguage || navigator.browserLanguage);
