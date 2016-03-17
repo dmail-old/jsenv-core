@@ -1,8 +1,12 @@
 #!/usr/bin/env node
 
-var run = require('../index.js');
+require('../index.js');
+
+var engine = global.engine;
 var fileLocation = process.argv[2];
+var fileURL = engine.nodeFile(fileLocation);
 
 process.argv.splice(2, 1);
-
-run(fileLocation);
+engine.run(function() {
+    return System.import(fileURL);
+});

@@ -1,33 +1,66 @@
 /* eslint-env browser, node */
 
 (function() {
-    var Version = (function() {
+    var engine = {
+        define: function(fn) {
+            var properties = fn();
+
+            for (var key in properties) { // eslint-disable-line
+                this[key] = properties[key];
+            }
+        }
+    };
+
+    // version management logic
+    engine.define(function() {
         function Version(string) {
             var parts = String(string).split('.');
+            var major = parts[0];
+            var minor = parts[1];
+            var patch = parts[2];
 
-            this.major = parseInt(parts[0]);
-            this.minor = parts[1] ? parseInt(parts[1]) : 0;
-            this.patch = parts[2] ? parseInt(parts[2]) : 0;
+            this.major = parseInt(major);
+            this.minor = minor ? parseInt(minor) : 0;
+            this.patch = patch ? parseInt(patch) : 0;
+        }
+
+        function compareVersionPart(a, b) {
+            if (a === '*') {
+                return true;
+            }
+            if (b === '*') {
+                return true;
+            }
+            return a === b;
         }
 
         Version.prototype = {
+            match: function(version) {
+                if (typeof version === 'string') {
+                    version = new Version(version);
+                }
+
+                return compareVersionPart(this.patch, version.patch) &&
+                    compareVersionPart(this.minor, version.minor) &&
+                    compareVersionPart(this.major, version.major)
+                ;
+            },
+
             toString: function() {
                 return this.major + '.' + this.minor + '.' + this.patch;
             }
         };
 
-        return Version;
-    })();
-
-    var engine = {
-        define: function(properties) {
-            for (var key in properties) { // eslint-disable-line
-                this[key] = properties[key];
+        return {
+            createVersion: function(string) {
+                return new Version(string);
             }
-        },
+        };
+    });
 
-        // platform: what is running the agent, windows, linux, mac, ...
-        platform: {
+    // platform logic, platform is what runs the agent : windows, linux, mac, ..
+    engine.define(function() {
+        var platform = {
             name: 'unknown',
             version: '',
 
@@ -36,34 +69,28 @@
             },
 
             setVersion: function(version) {
-                this.version = new Version(version);
+                this.version = engine.createVersion(version);
             },
 
-            is: function(engine) {
-                return this.name === engine.name;
+            match: function(platform) {
+                if ('name' in platform && this.name !== platform.name) {
+                    return false;
+                }
+                if ('version' in platform && this.version.match(platform.version) === false) {
+                    return false;
+                }
+
+                return true;
             }
-        },
+        };
 
-        // language used by the agent
-        language: {
-            name: 'en',
-            locale: '',
+        return {
+            platform: platform
+        };
+    });
 
-            toString: function() {
-                return this.name + '-' + this.locale;
-            },
-
-            set: function(language) {
-                var parts = (language || '').split('-');
-
-                this.name = parts[0].toLowerCase();
-                this.locale = parts[1] ? parts[1].toLowerCase() : '';
-            }
-        }
-    };
-
-    // agent logic
-    engine.define((function() {
+    // agent logic, agent is what runs JavaScript : nodejs, iosjs, firefox, ...
+    engine.define(function() {
         var type;
 
         if (typeof window !== 'undefined') {
@@ -78,7 +105,6 @@
             throw new Error('unknown agent');
         }
 
-        // agent : what running JavaScript nodejs, iosjs, firefox, ...
         var agent = {
             type: type,
             name: 'unknown',
@@ -89,24 +115,42 @@
             },
 
             setVersion: function(version) {
-                this.version = new Version(version);
+                this.version = engine.createVersion(version);
             },
 
-            is: function(agent) {
-                return this.name === agent.name;
+            match: function(agent) {
+                if ('type' in agent && this.type !== agent.type) {
+                    return false;
+                }
+                if ('name' in agent && this.name !== agent.name) {
+                    return false;
+                }
+                if ('version' in agent && this.version.match(agent.version) === false) {
+                    return false;
+                }
+
+                return true;
             }
         };
 
         return {
-            agent: agent
+            agent: agent,
+
+            isBrowser: function() {
+                return this.agent.type === 'browser';
+            },
+
+            isProcess: function() {
+                return this.agent.type === 'process';
+            }
         };
-    })());
+    });
 
     // log logic
-    engine.define((function() {
+    engine.define(function() {
         var logLevel;
 
-        if (engine.agent.type === 'process' && process.argv.indexOf('-verbose') !== -1) {
+        if (engine.isProcess() && process.argv.indexOf('-verbose') !== -1) {
             logLevel = 'info';
         } else {
             logLevel = 'error';
@@ -127,10 +171,10 @@
                 }
             }
         };
-    })());
+    });
 
     // exception management logic
-    engine.define((function() {
+    engine.define(function() {
         var exceptionHandler = {
             exceptions: [],
             handlers: [],
@@ -182,7 +226,7 @@
         function RecoverAttempt(exception) {
             this.exception = exception;
             this.index = 0;
-            this.handlers = exceptionHandler.exceptions.slice();
+            this.handlers = exceptionHandler.handlers.slice();
             return this.nextHandler();
         }
 
@@ -204,10 +248,11 @@
                 var handlers = this.handlers;
                 var exception = this.exception;
                 var promise;
+                var index = this.index;
 
-                if (this.index < handlers.length) {
+                if (index < handlers.length) {
                     var value = exception.value;
-                    var handler = handlers[this.index];
+                    var handler = handlers[index];
                     this.index++;
 
                     promise = new Promise(function(res) {
@@ -226,7 +271,7 @@
                                 // an error occured during exception handling, log it and consider exception as not recovered
                                 console.error(
                                     'the following occurred during exception handling : ',
-                                    rejectionValue
+                                    rejectionValue.stack
                                 );
                                 promise = this.createExceptionStatusPromise();
                             }
@@ -274,22 +319,7 @@
 
         var throwMethod;
 
-        if (engine.agent.type === 'process') {
-            throwMethod = function(error) {
-                console.error(error);
-                process.exit(1);
-            };
-
-            process.on('unhandledRejection', function(error, promise) {
-                engine.unhandledRejection(error, promise);
-            });
-            process.on('rejectionHandled', function(promise) {
-                engine.rejectionHandled(promise);
-            });
-            process.on('uncaughtException', function(error) {
-                engine.error(error);
-            });
-        } else {
+        if (engine.isBrowser()) {
             throwMethod = function(error) {
                 throw error;
             };
@@ -303,6 +333,25 @@
             window.onerror = function(errorMsg, url, lineNumber, column, error) {
                 engine.error(error);
             };
+        } else {
+            throwMethod = function(error) {
+                if (error instanceof Error) {
+                    console.error(error.stack);
+                } else {
+                    console.error(error);
+                }
+                process.exit(1);
+            };
+
+            process.on('unhandledRejection', function(error, promise) {
+                engine.unhandledRejection(error, promise);
+            });
+            process.on('rejectionHandled', function(promise) {
+                engine.rejectionHandled(promise);
+            });
+            process.on('uncaughtException', function(error) {
+                engine.error(error);
+            });
         }
 
         return {
@@ -320,53 +369,104 @@
                 exceptionHandler.markPromiseAsHandled(promise);
             }
         };
-    })());
+    });
+
+    // config + run logic
+    engine.define(function() {
+        var configListeners = [];
+        var runListeners = [];
+
+        function callEveryListener(list) {
+            return list.reduce(function(previous, listener) {
+                return previous.then(listener);
+            }, Promise.resolve());
+        }
+
+        return {
+            config: function(listener) {
+                configListeners.push(listener);
+            },
+
+            run: function(listener) {
+                runListeners.push(listener);
+            },
+
+            ready: function() {
+                return callEveryListener(configListeners).then(function() {
+                    callEveryListener(runListeners);
+                });
+            }
+        };
+    });
 
     // location logic
-    engine.define((function() {
+    engine.define(function() {
         var baseURL;
         var location;
         var systemLocation;
         var polyfillLocation;
+        var resolve;
 
-        if (engine.agent.type === 'browser') {
+        if (engine.isBrowser()) {
+            resolve = function(to, base) {
+                return new URL(to, base).href;
+            };
+
             baseURL = (function() {
                 var href = window.location.href.split('#')[0].split('?')[0];
                 var base = href.slice(0, href.lastIndexOf('/') + 1);
 
                 return base;
             })();
-
             location = document.scripts[document.scripts.length - 1].src;
+
             systemLocation = 'node_modules/systemjs/dist/system.js';
             polyfillLocation = 'node_modules/babel-polyfill/dist/polyfill.js';
         } else {
+            var mustReplaceBackSlashBySlash = process.platform.match(/^win/);
+            var replaceBackSlashBySlash = function(path) {
+                return path.replace(/\\/g, '/');
+            };
+
+            engine.nodeFile = function(filename) {
+                if (mustReplaceBackSlashBySlash) {
+                    filename = replaceBackSlashBySlash(filename);
+                }
+                return 'file:///' + filename;
+            };
+
             baseURL = (function() {
-                var base = 'file:///' + process.cwd();
-
-                if (process.platform.match(/^win/)) {
-                    base = base.replace(/\\/g, '/');
+                var cwd = process.cwd();
+                var baseURL = engine.nodeFile(cwd);
+                if (baseURL[baseURL.length - 1] !== '/') {
+                    baseURL += '/';
                 }
-                if (base[base.length - 1] !== '/') {
-                    base += '/';
-                }
-
-                return base;
+                return baseURL;
             })();
+            location = engine.nodeFile(__filename);
 
-            location = 'file:///' + (process.platform === 'win32' ? __filename.replace(/\\/g, '/') : __filename);
+            resolve = function(to, base) {
+                if (mustReplaceBackSlashBySlash) {
+                    to = replaceBackSlashBySlash(to);
+                    base = replaceBackSlashBySlash(base);
+                }
+
+                return new URL(to, base).href;
+            };
+
             systemLocation = 'node_modules/systemjs/index.js';
             polyfillLocation = 'node_modules/babel-polyfill/lib/index.js';
         }
 
         return {
-            baseURL: baseURL,
-            location: location,
-            systemLocation: systemLocation,
-            polyfillLocation: polyfillLocation,
+            baseURL: baseURL, // from where am I running system-run
+            location: location, // where is this file
+            dirname: location.slice(0, location.lastIndexOf('/')), // dirname of this file
+            systemLocation: systemLocation, // where is the system file
+            polyfillLocation: polyfillLocation, // where is the babel polyfill file
 
             locateFrom: function(location, baseLocation, stripFile) {
-                var href = new URL(location, baseLocation).href;
+                var href = resolve(location, baseLocation);
 
                 if (stripFile && href.indexOf('file:///') === 0) {
                     href = href.slice('file:///'.length);
@@ -391,266 +491,144 @@
                 return this.locateFrom(location, this.location, true);
             }
         };
-    })());
+    });
 
-    // ready logic
-    engine.define((function() {
-        var readyListeners = [];
+    // include logic
+    engine.define(function() {
+        var include;
+
+        if (engine.isBrowser()) {
+            include = function(url, done) {
+                var script = document.createElement('script');
+
+                script.src = url;
+                script.type = 'text/javascript';
+                script.onload = function() {
+                    done();
+                };
+                script.onerror = function(error) {
+                    done(error);
+                };
+
+                document.head.appendChild(script);
+            };
+        } else {
+            include = function(url, done) {
+                var error;
+
+                if (url.indexOf('file:///') === 0) {
+                    url = url.slice('file:///'.length);
+                }
+
+                try {
+                    require(url);
+                } catch (e) {
+                    error = e;
+                }
+
+                done(error);
+            };
+        }
 
         return {
-            onready: function() {
-                return readyListeners.reduce(function(previous, listener) {
-                    return previous.then(listener);
-                }, Promise.resolve());
-            },
-
-            run: function(listener) {
-                readyListeners.push(listener);
-            }
+            include: include
         };
-    })());
+    });
 
-    if (typeof window !== 'undefined') {
-        engine.restart = function() {
-            window.reload();
-        };
+    // global logic
+    engine.define(function() {
+        var globalValue;
 
-        engine.include = function(url, done) {
-            var script = document.createElement('script');
+        if (engine.isBrowser()) {
+            globalValue = window;
+        } else {
+            globalValue = global;
 
-            script.src = url;
-            script.type = 'text/javascript';
-            script.onload = function() {
-                done();
+            globalValue.require = function(moduleId) {
+                // console.log('use global require on', moduleId);
+                return require(moduleId);
             };
-            script.onerror = function(error) {
-                done(error);
-            };
+        }
 
-            document.head.appendChild(script);
+        globalValue.engine = engine;
+
+        return {
+            global: globalValue
         };
+    });
 
-        engine.global = window;
-    } else if (typeof process !== 'undefined') { // eslint-disable-line no-negated-condition
-        engine.restart = function() {
-            process.kill(2);
-        };
-
-        engine.include = function(url, done) {
-            var error;
-
-            if (url.indexOf('file:///') === 0) {
-                url = url.slice('file:///'.length);
-            }
-
-            try {
-                require(url);
-            } catch (e) {
-                error = e;
-            }
-
-            done(error);
-        };
-
-        engine.global = global;
-
-        engine.global.require = function(moduleId) {
-            // console.log('use global require on', moduleId);
-            return require(moduleId);
-        };
-
-        var run = function(location) {
-            var path = require('path');
-
-            location = location.replace(/\\/g, '/');
-            location = 'file:///' + location;
-
-            // require platform
-            require(path.resolve(__dirname, './index.js'));
-
-            engine.ready(function() {
-                engine.info('running', engine.locate(location));
-                return System.import(location);
+    // core modules config
+    engine.config(function() {
+        function createModuleExportingDefault(defaultExportsValue) {
+            /* eslint-disable quote-props */
+            return System.newModule({
+                "default": defaultExportsValue
             });
-        };
-
-        module.exports = run;
-    }
-
-    engine.dirname = engine.location.slice(0, engine.location.lastIndexOf('/'));
-    engine.global.engine = engine;
-    // platform.info(platform.type, platform.location, platform.baseURL);
-
-    var dependencies = [];
-
-    dependencies.push({
-        name: 'URLSearchParams',
-        url: 'node_modules/@dmail/url-search-params/index.js',
-        condition: function() {
-            return ('URLSearchParams' in engine.global) === false;
+            /* eslint-enable quote-props */
         }
-    });
 
-    dependencies.push({
-        name: 'URL',
-        url: 'node_modules/@dmail/url/index.js',
-        condition: function() {
-            return ('URL' in engine.global) === false;
+        function registerCoreModule(moduleName, defaultExport) {
+            System.set(moduleName, createModuleExportingDefault(defaultExport));
         }
-    });
 
-    dependencies.push({
-        name: 'Object.assign',
-        url: 'node_modules/@dmail/object-assign/index.js',
-        condition: function() {
-            return ('assign' in Object) === false;
-        }
-    });
+        registerCoreModule('engine', engine);
+        registerCoreModule('engine-type', engine.type);
 
-    dependencies.push({
-        name: 'Object.complete',
-        url: 'node_modules/@dmail/object-complete/index.js',
-        condition: function() {
-            return ('complete' in Object) === false;
-        }
-    });
+        if (engine.isProcess()) {
+            // https://github.com/sindresorhus/os-locale/blob/master/index.js
+            var nativeModules = [
+                'assert',
+                'http',
+                'https',
+                'fs',
+                'stream',
+                'path',
+                'url',
+                'querystring',
+                'child_process',
+                'util',
+                'os'
+            ];
 
-    dependencies.push({
-        name: 'setImmediate',
-        url: 'node_modules/@dmail/set-immediate/index.js',
-        condition: function() {
-            return ('setImmediate' in engine.global) === false;
-        }
-    });
-
-    dependencies.push({
-        name: 'Promise',
-        url: 'node_modules/@dmail/promise-es6/index.js',
-        condition: function() {
-            return true; // force because of node promise not implementing unhandled rejection
-            // return false === 'Promise' in platform.global;
-        }
-    });
-
-    dependencies.push({
-        name: 'babel-polyfill',
-        url: engine.polyfillLocation
-    });
-
-    dependencies.push({
-        name: 'System',
-        url: engine.systemLocation,
-        condition: function() {
-            return ('System' in engine.global) === false;
-        },
-        instantiate: function() {
-            System.transpiler = 'babel';
-            System.babelOptions = {};
-            System.paths.babel = engine.dirname + '/node_modules/babel-core/browser.js';
-            System.trace = true;
-
-            if (engine.type === 'process') {
-                var nodeSourceMap = require('system-node-sourcemap');
-                nodeSourceMap.install();
-
-                engine.trace = function(error) {
-                    var stack; // eslint-disable-line no-unused-vars
-                    var stackTrace;
-
-                    if (arguments.length > 0) {
-                        if ((error instanceof Error) === false) {
-                            throw new TypeError('engine.trace() first argument must be an error');
-                        }
-
-                        stack = error.stack; // will set error.stackTrace
-                        stackTrace = error.stackTrace;
-                    } else {
-                        error = new Error();
-                        stack = error.stack; // will set error.stackTrace
-                        stackTrace = error.stackTrace;
-                        stackTrace.callSites.shift(); // remove this line of the stack trace
-                    }
-
-                    return stackTrace;
-                };
-            }
-        }
-    });
-
-    function includeDependencies(dependencies, callback) {
-        var i = 0;
-        var j = dependencies.length;
-        var dependency;
-
-        function done(error) {
-            setImmediate(function() {
-                callback(error);
+            nativeModules.forEach(function(name) {
+                registerCoreModule('node/' + name, require(name));
             });
         }
 
-        function includeNext(error) {
-            if (error) {
-                engine.debug('include error', error);
-                done(error);
-            } else if (i === j) {
-                engine.debug('all dependencies included');
-                done();
-            } else {
-                dependency = dependencies[i];
-                i++;
-
-                if (!dependency.condition || dependency.condition()) {
-                    engine.debug('loading', dependency.name);
-                    dependency.url = engine.dirname + '/' + dependency.url;
-                    engine.include(dependency.url, function(error) {
-                        if (error) {
-                            includeNext(error);
-                        } else {
-                            if (dependency.instantiate) {
-                                dependency.instantiate();
-                            }
-                            includeNext();
-                        }
-                    });
-                } else {
-                    engine.debug('skipping', dependency.name);
-                    includeNext();
-                }
-            }
-        }
-
-        includeNext();
-    }
-
-    function createModuleExportingDefault(defaultExportsValue) {
-        /* eslint-disable quote-props */
-        return System.newModule({
-            "default": defaultExportsValue
-        });
-        /* eslint-enable quote-props */
-    }
-
-    engine.registerCoreModule = function(moduleName, defaultExport) {
-        System.set(moduleName, createModuleExportingDefault(defaultExport));
-    };
-
-    function setup() {
-        engine.registerCoreModule('engine', engine);
-        engine.registerCoreModule('engine-type', engine.type);
+        engine.registerCoreModule = registerCoreModule;
 
         System.paths.proto = engine.dirname + '/node_modules/@dmail/proto/index.js';
+    });
 
-        engine.defaultLanguage = 'en';
-        System.import(engine.dirname + '/setup/' + engine.type + '.js').then(function() {
-            if (!engine.language) {
-                engine.language = engine.defaultLanguage;
+    // language config
+    engine.config(function() {
+        // language used by the agent
+        engine.language = {
+            name: 'en',
+            locale: '',
+
+            toString: function() {
+                return this.name + '-' + this.locale;
+            },
+
+            set: function(language) {
+                var parts = (language || '').split('-');
+
+                this.name = parts[0].toLowerCase();
+                this.locale = parts[1] ? parts[1].toLowerCase() : '';
             }
-            // here test if platform.language is set, else set it to the defaultLanguage
-            // + we should take into account locale
-            engine.registerCoreModule('engine-language', engine.language);
+        };
 
-            engine.onready();
-        });
+        /*
+        stuff about language still requires a bit of attention
+        engine.defaultLanguage = 'en';
+        if (!engine.language) {
+            engine.language = engine.defaultLanguage;
+        }
+        // here test if platform.language is set, else set it to the defaultLanguage
+        // + we should take into account locale
+        engine.registerCoreModule('engine-language', engine.language);
+        */
 
         /*
         // here we may want to load some i18n file for languages or any other configuration file
@@ -681,17 +659,165 @@
             };
         });
         */
-    }
-
-    includeDependencies(dependencies, function(error) {
-        if (error) {
-            engine.debug('error ocurred');
-
-            throw error;
-        } else {
-            engine.debug('call setup');
-
-            setup();
-        }
     });
+
+    // file config
+    engine.config(function() {
+        return System.import(engine.dirname + '/config/' + engine.agent.type + '.js');
+    });
+
+    // load dependencies then call engine.ready()
+    // platform.info(platform.type, platform.location, platform.baseURL);
+    (function() {
+        var dependencies = [];
+
+        dependencies.push({
+            name: 'URLSearchParams',
+            url: 'node_modules/@dmail/url-search-params/index.js',
+            condition: function() {
+                return ('URLSearchParams' in engine.global) === false;
+            }
+        });
+
+        dependencies.push({
+            name: 'URL',
+            url: 'node_modules/@dmail/url/index.js',
+            condition: function() {
+                return ('URL' in engine.global) === false;
+            }
+        });
+
+        dependencies.push({
+            name: 'Object.assign',
+            url: 'node_modules/@dmail/object-assign/index.js',
+            condition: function() {
+                return ('assign' in Object) === false;
+            }
+        });
+
+        dependencies.push({
+            name: 'Object.complete',
+            url: 'node_modules/@dmail/object-complete/index.js',
+            condition: function() {
+                return ('complete' in Object) === false;
+            }
+        });
+
+        dependencies.push({
+            name: 'setImmediate',
+            url: 'node_modules/@dmail/set-immediate/index.js',
+            condition: function() {
+                return ('setImmediate' in engine.global) === false;
+            }
+        });
+
+        dependencies.push({
+            name: 'Promise',
+            url: 'node_modules/@dmail/promise-es6/index.js',
+            condition: function() {
+                return true; // force because of node promise not implementing unhandled rejection
+                // return false === 'Promise' in platform.global;
+            }
+        });
+
+        dependencies.push({
+            name: 'babel-polyfill',
+            url: engine.polyfillLocation
+        });
+
+        dependencies.push({
+            name: 'System',
+            url: engine.systemLocation,
+            condition: function() {
+                return ('System' in engine.global) === false;
+            },
+            instantiate: function() {
+                System.transpiler = 'babel';
+                System.babelOptions = {};
+                System.paths.babel = engine.dirname + '/node_modules/babel-core/browser.js';
+                System.trace = true;
+
+                if (engine.type === 'process') {
+                    var nodeSourceMap = require('system-node-sourcemap');
+                    nodeSourceMap.install();
+
+                    engine.trace = function(error) {
+                        var stack; // eslint-disable-line no-unused-vars
+                        var stackTrace;
+
+                        if (arguments.length > 0) {
+                            if ((error instanceof Error) === false) {
+                                throw new TypeError('engine.trace() first argument must be an error');
+                            }
+
+                            stack = error.stack; // will set error.stackTrace
+                            stackTrace = error.stackTrace;
+                        } else {
+                            error = new Error();
+                            stack = error.stack; // will set error.stackTrace
+                            stackTrace = error.stackTrace;
+                            stackTrace.callSites.shift(); // remove this line of the stack trace
+                        }
+
+                        return stackTrace;
+                    };
+                }
+            }
+        });
+
+        function includeDependencies(dependencies, callback) {
+            var i = 0;
+            var j = dependencies.length;
+            var dependency;
+
+            function done(error) {
+                setTimeout(function() {
+                    callback(error);
+                }, 0);
+            }
+
+            function includeNext(error) {
+                if (error) {
+                    engine.debug('include error', error);
+                    done(error);
+                } else if (i === j) {
+                    engine.debug('all dependencies included');
+                    done();
+                } else {
+                    dependency = dependencies[i];
+                    i++;
+
+                    if (!dependency.condition || dependency.condition()) {
+                        engine.debug('loading', dependency.name);
+                        dependency.url = engine.dirname + '/' + dependency.url;
+                        engine.include(dependency.url, function(error) {
+                            if (error) {
+                                includeNext(error);
+                            } else {
+                                if (dependency.instantiate) {
+                                    dependency.instantiate();
+                                }
+                                includeNext();
+                            }
+                        });
+                    } else {
+                        engine.debug('skipping', dependency.name);
+                        includeNext();
+                    }
+                }
+            }
+
+            includeNext();
+        }
+
+        includeDependencies(dependencies, function(error) {
+            if (error) {
+                engine.debug('error ocurred');
+                throw error; // why not engine.throw ?
+            } else {
+                engine.debug('call setup');
+                engine.ready();
+            }
+        });
+    })();
 })();

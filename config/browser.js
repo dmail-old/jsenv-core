@@ -1,4 +1,5 @@
-/* global engine, navigator, document */
+/* eslint-env browser */
+/* global engine */
 
 var agent = (function() {
     var ua = navigator.userAgent.toLowerCase();
@@ -27,3 +28,7 @@ engine.agent.setName(agent.name);
 engine.agent.setVersion(agent.version);
 // platform.engine.setName(); // spider monkey, v8, etc
 engine.language.set(navigator.language || navigator.userLanguage || navigator.browserLanguage);
+
+engine.restart = function() {
+    window.reload();
+};
