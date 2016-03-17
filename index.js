@@ -173,23 +173,60 @@
 
         locateFromRoot: function(location) {
             return this.locateFrom(location, this.location, true);
+        },
+
+        parseVersion: function(version) {
+            var parts = String(version).split('.');
+
+            return {
+                major: parseInt(parts[0]),
+                minor: parts[1] ? parseInt(parts[1]) : 0,
+                patch: parts[2] ? parseInt(parts[2]) : 0,
+                toString: function() {
+                    return this.major + '.' + this.minor + '.' + this.patch;
+                }
+            };
+        },
+
+        setVersion: function(version) {
+            this.version = this.parseVersion(version);
+        },
+
+        language: {
+            default: 'en',
+            name: '',
+            locale: '',
+            toString: function() {
+                return this.name + '-' + this.locale;
+            },
+
+            set: function(language) {
+                var parts = (language || '').split('-');
+
+                this.name = parts[0].toLowerCase();
+                this.locale = parts[1] ? parts[1].toLowerCase() : '';
+            }
+        },
+
+        engine: {
+            is: function(engine) {
+                return this.name === engine.name;
+            },
+
+            name: '',
+            version: '',
+
+            setName: function(name) {
+                this.name = name;
+            },
+
+            setVersion: function(version) {
+                this.version = platform.parseVersion(version);
+            }
         }
     };
 
     var baseURL;
-
-    function parseVersion(version) {
-        var parts = String(version).split('.');
-
-        return {
-            major: parseInt(parts[0]),
-            minor: parts[1] ? parseInt(parts[1]) : 0,
-            patch: parts[2] ? parseInt(parts[2]) : 0,
-            toString: function() {
-                return this.major + '.' + this.minor + '.' + this.patch;
-            }
-        };
-    }
 
     if (typeof window !== 'undefined') {
         platform.restart = function() {
@@ -221,28 +258,6 @@
             platform.error(error);
         };
 
-        var agent = (function() {
-            var ua = navigator.userAgent.toLowerCase();
-            var regex = /(opera|ie|firefox|chrome|version)[\s\/:]([\w\d\.]+(?:\.\d+)?)?.*?(safari|version[\s\/:]([\w\d\.]+)|$)/;
-            var UA = ua.match(regex) || [null, 'unknown', 0];
-            var name = UA[1] === 'version' ? UA[3] : UA[1];
-            var version;
-
-            // version
-            if (UA[1] === 'ie' && document.documentMode) {
-                version = document.documentMode;
-            } else if (UA[1] === 'opera' && UA[4]) {
-                version = UA[4];
-            } else {
-                version = UA[2];
-            }
-
-            return {
-                name: name,
-                version: version
-            };
-        })();
-
         baseURL = (function() {
             var href = window.location.href.split('#')[0].split('?')[0];
             var base = href.slice(0, href.lastIndexOf('/') + 1);
@@ -252,12 +267,10 @@
 
         platform.type = 'browser';
         platform.global = window;
-        platform.baseURL = baseURL;
-        platform.name = agent.name;
-        platform.version = parseVersion(agent.version);
         platform.os = navigator.platform.toLowerCase();
-        platform.location = document.scripts[document.scripts.length - 1].src;
 
+        platform.baseURL = baseURL;
+        platform.location = document.scripts[document.scripts.length - 1].src;
         platform.systemLocation = 'node_modules/systemjs/dist/system.js';
         platform.polyfillLocation = 'node_modules/babel-polyfill/dist/polyfill.js';
     } else if (typeof process !== 'undefined') { // eslint-disable-line no-negated-condition
@@ -311,14 +324,12 @@
 
         platform.type = 'process';
         platform.global = global;
-        platform.baseURL = baseURL;
-        platform.name = parseInt(process.version.match(/^v(\d+)\./)[1]) >= 1 ? 'iojs' : 'node';
-        platform.version = parseVersion(process.version.slice(1));
         // https://nodejs.org/api/process.html#process_process_platform
         // 'darwin', 'freebsd', 'linux', 'sunos', 'win32'
         platform.os = process.platform === 'win32' ? 'windows' : process.platform;
-        platform.location = 'file:///' + (platform.os === 'windows' ? __filename.replace(/\\/g, '/') : __filename);
 
+        platform.baseURL = baseURL;
+        platform.location = 'file:///' + (platform.os === 'windows' ? __filename.replace(/\\/g, '/') : __filename);
         platform.systemLocation = 'node_modules/systemjs/index.js';
         platform.polyfillLocation = 'node_modules/babel-polyfill/lib/index.js';
 
@@ -353,7 +364,7 @@
 
     platform.dirname = platform.location.slice(0, platform.location.lastIndexOf('/'));
     platform.global.platform = platform;
-    platform.info(platform.name, String(platform.version), platform.location, platform.baseURL);
+    platform.info(platform.name, platform.location, platform.baseURL);
 
     var dependencies = [];
 
@@ -496,41 +507,49 @@
         includeNext();
     }
 
-    function setup() {
-        function createModuleExportingDefault(defaultExportsValue) {
-            /* eslint-disable quote-props */
-            return System.newModule({
-                "default": defaultExportsValue
-            });
-            /* eslint-enable quote-props */
-        }
+    function createModuleExportingDefault(defaultExportsValue) {
+        /* eslint-disable quote-props */
+        return System.newModule({
+            "default": defaultExportsValue
+        });
+        /* eslint-enable quote-props */
+    }
 
-        System.set('platform', createModuleExportingDefault(platform));
-        System.set('platform-type', createModuleExportingDefault(platform.type));
+    platform.registerCoreModule = function(moduleName, defaultExport) {
+        System.set(moduleName, createModuleExportingDefault(defaultExport));
+    };
+
+    function setup() {
+        platform.registerCoreModule('platform', platform);
+        platform.registerCoreModule('platform-type', platform.type);
 
         System.paths.proto = platform.dirname + '/node_modules/@dmail/proto/index.js';
 
-        if (platform.type === 'process') {
-            var nativeModules = [
-                'assert',
-                'http',
-                'https',
-                'fs',
-                'stream',
-                'path',
-                'url',
-                'querystring',
-                'child_process',
-                'util'
-            ];
+        platform.defaultLanguage = 'en';
+        System.import(platform.dirname + '/setup/' + platform.type + '.js').then(function() {
+            if (!platform.language) {
+                platform.language = platform.defaultLanguage;
+            }
+            // here test if platform.language is set, else set it to the defaultLanguage
+            // + we should take into account locale
+            platform.registerCoreModule('platform-language', platform.language);
 
-            nativeModules.forEach(function(name) {
-                System.set('node/' + name, createModuleExportingDefault(require(name)));
-            });
-        } else if (platform.type === 'browser') {
-            // noop
-        }
+            platform.onready();
+        });
 
+        /*
+        // here we may want to load some i18n file for languages or any other configuration file
+        // as developement or production variables
+        // this setup logic should be accessible to the consumer of this library by any mean, maybe it should
+        // not be part of this but be done like so:
+        // global.platform.ready(function() {
+            // load some config files, do anything you want before
+            // System.import('module_starting_the_application');
+        // });
+        // it would allow anyone to put his own configuration logic and is the way to go concerning user setup
+
+        // this will be part of a nother module called eco-system that will be what most future module will depends on
+        // eco-system takes care of module dependency, hot reloading from github etc...
         System.import(platform.dirname + '/namespace.js').then(function(exports) {
             var NameSpaceConfig = exports['default']; // eslint-disable-line dot-notation
             var nameSpaceConfig = NameSpaceConfig.create();
@@ -541,13 +560,12 @@
             });
 
             var normalize = System.normalize;
-            System.normalize = function(moduleName/* , parentModuleName, parentModuleUrl */) {
+            System.normalize = function(moduleName , parentModuleName, parentModuleUrl) {
                 moduleName = nameSpaceConfig.locate(moduleName);
                 return normalize.apply(this, arguments);
             };
-
-            platform.onready();
         });
+        */
     }
 
     includeDependencies(dependencies, function(error) {
