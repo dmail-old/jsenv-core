@@ -602,6 +602,23 @@
 
     // language config, language used by the agent (firefox, node, ...)
     engine.config(function() {
+        /*
+        dans un module tu fais
+
+        import I18N from 'i18n';
+
+        let i18n = I18N.module('moduleName', {
+            fr: './i18n/fr.js', // path to a file
+            en: {hello: "Hello"} // inline
+        });
+
+        du coup pour ce module on a direct les i18n dont on a besoin et la liste des i18n dispo
+        lorsque le module est chargé par system-run il faudrais qu'il regarde la liste et pour le language en cours
+        charge le fichier de langue
+
+        il faudrais le faire pour le module chargé et pour nimporte quel sous-module qu'on charge en tant que dépendance
+        */
+
         var language = {
             default: 'en',
             proposeds: [],
