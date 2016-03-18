@@ -335,11 +335,11 @@
             };
         } else {
             throwMethod = function(error) {
-                if (error instanceof Error) {
-                    console.error(error.stack);
-                } else {
-                    console.error(error);
-                }
+                // if (error instanceof Error) {
+                //    console.error(error.stack);
+                // } else {
+                console.error(error);
+                // }
                 process.exit(1);
             };
 
@@ -620,8 +620,7 @@
         */
 
         var language = {
-            default: 'en',
-            proposeds: [],
+            // default: 'en',
             name: '',
             locale: '',
 
@@ -682,43 +681,46 @@
             i18n should be automated and it's not fat from the way to go, keep thinking
             a sort of meta inside index.js saying hey I got i18n files could be amazing
             maybe a special export const i18nFolder = './i18n' would do the trick
+
+            ./i18n/en.js
+            import I18N;
+            export default I18N.module('schema').addLanguage('en', {});
+
+            ./index.js
+            import './i18n/?#{engine-language-is-en}.js'; // ne charger que si le module est en anglais, sinon on prend
+
+            il faudrais combiner la liste des languages dispo pour une module globalement et localement
+            puis récupérer le meilleur parmi ceux là et enfin le charger
+
+            bon y'a deux cas :
+                le module ne dispose que d'un language, localement:
+                    on charge ce language que si globalement aucun meilleur language n'est loadé
+                le module dispose de plusieurs language localement :
+                    on charge le meilleur language parmi ceux dispo globalement et localement
+
             */
-            init: function() {
+            bestLanguage: function(proposeds) {
                 return Promise.resolve(this.listPreferences()).then(function(preferenceString) {
-                    var preferences = preferenceString.split(',');
+                    var preferences = preferenceString.toLowerCase().split(',');
                     var best;
 
                     // get first language matching exactly
-                    best = preferences.find(function(preference) {
-                        return this.proposeds.findIndex(function(proposed) {
-                            return proposed.toLowerCase() === preference.toLowerCase();
+                    best = proposeds.find(function(proposed) {
+                        return preferences.findIndex(function(preference) {
+                            return preference.startsWith(proposed);
                         });
-                    }, this);
+                    });
 
                     if (!best) {
-                        // else get languague ignoring locale
-                        best = preferences.find(function(preference) {
-                            return this.proposeds.findIndex(function(proposed) {
-                                return proposed.split('-')[0].toLowerCase() === preference.split('-')[0].toLowerCase();
-                            });
-                        }, this);
+                        best = proposeds[0];
                     }
 
-                    if (!best) {
-                        best = this.default;
-                    }
-
-                    this.set(best);
-                }.bind(this));
+                    return best;
+                });
             }
         };
 
         engine.language = language;
-    });
-
-    engine.run(function() {
-        // the first function to run is to set the language now config is done loading and registering custom langs
-        engine.language.init();
     });
 
     /*
@@ -817,7 +819,7 @@
                 System.paths.babel = engine.dirname + '/node_modules/babel-core/browser.js';
                 System.trace = true;
 
-                if (engine.type === 'process') {
+                if (engine.isProcess()) {
                     var nodeSourceMap = require('system-node-sourcemap');
                     nodeSourceMap.install();
 

@@ -15,7 +15,8 @@
 		"@dmail/url": "*",
 		"@dmail/proto": "*",
 		"system-node-sourcemap": "*",
-		"open": "*"
+		"open": "*",
+		"@dmail/i18n": "git+https://github.com/dmail/i18n"
 	},
 	"bin": {
 		"system-run": "./bin/run"
