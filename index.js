@@ -317,13 +317,7 @@
             }
         };
 
-        var throwMethod;
-
         if (engine.isBrowser()) {
-            throwMethod = function(error) {
-                throw error;
-            };
-
             window.addEventListener('unhandledRejection', function(error, promise) {
                 engine.unhandledRejection(error, promise);
             });
@@ -334,15 +328,6 @@
                 engine.error(error);
             };
         } else {
-            throwMethod = function(error) {
-                // if (error instanceof Error) {
-                //    console.error(error.stack);
-                // } else {
-                console.error(error);
-                // }
-                process.exit(1);
-            };
-
             process.on('unhandledRejection', function(error, promise) {
                 engine.unhandledRejection(error, promise);
             });
@@ -355,7 +340,9 @@
         }
 
         return {
-            throw: throwMethod,
+            throw: function(exception) {
+                throw exception;
+            },
 
             error: function(error) {
                 return exceptionHandler.handleError(error);
@@ -842,6 +829,12 @@
                         }
 
                         return stackTrace;
+                    };
+
+                    // we have to define the throw method else stack trace is not correctly printed
+                    engine.throw = function(exception) {
+                        console.error(exception);
+                        process.exit(1);
                     };
                 }
             }
