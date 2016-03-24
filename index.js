@@ -165,6 +165,10 @@
                 }
             },
 
+            warn: function() {
+                console.warn.apply(console, arguments);
+            },
+
             debug: function() {
                 if (this.logLevel === 'debug') {
                     console.log.apply(console, arguments);
