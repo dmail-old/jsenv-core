@@ -1,6 +1,6 @@
 /* eslint-env browser */
 
-var engine = window.engine;
+import engine from 'engine';
 
 engine.restart = function() {
     window.reload();

@@ -14,9 +14,9 @@
 		"@dmail/url-search-params": "*",
 		"@dmail/url": "*",
 		"@dmail/proto": "*",
-		"system-node-sourcemap": "*",
-		"open": "*",
-		"@dmail/i18n": "git+https://github.com/dmail/i18n"
+		"@dmail/node-stacktrace": "git+https://github.com/dmail/node-stacktrace",
+    	"source-map": "0.4.4",
+		"open": "*"
 	},
 	"bin": {
 		"system-run": "./bin/run"

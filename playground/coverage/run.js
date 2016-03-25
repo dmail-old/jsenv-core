@@ -5,6 +5,7 @@
 var istanbul = require('istanbul');
 var remapIstanbul = require('remap-istanbul/lib/remap');
 var fs = require('fs');
+// var nodepath = require('path');
 // var cp = require('child_process');
 require('systemjs');
 
@@ -58,7 +59,11 @@ System.translate = function(load) {
             return source;
         }
 
-        if (load.name !== fileURL) {
+        var dirname = 'file:///' + __dirname.replace(/\\/g, '/');
+
+        console.log(load.name, load.name.indexOf(dirname) === 0);
+
+        if (load.name.indexOf(dirname) !== 0) {
             return source;
         }
 

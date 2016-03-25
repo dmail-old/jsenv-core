@@ -1,6 +1,5 @@
 import os from 'node/os';
-
-var engine = global.engine;
+import engine from 'engine';
 
 engine.restart = function() {
     process.kill(2);
