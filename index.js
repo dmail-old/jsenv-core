@@ -180,10 +180,22 @@
     });
 
     // exception management logic
+    /*
+    // wait 1000ms before throwing any error
+    engine.exceptionHandler.add(function(e){
+        return new Promise(function(res, rej){ setTimeout(function(){ rej(e); }, 1000); });
+    });
+    // do not throw error with code itsok
+    engine.exceptionHandler.add(function(e){
+        return e && e instanceof Error && e.code === 'itsok' ? undefined : Promise.reject(e);
+    });
+    */
     engine.define(function() {
         var exceptionHandler = {
-            raisedExceptions: [],
             handlers: [],
+            // unRecoveredException: undefined,
+            handledException: undefined,
+            pendingExceptions: [],
 
             add: function(exceptionHandler) {
                 this.handlers.push(exceptionHandler);
@@ -194,164 +206,175 @@
                 return exception;
             },
 
-            findExceptionByValue: function(value) {
-                var raisedExceptions = this.raisedExceptions;
-                var i = 0;
-                var j = raisedExceptions.length;
-                var raisedException;
-
-                for (;i < j; i++) {
-                    raisedException = raisedExceptions[i];
-                    if (raisedException.value === value) {
-                        return raisedException;
-                    }
-                }
-                return null;
-            },
-
             handleError: function(error) {
-                var exception = this.findExceptionByValue(error);
-                if (!exception) {
-                    // don't handle same error twice because unhandledException will call this
-                    exception = this.createException(error);
-                    exception.raise();
-                }
+                var exception;
+
+                exception = this.createException(error);
+                exception.raise();
+
                 return exception;
             },
 
             handleRejection: function(rejectedValue, promise) {
-                var exception = this.findExceptionByValue(rejectedValue);
-                if (!exception) {
-                    // don't handle same error twice because unhandledRejection will call this
-                    exception = this.createException(rejectedValue);
-                    exception.promise = promise;
-                    exception.raise();
-                }
+                var exception;
+
+                exception = this.createException(rejectedValue);
+                exception.promise = promise;
+                exception.raise();
+
                 return exception;
             },
 
-            markPromiseAsHandled: function(promise) {
-                for (var exception in this.raisedExceptions) {
-                    if ('promise' in exception && exception.promise === promise) {
-                        exception.recover();
-                        break;
-                    }
+            handleException: function(exception) {
+                if (this.hasOwnProperty('ignoreExceptionWithValue') &&
+                    this.ignoreExceptionWithValue === exception.value) {
+                    return;
                 }
+
+                if (this.handledException) {
+                    this.pendingExceptions.push(exception);
+                    return this.promise;
+                }
+                this.handledException = exception;
+                this.promise = exception.attemptToRecover().then(function(recovered) {
+                    console.log('do we have recovered ?', recovered);
+
+                    if (recovered) {
+                        this.handledException = undefined;
+                        if (this.pendingExceptions.length) {
+                            var pendingException = this.pendingExceptions.shift();
+                            return this.handleException(pendingException); // now try to recover this one
+                        }
+                    } else {
+                        /*
+                        because the following creates an infinite loop (and is what we're doing)
+                        process.on('uncaughtException', function() {
+                            setTimeout(function() {
+                                throw 'yo';
+                            });
+                        });
+                        we have to ignore exception thrown while we are throwing, we could detect if the exception differs
+                        which can happens if when doing throw new Error(); an other error occurs
+                        -> may happen for instance if accessing error.stack throw an other error
+                        */
+                        this.ignoreExceptionWithValue = exception.value;
+                        setTimeout(function() {
+                            engine.throw(exception.value);
+                            delete this.ignoreExceptionWithValue;
+                        }.bind(this), 1);
+                    }
+                }.bind(this));
+                return this.promise;
             },
 
-            markExceptionAsRecovered: function(exception) {
-                this.raisedExceptions.splice(this.raisedExceptions.indexOf(exception), 1);
+            markPromiseAsHandled: function(promise) {
+                var handledException = this.handledException;
+
+                if (handledException) {
+                    if (handledException.isComingFromPromise(promise)) {
+                        handledException.recover();
+                    } else {
+                        for (var exception in this.pendingExceptions) {
+                            if (exception.isComingFromPromise(promise)) {
+                                exception.recover();
+                                break;
+                            }
+                        }
+                    }
+                }
             }
         };
 
-        function RecoverAttempt(exception) {
-            this.exception = exception;
-            this.index = 0;
-            this.handlers = exceptionHandler.handlers.slice();
-            return this.nextHandler();
+        function Exception(value) {
+            this.value = value;
+            this.recoveredPromise = new Promise(function(resolve) {
+                this.resolve = resolve;
+            }.bind(this));
         }
 
-        RecoverAttempt.prototype = {
-            createExceptionStatusPromise: function() {
-                var exception = this.exception;
-                var promise;
+        Exception.prototype = {
+            promise: undefined,
+            settled: false,
+            recovered: false,
 
-                if (exception.recovered) {
-                    promise = Promise.resolve(exception.value);
-                } else {
-                    promise = Promise.reject(exception.value);
-                }
-
-                return promise;
+            isRejection: function() {
+                return this.hasOwnProperty('promise');
             },
 
-            nextHandler: function() {
-                var handlers = this.handlers;
-                var exception = this.exception;
-                var promise;
-                var index = this.index;
+            isComingFromPromise: function(promise) {
+                return this.isRejection() && this.promise === promise;
+            },
 
-                if (index < handlers.length) {
-                    var value = exception.value;
-                    var handler = handlers[index];
-                    this.index++;
+            attemptToRecover: function() {
+                var exception = this;
+                var index = 0;
+                var handlers = exceptionHandler.handlers.slice();
+                var nextHandler = function() {
+                    var promise;
 
-                    promise = new Promise(function(res) {
-                        res(handler(value, exception));
-                    }).then(
-                        function(/* resolutionValue */) {
-                            exception.recover();
-                            return this.createExceptionStatusPromise();
-                        }.bind(this),
-                        function(rejectionValue) {
-                            var promise;
+                    if (exception.settled) {
+                        promise = Promise.resolve(this.recovered);
+                    } else if (index < handlers.length) {
+                        var handler = handlers[index];
+                        index++;
 
-                            if (rejectionValue === value) {
-                                console.log('going to next exception handler');
-                                promise = this.nextHandler();
-                            } else {
+                        promise = new Promise(function(resolve) {
+                            resolve(handler(exception.value, exception));
+                        }).then(
+                            function(/* resolutionValue */) {
+                                return true;
+                            },
+                            function(rejectionValue) {
+                                if (rejectionValue === exception.value) {
+                                    console.log('going to next exception handler');
+                                    return nextHandler();
+                                }
                                 // an error occured during exception handling, log it and consider exception as not recovered
                                 console.error(
                                     'the following occurred during exception handling : ',
                                     rejectionValue
                                 );
-                                promise = this.createExceptionStatusPromise();
+                                return false;
                             }
+                        );
+                    } else {
+                        console.log('no more exception handler');
+                        promise = Promise.resolve(false);
+                    }
 
-                            return promise;
-                        }.bind(this)
-                    );
-                } else {
-                    // console.log('no more exception handler');
-                    promise = this.createExceptionStatusPromise();
-                }
+                    return promise;
+                };
 
-                return promise;
-            }
-        };
+                // let handler make exception recover or propagate
+                nextHandler().then(function(recovered) {
+                    if (recovered) {
+                        exception.recover();
+                    } else {
+                        exception.propagate();
+                    }
+                });
 
-        /*
-        // wait 1000ms before throwing any error
-        engine.exceptionHandler.add(function(e){
-            return new Promise(function(res, rej){ setTimeout(function(){ rej(e); }, 1000); });
-        });
-        // do not throw error with code itsok
-        engine.exceptionHandler.add(function(e){
-            return e && e instanceof Error && e.code === 'itsok' ? undefined : Promise.reject(e);
-        });
-        */
-
-        function Exception(value) {
-            this.value = value;
-        }
-
-        Exception.prototype = {
-            recovered: false,
+                return exception.recoveredPromise;
+            },
 
             recover: function() {
-                if (this.recovered === false) {
+                if (this.settled === false) {
+                    this.settled = true;
                     this.recovered = true;
-                    exceptionHandler.markExceptionAsRecovered(this);
+                    this.resolve(true);
                 }
             },
 
-            attemptToRecover: function() {
-                var exception = this;
-
-                exceptionHandler.raisedExceptions.push(exception);
-
-                return new RecoverAttempt(exception).catch(function() {
-                    // console.error('fatal exception', exception.value);
-                    setTimeout(function() {
-                        process.removeListener('uncaughtException', error);
-                        // we catched this so disable global error listener and just throw
-                        engine.throw(exception.value);
-                    }, 100);
-                });
+            propagate: function() {
+                if (this.settled === false) {
+                    this.settled = true;
+                    this.recovered = false;
+                    this.resolve(false);
+                }
             },
 
             raise: function() {
-                this.attemptToRecover();
+                return exceptionHandler.handleException(this);
             }
         };
 
@@ -368,16 +391,12 @@
         }
 
         if (engine.isBrowser()) {
-            window.addEventListener('unhandledRejection', function(error, promise) {
-                engine.unhandledRejection(error, promise);
-            });
-            window.addEventListener('rejectionHandled', function(promise) {
-                engine.rejectionHandled(promise);
-            });
+            window.addEventListener('unhandledRejection', unhandledRejection);
+            window.addEventListener('rejectionHandled', rejectionHandled);
             window.onerror = function(errorMsg, url, lineNumber, column, error) {
-                engine.error(error);
+                error(error);
             };
-        } else {
+        } else if (engine.isProcess()) {
             process.on('unhandledRejection', unhandledRejection);
             process.on('rejectionHandled', rejectionHandled);
             process.on('uncaughtException', error);
@@ -387,7 +406,6 @@
             throw: function(value) {
                 throw value;
             },
-
             error: error,
             unhandledRejection: unhandledRejection,
             rejectionHandled: rejectionHandled
@@ -668,7 +686,7 @@
                 } else {
                     // Support source map URLs relative to the source URL
                     // engine.debug('the sourcemap url is', sourceMapURL);
-                    sourceMapURL = new URL(sourceMapURL, fromURL).toString();
+                    sourceMapURL = engine.locateFrom(sourceMapURL, fromURL);
                     // engine.debug('read sourcemap from file');
                     sourceMapPromise = System.import(sourceMapURL + '!json');
                 }
@@ -714,14 +732,28 @@
                         source: originalSource,
                         sourceMap: sourceMap
                     };
+
+                    // Load all sources stored inline with the source map into the file cache
+                    // to pretend like they are already loaded. They may not exist on disk.
+                    if (sourceMap && sourceMap.map && sourceMap.map.sourcesContent) {
+                        sourceMap.map.sources.forEach(function(source, i) {
+                            var contents = sourceMap.map.sourcesContent[i];
+                            if (contents) {
+                                var location = engine.locateFrom(sourceMap.url, source);
+                                sources[location] = {
+                                    source: contents,
+                                    map: readSourceMap(contents, location)
+                                };
+                            }
+                        });
+                    }
+
                     return source;
                 });
             });
         };
 
         // engine.readSourceMap = readSourceMap;
-        // engine.sources = sources;
-
         engine.sources = sources;
     });
 
@@ -765,26 +797,13 @@
             } else {
                 sourceMap = readSourceMapFromEngine(sourceLocation);
 
-                console.log('get source map', sourceMap);
+                console.log('get source map', sourceLocation, sourceMap);
 
                 if (sourceMap) {
                     sourceMap = {
                         url: sourceMap.url,
                         map: new SourceMapConsumer(sourceMap.map)
                     };
-                    // Load all sources stored inline with the source map into the file cache
-                    // to pretend like they are already loaded. They may not exist on disk.
-                    /*
-                    if (sourceMap.map.sourcesContent) {
-                        sourceMap.map.sources.forEach(function(source, i) {
-                            var contents = sourceMap.map.sourcesContent[i];
-                            if( contents ){
-                                var url = supportRelativeURL(sourceMap.url, source);
-                                fileContentsCache[url] = contents;
-                            }
-                        });
-                    }
-                    */
                 } else {
                     sourceMap = {
                         url: null,
@@ -795,13 +814,9 @@
                 sourceMaps[sourceLocation] = sourceMap;
             }
 
-            console.log('got sourcemap for', sourceLocation, '?', Boolean(sourceMap));
-
             // Resolve the source URL relative to the URL of the source map
             if (sourceMap.map) {
                 var originalPosition = sourceMap.map.originalPositionFor(position);
-
-                // console.log('getting original position', originalPosition.source);
 
                 // Only return the original position if a matching line was found. If no
                 // matching line is found then we return position instead, which will cause
@@ -809,10 +824,10 @@
                 // better to give a precise location in the compiled file than a vague
                 // location in the original file.
                 if (originalPosition.source !== null) {
-                    originalPosition.source = new URL(
+                    originalPosition.source = engine.locateFrom(
                         sourceMap.url || sourceLocation,
                         originalPosition.source
-                    ).toString();
+                    );
                     return originalPosition;
                 }
             }
@@ -841,7 +856,16 @@
                     column: column
                 });
 
-                //console.log('update callsite source to', position.source);
+                if (callSite.source !== position.source) {
+                    console.log(
+                        'update callsite source to',
+                        position.source,
+                        'from',
+                        callSite.source,
+                        'on',
+                        callSite
+                    );
+                }
 
                 callSite.source = position.source;
                 callSite.lineNumber = position.line;
@@ -942,8 +966,11 @@
 
         // we have to define the throw method else stack trace is not correctly printed
         engine.throw = function(exception) {
-            // throw exception;
-            console.log('here');
+            /*
+            setTimeout(function() {
+                throw exception;
+            }, 100);
+            */
             console.error(exception);
             process.exit(1);
         };
