@@ -237,8 +237,6 @@
                 }
                 this.handledException = exception;
                 this.promise = exception.attemptToRecover().then(function(recovered) {
-                    console.log('do we have recovered ?', recovered);
-
                     if (recovered) {
                         this.handledException = undefined;
                         if (this.pendingExceptions.length) {
@@ -246,22 +244,10 @@
                             return this.handleException(pendingException); // now try to recover this one
                         }
                     } else {
-                        /*
-                        because the following creates an infinite loop (and is what we're doing)
-                        process.on('uncaughtException', function() {
-                            setTimeout(function() {
-                                throw 'yo';
-                            });
-                        });
-                        we have to ignore exception thrown while we are throwing, we could detect if the exception differs
-                        which can happens if when doing throw new Error(); an other error occurs
-                        -> may happen for instance if accessing error.stack throw an other error
-                        */
-                        this.ignoreExceptionWithValue = exception.value;
+                        // put in a timeout to prevent promise from catching this exception
                         setTimeout(function() {
-                            engine.throw(exception.value);
-                            delete this.ignoreExceptionWithValue;
-                        }.bind(this), 1);
+                            engine.crash(exception);
+                        });
                     }
                 }.bind(this));
                 return this.promise;
@@ -326,7 +312,7 @@
                             },
                             function(rejectionValue) {
                                 if (rejectionValue === exception.value) {
-                                    console.log('going to next exception handler');
+                                    engine.debug('call next exception handler');
                                     return nextHandler();
                                 }
                                 // an error occured during exception handling, log it and consider exception as not recovered
@@ -338,7 +324,6 @@
                             }
                         );
                     } else {
-                        console.log('no more exception handler');
                         promise = Promise.resolve(false);
                     }
 
@@ -378,7 +363,7 @@
             }
         };
 
-        function error(error) {
+        function catchError(error) {
             return exceptionHandler.handleError(error);
         }
 
@@ -390,25 +375,61 @@
             return exceptionHandler.markPromiseAsHandled(promise);
         }
 
+        var enableHooks;
+        var disableHooks;
         if (engine.isBrowser()) {
-            window.addEventListener('unhandledRejection', unhandledRejection);
-            window.addEventListener('rejectionHandled', rejectionHandled);
-            window.onerror = function(errorMsg, url, lineNumber, column, error) {
-                error(error);
+            enableHooks = function() {
+                window.addEventListener('unhandledRejection', unhandledRejection);
+                window.addEventListener('rejectionHandled', rejectionHandled);
+                window.onerror = function(errorMsg, url, lineNumber, column, error) {
+                    catchError(error);
+                };
+            };
+            disableHooks = function() {
+                window.removeEventListener('unhandledRejection', unhandledRejection);
+                window.removeEventListener('rejectionHandled', rejectionHandled);
+                window.onerror = undefined;
             };
         } else if (engine.isProcess()) {
-            process.on('unhandledRejection', unhandledRejection);
-            process.on('rejectionHandled', rejectionHandled);
-            process.on('uncaughtException', error);
+            enableHooks = function() {
+                process.on('unhandledRejection', unhandledRejection);
+                process.on('rejectionHandled', rejectionHandled);
+                process.on('uncaughtException', catchError);
+            };
+            disableHooks = function() {
+                process.removeListener('unhandledRejection', unhandledRejection);
+                process.removeListener('rejectionHandled', rejectionHandled);
+                process.removeListener('uncaughtException', catchError);
+            };
         }
 
+        enableHooks();
+
         return {
+            crash: function(exception) {
+                // disableHooks to prevent hook from catching this error
+                // because the following creates an infinite loop (and is what we're doing)
+                // process.on('uncaughtException', function() {
+                //     setTimeout(function() {
+                //         throw 'yo';
+                //     });
+                // });
+                // we have to ignore exception thrown while we are throwing, we could detect if the exception differs
+                // which can happens if when doing throw new Error(); an other error occurs
+                // -> may happen for instance if accessing error.stack throw an other error
+                this.disableHooks();
+
+                this.throw(exception.value);
+
+                // enabledHooks in case throwing error did not terminate js execution
+                // in the browser or if external code is listening for process.on('uncaughException');
+                this.enableHooks();
+            },
             throw: function(value) {
                 throw value;
             },
-            error: error,
-            unhandledRejection: unhandledRejection,
-            rejectionHandled: rejectionHandled
+            enableHooks: enableHooks,
+            disableHooks: disableHooks
         };
     });
 
@@ -668,6 +689,21 @@
             return lastMatch ? lastMatch[1] : null;
         }
 
+        // in order to get the file as it's going to appear in error stack but ignore this for now
+        // var sourceURLRegexp = /\/\/#\s*sourceURL=\s*(\S*)\s*/mg;
+        /*
+        function readSourceUrl() {
+            var lastMatch;
+            var match;
+
+            while (match = sourceURLRegexp.exec(source)) { // eslint-disable-line
+                lastMatch = match;
+            }
+
+            return lastMatch ? lastMatch[1] : null;
+        }
+        */
+
         // returns a {map, optional url} object, or null if
         // there is no source map. The map field may be either a string or the parsed JSON object
         function readSourceMap(source, fromURL) {
@@ -760,7 +796,6 @@
     // ensure sourcemap support on nodejs
     engine.config(function sourceMapSupport() {
         var active = engine.isProcess();
-        // active = false;
 
         if (!active) {
             return;
@@ -770,7 +805,6 @@
         var SourceMapConsumer = require('source-map').SourceMapConsumer;
 
         function readSourceMapFromEngine(path) {
-            path = path.replace('!transpiled', '');
             // path = System.normalize(path);
 
             var sources = engine.sources;
@@ -796,8 +830,6 @@
                 sourceMap = sourceMaps[sourceLocation];
             } else {
                 sourceMap = readSourceMapFromEngine(sourceLocation);
-
-                console.log('get source map', sourceLocation, sourceMap);
 
                 if (sourceMap) {
                     sourceMap = {
@@ -850,22 +882,13 @@
                     column -= 63;
                 }
 
+                source = source.replace(/!transpiled$/, '');
+
                 var position = mapSourcePosition({
                     source: source,
                     line: line,
                     column: column
                 });
-
-                if (callSite.source !== position.source) {
-                    console.log(
-                        'update callsite source to',
-                        position.source,
-                        'from',
-                        callSite.source,
-                        'on',
-                        callSite
-                    );
-                }
 
                 callSite.source = position.source;
                 callSite.lineNumber = position.line;
@@ -965,13 +988,11 @@
         };
 
         // we have to define the throw method else stack trace is not correctly printed
-        engine.throw = function(exception) {
-            /*
-            setTimeout(function() {
-                throw exception;
-            }, 100);
-            */
-            console.error(exception);
+        engine.throw = function(exceptionValue) {
+            // if we throw we'll get a line saying we throwed error, useless, thats why we use console.error
+            // exceptionValue.stack;
+            // throw exceptionValue;
+            console.error(exceptionValue);
             process.exit(1);
         };
 
@@ -990,6 +1011,194 @@
             throw error;
         });
         */
+    });
+
+    engine.config(function coverage() {
+        // https://github.com/guybedford/jspm-test-demo/blob/master/lib/coverage.js
+
+        if (!engine.isProcess()) {
+            return;
+        }
+
+        // donc l'idée là c'est de proposer le coverage
+        if (engine.enableCoverage) {
+
+        }
+
+        function enableCoverage() {
+            var istanbul = require('istanbul');
+            var istanbulGlobal;
+            for (var key in global) {
+                if (key.match(/\$\$cov_\d+\$\$/)) {
+                    istanbulGlobal = key;
+                    break;
+                }
+            }
+            istanbulGlobal = istanbulGlobal || '__coverage__';
+
+            // Coverage variable created by Istanbul and stored in global variables.
+            // https://github.com/gotwarlost/istanbul/blob/master/lib/instrumenter.js
+            var instrumenter = new istanbul.Instrumenter({
+                coverageVariable: istanbulGlobal
+            });
+
+            var translate = System.translate;
+            System.translate = function(load) {
+                return translate.call(this, load).then(function(source) {
+                    if (load.metadata.format === 'json' || load.metadata.format === 'defined' || load.metadata.loader) {
+                        return source;
+                    }
+
+                    try {
+                        return instrumenter.instrumentSync(source, load.address.substr(System.baseURL.length));
+                    } catch (e) {
+                        var newErr = new Error(
+                            'Unable to instrument "' + load.name + '" for istanbul.\n\t' + e.message
+                        );
+                        newErr.stack = 'Unable to instrument "' + load.name + '" for istanbul.\n\t' + e.stack;
+                        newErr.originalErr = e.originalErr || e;
+                        throw newErr;
+                    }
+                });
+            };
+
+            engine.coverageGlobalVariable = istanbulGlobal;
+        }
+
+        function report(coverageType) {
+            var remapIstanbul = require('remap-istanbul/lib/remap');
+            var fs = require('fs');
+
+            coverageType = coverageType || 'text';
+            var coverage = engine.global[engine.coverageGlobalVariable];
+            coverage = coverage || {};
+
+            var collector = remapIstanbul(coverage, {
+                readFile: function(path) {
+                    console.log('read file at', path);
+
+                    var originalSourceObject = engine.sources[System.baseURL + path];
+                    var source = originalSourceObject.source;
+
+                    return source;
+                },
+
+                readJSON: function(path) {
+                    path = path.replace(/\\/g, '/');
+
+                    var pathBase = System.baseURL + path.split('/').slice(0, -1).join('/');
+                    var modulePath = System.baseURL + path.substr(0, path.length - 4);
+                    var originalSourcesObj = engine.sources[modulePath];
+
+                    // console.log('pathbase', pathBase);
+                    console.log('read json for', modulePath, 'got original source?', Boolean(originalSourcesObj));
+
+                    // we may not have any sourcemap because file does not requires any?
+
+                    // non transpilation-created source map -> load the source map file directly
+                    if (!originalSourcesObj || !originalSourcesObj.sourceMap) {
+                        console.log('we dont have any sourcemap, parse json at', System.baseURL + path);
+
+                        return JSON.parse(fs.readFileSync(System.baseURL + path));
+                    }
+
+                    var sourceMap = originalSourcesObj.sourceMap;
+                    if (typeof sourceMap === 'string') {
+                        sourceMap = JSON.parse(sourceMap);
+                    }
+
+                    console.log('got sourcemap correctly');
+
+                    sourceMap.sources = sourceMap.sources.map(function(src) {
+                        if (src.substr(0, pathBase.length) === pathBase) {
+                            src = './' + src.substr(pathBase.length);
+                        }
+                        return src;
+                    });
+
+                    return sourceMap;
+                },
+
+                warn: function(msg) {
+                    if (msg.toString().indexOf('Could not find source map for') !== -1) {
+                        return;
+                    }
+                    console.warn(msg);
+                }
+            });
+
+            var fileData = [];
+            var fileName;
+            var writer = {
+                on: function(evt, fn) {
+                    if (evt === 'done') {
+                        this.done = fn;
+                    }
+                },
+
+                writeFile: function(name, write) {
+                    console.log('writing file', name);
+
+                    fileName = fileName || name;
+                    if (fileName !== name) {
+                        throw new Error('Multiple file outputs not currently supported.');
+                    }
+                    var contentWriter = {
+                        println: function(line) {
+                            // console.log('writing line', line);
+                            fileData.push(line + '\n');
+                        },
+
+                        write: function(data) {
+                            // console.log('writing', data);
+                            fileData.push(data);
+                        }
+                    };
+                    write(contentWriter);
+                },
+
+                done: function() {
+                    this.done();
+                }
+            };
+
+            var cfg = {
+                reporting: {
+                    reportConfig: function() {
+                        var reportConfig = {
+
+                        };
+                        reportConfig[coverageType] = {
+                            writer: writer
+                        };
+                        return reportConfig;
+                    },
+
+                    watermarks: function() {
+
+                    }
+                }
+            };
+
+            var reporter = new istanbul.Reporter(cfg, __dirname + '/myown-coverage'); // eslint-disable-line
+            // reporter.add('lcovonly');
+            reporter.add('html');
+            reporter.add(coverageType);
+
+            return new Promise(function(resolve) {
+                console.log('writing report from collected data');
+                reporter.write(collector, false, resolve);
+            }).then(function() {
+                return fileData.join('');
+            }).then(function(output) {
+                fs.writeFileSync('coverage.json', output);
+            });
+        }
+
+        return {
+            enableCoverage: enableCoverage,
+            report: report
+        };
     });
 
     // language config, language used by the agent (firefox, node, ...)
@@ -1137,7 +1346,6 @@
 
     // file config
     engine.config(function configFile() {
-        console.log('loading', engine.dirname + '/config/' + engine.agent.type + '.js');
         return System.import(engine.dirname + '/config/' + engine.agent.type + '.js');
     });
 
