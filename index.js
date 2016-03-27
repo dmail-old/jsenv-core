@@ -441,12 +441,19 @@
         var readyListeners = [];
 
         function callEveryListener(list, name, initialValue) {
-            return list.reduce(function(previous, listener) {
-                return previous.then(function(value) {
-                    engine.debug('call', name, listener.name);
-                    return listener(value);
-                });
-            }, Promise.resolve(initialValue));
+            var index = 0;
+            var next = function(value) {
+                if (index >= list.length) {
+                    return Promise.resolve(value);
+                }
+                var listener = list[index];
+                index++;
+
+                engine.debug('call', name, listener.name);
+                return Promise.resolve(listener(value)).then(next);
+            };
+
+            return next(initialValue);
         }
 
         return {
@@ -468,6 +475,11 @@
                 }).then(function(value) {
                     return callEveryListener(readyListeners, 'ready', value);
                 });
+            },
+
+            main: function(mainFileLocation) {
+                this.main = mainFileLocation;
+                return System.import(mainFileLocation);
             }
         };
     });
@@ -723,7 +735,7 @@
                 if (base64SourceMapRegexp.test(sourceMapURL)) {
                     // Support source map URL as a data url
                     var rawData = sourceMapURL.slice(sourceMapURL.indexOf(',') + 1);
-                    var sourceMap = new Buffer(rawData, 'base64').toString();
+                    var sourceMap = JSON.parse(new Buffer(rawData, 'base64').toString());
                     // engine.debug('read sourcemap from base64 for', fromURL);
                     sourceMapPromise = Promise.resolve(sourceMap);
                     sourceMapURL = null;
@@ -781,11 +793,17 @@
 
                     // Load all sources stored inline with the source map into the file cache
                     // to pretend like they are already loaded. They may not exist on disk.
-                    if (sourceMap && sourceMap.map && sourceMap.map.sourcesContent) {
+                    if (false && sourceMap && sourceMap.map && sourceMap.map.sourcesContent) {
+                        console.log('populate source content');
                         sourceMap.map.sources.forEach(function(source, i) {
                             var contents = sourceMap.map.sourcesContent[i];
                             if (contents) {
-                                var location = engine.locateFrom(sourceMap.url, source);
+                                var location;
+                                if (sourceMap.url) {
+                                    location = engine.locateFrom(source, sourceMap.url);
+                                } else {
+                                    location = engine.locate(source);
+                                }
                                 sources[location] = {
                                     source: contents,
                                     map: readSourceMap(contents, location)

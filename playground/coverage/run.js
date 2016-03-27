@@ -12,7 +12,7 @@ require('systemjs');
 System.transpiler = 'babel';
 System.babelOptions = {};
 
-var fileURL = 'file:///' + __dirname + '/file-to-cover.js'; // eslint-disable-line no-path-concat
+var fileURL = 'file:///' + __dirname + '/error.js'; // eslint-disable-line no-path-concat
 fileURL = fileURL.replace(/\\/g, '/');
 
 var coverageType = 'json'; // could also be text
@@ -123,16 +123,18 @@ System.import(fileURL).then(function() {
     var coverage = System.global[istanbulGlobal];
     coverage = coverage || {};
 
+    console.log('got coverage', coverage);
+
     var collector = remapIstanbul(coverage, {
         readFile: function(path) {
-            console.log('read file at', path);
-
             var originalSourceObject = originalSources[System.baseURL + path];
             var source = originalSourceObject.source;
 
             if ('sourceMap' in originalSourceObject) {
                 source += '\n//# sourceMappingURL=' + path.split('/').pop() + '.map';
             }
+
+            console.log('read file at', path, source);
 
             return source;
         },
@@ -236,18 +238,21 @@ System.import(fileURL).then(function() {
         }
     };
 
+    cfg = null;
+
     var reporter = new istanbul.Reporter(cfg, __dirname + '/myown-coverage'); // eslint-disable-line
     // reporter.add('lcovonly');
     reporter.add('html');
-    reporter.add(coverageType);
+    reporter.add('json');
+    reporter.add('text');
 
     return new Promise(function(resolve) {
         console.log('writing report from collected data');
         reporter.write(collector, false, resolve);
     }).then(function() {
         return fileData.join('');
-    }).then(function(output) {
-        fs.writeFileSync('coverage.json', output);
+    }).then(function() {
+        // fs.writeFileSync('coverage.json', output);
 
         // then you can do istanbul report --include coverage.json
         // cp.execSync('istanbul report --include coverage.json');
