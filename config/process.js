@@ -262,6 +262,9 @@ engine.language.listPreferences = function() {
             };
 
             engine.coverageGlobalVariable = istanbulGlobal;
+            engine.ready(function() {
+                // when engine is ready do the report
+            });
         }
 
         function report(coverageType) {
