@@ -1,18 +1,20 @@
 /* eslint-env browser, node */
 
 (function() {
-    var engine = {
-        provide: function(fn) {
-            var properties = fn();
+    var engine = {};
 
-            for (var key in properties) { // eslint-disable-line
-                this[key] = properties[key];
-            }
+    // engine.provide adds functionnality to engine object
+    // it can be called anywhere but it makes more sense to call it as soon as possible to provide functionalities asap
+    engine.provide = function(fn) {
+        var properties = fn();
+
+        for (var key in properties) { // eslint-disable-line
+            this[key] = properties[key];
         }
     };
 
-    // version management logic
-    engine.provide(function() {
+    // version management logic, on va appeler ça dans un setup et plus un provide
+    engine.provide(function version() {
         function Version(string) {
             var parts = String(string).split('.');
             var major = parts[0];
@@ -59,7 +61,7 @@
     });
 
     // platform logic, platform is what runs the agent : windows, linux, mac, ..
-    engine.provide(function() {
+    engine.provide(function platform() {
         var platform = {
             name: 'unknown',
             version: '',
@@ -90,7 +92,7 @@
     });
 
     // agent logic, agent is what runs JavaScript : nodejs, iosjs, firefox, ...
-    engine.provide(function() {
+    engine.provide(function agent() {
         var type;
 
         if (typeof window !== 'undefined') {
@@ -147,7 +149,7 @@
     });
 
     // log logic
-    engine.provide(function() {
+    engine.provide(function logging() {
         var logLevel;
 
         if (engine.isProcess() && process.argv.indexOf('-verbose') !== -1) {
@@ -180,7 +182,7 @@
     });
 
     // exception management logic
-    engine.provide(function() {
+    engine.provide(function exception() {
         /*
         // wait 1000ms before throwing any error
         engine.exceptionHandler.add(function(e){
@@ -435,16 +437,16 @@
     });
 
     // location logic
-    engine.provide(function() {
+    engine.provide(function location() {
         var baseURL;
         var location;
         var systemLocation;
         var polyfillLocation;
-        var resolve;
+        var clean;
 
         if (engine.isBrowser()) {
-            resolve = function(to, base) {
-                return new URL(to, base).href;
+            clean = function(path) {
+                return path;
             };
 
             baseURL = (function() {
@@ -463,31 +465,25 @@
                 return path.replace(/\\/g, '/');
             };
 
-            engine.nodeFile = function(filename) {
+            clean = function(path) {
                 if (mustReplaceBackSlashBySlash) {
-                    filename = replaceBackSlashBySlash(filename);
+                    path = replaceBackSlashBySlash(String(path));
                 }
-                return 'file:///' + filename;
+                if (path.match(/^[A-Z]:\/\//)) {
+                    path = 'file:///' + path;
+                }
+                return path;
             };
 
             baseURL = (function() {
                 var cwd = process.cwd();
-                var baseURL = engine.nodeFile(cwd);
+                var baseURL = clean(cwd);
                 if (baseURL[baseURL.length - 1] !== '/') {
                     baseURL += '/';
                 }
                 return baseURL;
             })();
-            location = engine.nodeFile(__filename);
-
-            resolve = function(to, base) {
-                if (mustReplaceBackSlashBySlash) {
-                    to = replaceBackSlashBySlash(to);
-                    base = replaceBackSlashBySlash(base);
-                }
-
-                return new URL(to, base).href;
-            };
+            location = clean(__filename);
 
             systemLocation = 'node_modules/systemjs/index.js';
             polyfillLocation = 'node_modules/babel-polyfill/lib/index.js';
@@ -499,37 +495,12 @@
             dirname: location.slice(0, location.lastIndexOf('/')), // dirname of this file
             systemLocation: systemLocation, // where is the system file
             polyfillLocation: polyfillLocation, // where is the babel polyfill file
-
-            locateFrom: function(location, baseLocation, stripFile) {
-                var href = resolve(location, baseLocation);
-
-                if (stripFile && href.indexOf('file:///') === 0) {
-                    href = href.slice('file:///'.length);
-                }
-
-                return href;
-            },
-
-            locate: function(location, stripFile) {
-                return this.locateFrom(location, this.baseURL, stripFile);
-            },
-
-            locateRelative: function(location, stripFile) {
-                var trace = this.trace();
-
-                trace.callSites.shift();
-
-                return this.locateFrom(location, trace.fileName, stripFile);
-            },
-
-            locateFromRoot: function(location) {
-                return this.locateFrom(location, this.location, true);
-            }
+            cleanPath: clean
         };
     });
 
     // include logic
-    engine.provide(function() {
+    engine.provide(function include() {
         var include;
 
         if (engine.isBrowser()) {
@@ -571,7 +542,7 @@
     });
 
     // global logic
-    engine.provide(function() {
+    engine.provide(function global() {
         var globalValue;
 
         if (engine.isBrowser()) {
@@ -592,18 +563,82 @@
         /*
         in an external file you can do, once this file is included
 
-        engine.setup(''); // declare a setup dependency
-        engine.config(function() {}); // function executed once setup is done
-        engine.run(function() {}); // function executed once config is done
-        engine.ready(function() {}); // function executed once run is done & main module is imported (engine.mainModule)
+        engine.setup(function() {}); // function or file executed in serie onceengine.start is called
+        engine.config(function() {}); // function or file executed in serie once setup is done
+        engine.run(function() {}); // function or file executed in serie once config is done
+        engine.ready(function() {}); // function or file executed in serie once once run is done & main module is imported (engine.mainModule)
         engine.start('./path/to/file.js'); // start the engine executing setup/config/run phases then importing the mainModule passed as argument
         */
 
-        var Phase = function(name, perform) {
-            this.name = name;
-            this.perform = perform;
+        var Task = function() {
+
+        };
+
+        Task.prototype = {
+            name: undefined,
+            condition: null,
+            url: null,
+
+            load: function(callback) {
+                engine.debug('loading', this.url);
+                engine.include(this.url, callback);
+            },
+
+            eval: function(fn, callback) {
+                var hasError = false;
+                var error;
+                try {
+                    fn();
+                } catch (e) {
+                    hasError = true;
+                    error = e;
+                }
+
+                if (hasError) {
+                    callback(error);
+                } else {
+                    callback();
+                }
+            },
+
+            exec: function(callback) {
+                if (this.url) {
+                    this.load(callback);
+                } else {
+                    engine.debug('call', this.name);
+                    this.eval(this.fn, callback);
+                }
+            },
+
+            perform: function(callback) {
+                if (this.condition && !this.condition()) {
+                    engine.debug('skip task', this.name);
+                    callback();
+                } else {
+                    var self = this;
+
+                    this.exec(function(error) {
+                        if (error) {
+                            callback(error);
+                        } else {
+                            if (self.instantiate) {
+                                self.instantiate();
+                            }
+                            callback();
+                        }
+                    });
+                }
+            }
+        };
+
+        var Phase = function(name, start) {
             this.tasks = [];
             this.add = this.add.bind(this);
+
+            this.name = name;
+            if (start) {
+                this.start = start;
+            }
         };
 
         Phase.prototype = {
@@ -615,109 +650,82 @@
                     throw new Error('cannot add a task to ' + this.name + 'phase : the phase is passed');
                 }
 
+                if (typeof task === 'function') {
+                    task = {
+                        name: task.name,
+                        fn: task
+                    };
+                }
+
                 this.tasks.push(task);
             },
 
-            perform: function(callback) {
-                callback();
-            },
-
-            done: function() {
-                this.passed = true;
-                var nextPhase = this.nextPhase;
-                if (nextPhase) {
-                    engine.phase = nextPhase;
-                    nextPhase.start();
+            done: function(error) {
+                if (error) {
+                    // handle the error and stop here, once we got exceptionHandling logic this error will be catched
+                    throw error;
+                } else {
+                    this.passed = true;
+                    var nextPhase = this.nextPhase;
+                    if (nextPhase) {
+                        engine.phase = nextPhase;
+                        nextPhase.start();
+                    }
                 }
             },
 
             start: function() {
-                this.perform(this.done.bind(this));
+                var callback = this.done.bind(this);
+                var tasks = this.tasks;
+                var i = 0;
+
+                function next(error) {
+                    if (error) {
+                        callback(error);
+                    } else if (i === tasks.length) {
+                        callback();
+                    } else {
+                        var task = tasks[i];
+                        i++;
+                        task.perform(next);
+                    }
+                }
+
+                next();
             }
         };
 
-        function includeDependencies(dependencies, callback) {
-            var i = 0;
-            var j = dependencies.length;
-            var dependency;
+        var initPhase = new Phase('init');
+        var setupPhase = new Phase('setup');
+        var configPhase = new Phase('config');
+        var runPhase = new Phase('run');
+        var mainPhase = new Phase('main');
+        var readyPhase = new Phase('ready');
 
-            function done(error) {
-                setTimeout(function() {
-                    callback(error);
-                }, 0);
-            }
+        setupPhase.done = function(callback) {
+            // when setup phase is done we can load task using System.import
+            // and task fn support promise
 
-            function includeNext(error) {
-                if (error) {
-                    engine.debug('include error', error);
-                    done(error);
-                } else if (i === j) {
-                    engine.debug('all dependencies included');
-                    done();
-                } else {
-                    dependency = dependencies[i];
-                    i++;
-
-                    if (!dependency.condition || dependency.condition()) {
-                        engine.debug('loading', dependency.name);
-                        dependency.url = engine.dirname + '/' + dependency.url;
-                        engine.include(dependency.url, function(error) {
-                            if (error) {
-                                includeNext(error);
-                            } else {
-                                if (dependency.instantiate) {
-                                    dependency.instantiate();
-                                }
-                                includeNext();
-                            }
-                        });
-                    } else {
-                        engine.debug('skipping', dependency.name);
-                        includeNext();
-                    }
-                }
-            }
-
-            includeNext();
-        }
-
-        function callEveryListener(list, name, initialValue) {
-            var index = 0;
-            var next = function(value) {
-                if (index >= list.length) {
-                    return Promise.resolve(value);
-                }
-                var listener = list[index];
-                index++;
-
-                engine.debug('call', name, listener.name);
-                return Promise.resolve(listener(value)).then(next);
+            Task.prototype.load = function(callback) {
+                return System.import(this.url).then(function() {
+                    callback();
+                }, callback);
+            };
+            Task.prototype.eval = function(fn, callback) {
+                return Promise.resolve(fn()).then(function() {
+                    callback();
+                }, callback);
             };
 
-            return next(initialValue);
-        }
+            Phase.prototype.done.call(this, callback);
+        };
 
-        function performSetupPhase(callback) {
-            includeDependencies(this.tasks, callback);
-        }
-
-        function callPhaseListeners(callback) {
-            callEveryListener(this.tasks, this.name).then(callback);
-        }
-
-        function performMainPhase(callback) {
+        mainPhase.start = function() {
             engine.mainImport = System.import(engine.locate(engine.mainLocation)).then(function(mainModule) {
                 engine.mainModule = mainModule;
-                callback();
-            });
-        }
-
-        var initPhase = new Phase('init');
-        var setupPhase = new Phase('setup', performSetupPhase);
-        var configPhase = new Phase('config', callPhaseListeners);
-        var runPhase = new Phase('run', callPhaseListeners);
-        var mainPhase = new Phase('main', performMainPhase);
-        var readyPhase = new Phase('ready', callPhaseListeners);
+                this.done();
+            }.bind(this));
+        };
 
         [
             initPhase,
@@ -731,68 +739,6 @@
             return current;
         }, initPhase);
 
-        [
-            {
-                name: 'URLSearchParams',
-                url: 'node_modules/@dmail/url-search-params/index.js',
-                condition: function() {
-                    return ('URLSearchParams' in engine.global) === false;
-                }
-            },
-            {
-                name: 'URL',
-                url: 'node_modules/@dmail/url/index.js',
-                condition: function() {
-                    return ('URL' in engine.global) === false;
-                }
-            },
-            {
-                name: 'Object.assign',
-                url: 'node_modules/@dmail/object-assign/index.js',
-                condition: function() {
-                    return ('assign' in Object) === false;
-                }
-            },
-            {
-                name: 'Object.complete',
-                url: 'node_modules/@dmail/object-complete/index.js',
-                condition: function() {
-                    return ('complete' in Object) === false;
-                }
-            },
-            {
-                name: 'setImmediate',
-                url: 'node_modules/@dmail/set-immediate/index.js',
-                condition: function() {
-                    return ('setImmediate' in engine.global) === false;
-                }
-            },
-            {
-                name: 'Promise',
-                url: 'node_modules/@dmail/promise-es6/index.js',
-                condition: function() {
-                    return true; // force because of node promise not implementing unhandled rejection
-                    // return false === 'Promise' in platform.global;
-                }
-            },
-            {
-                name: 'babel-polyfill',
-                url: engine.polyfillLocation
-            },
-            {
-                name: 'System',
-                url: engine.systemLocation,
-                condition: function() {
-                    return ('System' in engine.global) === false;
-                },
-                instantiate: function() {
-                    // logic moved to config
-                }
-            }
-        ].forEach(function(dependency) {
-            setupPhase.add(dependency);
-        });
-
         return {
             phase: initPhase,
 
@@ -803,13 +749,7 @@
 
             start: function(mainModuleData) {
                 if (typeof mainModuleData === 'string') {
-                    var mainModuleLocation;
-                    if (mainModuleData.match(/^[A-Z]:\/\//)) {
-                        mainModuleLocation = this.nodeFile(mainModuleData);
-                    } else {
-                        mainModuleLocation = mainModuleData;
-                    }
-                    this.mainLocation = mainModuleLocation;
+                    this.mainLocation = mainModuleData;
                 } else {
                     throw new Error('engine.start() expect a mainModule argument');
                 }
@@ -817,6 +757,101 @@
                 initPhase.done();
             }
         };
+    });
+
+    engine.setup({
+        name: 'URLSearchParams',
+        url: engine.dirname + '/node_modules/@dmail/url-search-params/index.js',
+        condition: function() {
+            return ('URLSearchParams' in engine.global) === false;
+        }
+    });
+
+    engine.setup({
+        name: 'URL',
+        url: engine.dirname + '/node_modules/@dmail/url/index.js',
+        condition: function() {
+            return ('URL' in engine.global) === false;
+        }
+    });
+
+    engine.setup({
+        name: 'Object.assign',
+        url: engine.dirname + '/node_modules/@dmail/object-assign/index.js',
+        condition: function() {
+            return ('assign' in Object) === false;
+        }
+    });
+
+    engine.setup({
+        name: 'Object.complete',
+        url: engine.dirname + '/node_modules/@dmail/object-complete/index.js',
+        condition: function() {
+            return ('complete' in Object) === false;
+        }
+    });
+
+    engine.setup({
+        name: 'setImmediate',
+        url: engine.dirname + '/node_modules/@dmail/set-immediate/index.js',
+        condition: function() {
+            return ('setImmediate' in engine.global) === false;
+        }
+    });
+
+    engine.setup({
+        name: 'Promise',
+        url: engine.dirname + '/node_modules/@dmail/promise-es6/index.js',
+        condition: function() {
+            return true; // force because of node promise not implementing unhandled rejection
+            // return false === 'Promise' in platform.global;
+        }
+    });
+
+    engine.setup({
+        name: 'babel-polyfill',
+        url: engine.dirname + '/' + engine.polyfillLocation
+    });
+
+    engine.setup({
+        name: 'System',
+        url: engine.dirname + '/' + engine.systemLocation,
+        condition: function() {
+            return ('System' in engine.global) === false;
+        },
+        instantiate: function() {
+            // logic moved to config
+        }
+    });
+
+    engine.config(function locate() {
+        Object.assign(engine, {
+            locateFrom: function(location, baseLocation, stripFile) {
+                var href = new URL(this.cleanPath(location), this.cleanPath(baseLocation)).href;
+
+                if (stripFile && href.indexOf('file:///') === 0) {
+                    href = href.slice('file:///'.length);
+                }
+
+                return href;
+            },
+
+            locate: function(location, stripFile) {
+                return this.locateFrom(location, this.baseURL, stripFile);
+            },
+
+            locateRelative: function(location, stripFile) {
+                var trace = this.trace();
+
+                trace.callSites.shift();
+
+                return this.locateFrom(location, trace.fileName, stripFile);
+            },
+
+            locateFromRoot: function(location) {
+                return this.locateFrom(location, this.location, true);
+            }
+        });
     });
 
     // ensure transpiling with babel & System.trace = true
@@ -1159,9 +1194,7 @@
     */
 
     // file config
-    engine.config(function configFile() {
-        return System.import(engine.dirname + '/config/' + engine.agent.type + '.js');
-    });
+    engine.config(engine.dirname + '/config/' + engine.agent.type + '.js');
 
     engine.start();
     // engine.info(engine.type, engine.location, engine.baseURL);
