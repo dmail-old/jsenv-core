@@ -7,6 +7,5 @@ var fileLocation = process.argv[2];
 var fileURL = engine.nodeFile(fileLocation);
 
 process.argv.splice(2, 1);
-engine.run(function() {
-    return System.import(fileURL);
-});
+
+engine.main(fileURL);

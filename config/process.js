@@ -2,6 +2,7 @@
 
 import os from 'node/os';
 import fs from 'node/fs';
+import require from 'node/require';
 import engine from 'engine';
 
 engine.restart = function() {
@@ -27,7 +28,7 @@ engine.config(function stackTraceSourceMap() {
     return System.import('../node_modules/@dmail/node-stacktrace/index.js', __moduleName).then(function(module) {
         return module.default;
     }).then(function(StackTrace) {
-        var SourceMapConsumer = global.nodeRequire('source-map').SourceMapConsumer;
+        var SourceMapConsumer = require('source-map').SourceMapConsumer;
 
         // Maps a file path to a source map for that file
         var sourceMaps = {};
@@ -203,8 +204,8 @@ engine.config(function traceCoverage() {
     // https://github.com/guybedford/jspm-test-demo/blob/master/lib/coverage.js
     // when we want to get coverage object we call engine.enableCoverage();
 
-    var istanbul = global.nodeRequire('istanbul');
-    var remapIstanbul = global.nodeRequire('remap-istanbul/lib/remap');
+    var istanbul = require('istanbul');
+    var remapIstanbul = require('remap-istanbul/lib/remap');
 
     engine.coverage = undefined;
     engine.traceCoverage = function() {
