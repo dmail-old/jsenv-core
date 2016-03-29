@@ -587,94 +587,54 @@
         };
     });
 
-    // starting engine with config, run and ready logic
+    // phases
     engine.provide(function start() {
-        var configListeners = [];
-        var runListeners = [];
-        var readyListeners = [];
+        /*
+        in an external file you can do, once this file is included
 
-        function callEveryListener(list, name, initialValue) {
-            var index = 0;
-            var next = function(value) {
-                if (index >= list.length) {
-                    return Promise.resolve(value);
+        engine.setup(''); // declare a setup dependency
+        engine.config(function() {}); // function executed once setup is done
+        engine.run(function() {}); // function executed once config is done
+        engine.ready(function() {}); // function executed once run is done & main module is imported (engine.mainModule)
+        engine.start('./path/to/file.js'); // start the engine executing setup/config/run phases then importing the mainModule passed as argument
+        */
+
+        var Phase = function(name, perform) {
+            this.name = name;
+            this.perform = perform;
+            this.tasks = [];
+            this.add = this.add.bind(this);
+        };
+
+        Phase.prototype = {
+            nextPhase: undefined,
+            passed: false,
+
+            add: function(task) {
+                if (this.passed) {
+                    throw new Error('cannot add a task to ' + this.name + 'phase : the phase is passed');
                 }
-                var listener = list[index];
-                index++;
 
-                engine.debug('call', name, listener.name);
-                return Promise.resolve(listener(value)).then(next);
-            };
-
-            return next(initialValue);
-        }
-
-        var dependencies = [];
-
-        dependencies.push({
-            name: 'URLSearchParams',
-            url: 'node_modules/@dmail/url-search-params/index.js',
-            condition: function() {
-                return ('URLSearchParams' in engine.global) === false;
-            }
-        });
-
-        dependencies.push({
-            name: 'URL',
-            url: 'node_modules/@dmail/url/index.js',
-            condition: function() {
-                return ('URL' in engine.global) === false;
-            }
-        });
-
-        dependencies.push({
-            name: 'Object.assign',
-            url: 'node_modules/@dmail/object-assign/index.js',
-            condition: function() {
-                return ('assign' in Object) === false;
-            }
-        });
-
-        dependencies.push({
-            name: 'Object.complete',
-            url: 'node_modules/@dmail/object-complete/index.js',
-            condition: function() {
-                return ('complete' in Object) === false;
-            }
-        });
-
-        dependencies.push({
-            name: 'setImmediate',
-            url: 'node_modules/@dmail/set-immediate/index.js',
-            condition: function() {
-                return ('setImmediate' in engine.global) === false;
-            }
-        });
-
-        dependencies.push({
-            name: 'Promise',
-            url: 'node_modules/@dmail/promise-es6/index.js',
-            condition: function() {
-                return true; // force because of node promise not implementing unhandled rejection
-                // return false === 'Promise' in platform.global;
-            }
-        });
-
-        dependencies.push({
-            name: 'babel-polyfill',
-            url: engine.polyfillLocation
-        });
-
-        dependencies.push({
-            name: 'System',
-            url: engine.systemLocation,
-            condition: function() {
-                return ('System' in engine.global) === false;
+                this.tasks.push(task);
             },
-            instantiate: function() {
-                // logic moved to config
+
+            perform: function(callback) {
+                callback();
+            },
+
+            done: function() {
+                this.passed = true;
+                var nextPhase = this.nextPhase;
+                if (nextPhase) {
+                    engine.phase = nextPhase;
+                    nextPhase.start();
+                }
+            },
+
+            start: function() {
+                this.perform(this.done.bind(this));
             }
-        });
+        };
 
         function includeDependencies(dependencies, callback) {
             var i = 0;
@@ -721,60 +681,140 @@
             includeNext();
         }
 
-        return {
-            phase: 'unset',
-
-            depends: function(dependency) {
-                dependencies.push(dependency);
-            },
-
-            config: function(listener) {
-                configListeners.push(listener);
-            },
-
-            run: function(listener) {
-                runListeners.push(listener);
-            },
-
-            ready: function(listener) {
-                readyListeners.push(listener);
-            },
-
-            main: function(mainLocation) {
-                if (this.phase !== 'config' && this.phase !== 'setup') {
-                    throw new Error('engine.main() must be called during the config or init phase');
+        function callEveryListener(list, name, initialValue) {
+            var index = 0;
+            var next = function(value) {
+                if (index >= list.length) {
+                    return Promise.resolve(value);
                 }
-                this.mainLocation = mainLocation;
+                var listener = list[index];
+                index++;
+
+                engine.debug('call', name, listener.name);
+                return Promise.resolve(listener(value)).then(next);
+            };
+
+            return next(initialValue);
+        }
+
+        function performSetupPhase(callback) {
+            includeDependencies(this.tasks, callback);
+        }
+
+        function callPhaseListeners(callback) {
+            callEveryListener(this.tasks, this.name).then(callback);
+        }
+
+        function performMainPhase(callback) {
+            engine.mainImport = System.import(engine.locate(engine.mainLocation)).then(function(mainModule) {
+                engine.mainModule = mainModule;
+                callback();
+            });
+        }
+
+        var initPhase = new Phase('init');
+        var setupPhase = new Phase('setup', performSetupPhase);
+        var configPhase = new Phase('config', callPhaseListeners);
+        var runPhase = new Phase('run', callPhaseListeners);
+        var mainPhase = new Phase('main', performMainPhase);
+        var readyPhase = new Phase('ready', callPhaseListeners);
+
+        [
+            initPhase,
+            setupPhase,
+            configPhase,
+            runPhase,
+            mainPhase,
+            readyPhase
+        ].reduce(function(previous, current) {
+            previous.nextPhase = current;
+            return current;
+        }, initPhase);
+
+        [
+            {
+                name: 'URLSearchParams',
+                url: 'node_modules/@dmail/url-search-params/index.js',
+                condition: function() {
+                    return ('URLSearchParams' in engine.global) === false;
+                }
             },
-
-            setup: function(callback) {
-                includeDependencies(callback);
+            {
+                name: 'URL',
+                url: 'node_modules/@dmail/url/index.js',
+                condition: function() {
+                    return ('URL' in engine.global) === false;
+                }
             },
+            {
+                name: 'Object.assign',
+                url: 'node_modules/@dmail/object-assign/index.js',
+                condition: function() {
+                    return ('assign' in Object) === false;
+                }
+            },
+            {
+                name: 'Object.complete',
+                url: 'node_modules/@dmail/object-complete/index.js',
+                condition: function() {
+                    return ('complete' in Object) === false;
+                }
+            },
+            {
+                name: 'setImmediate',
+                url: 'node_modules/@dmail/set-immediate/index.js',
+                condition: function() {
+                    return ('setImmediate' in engine.global) === false;
+                }
+            },
+            {
+                name: 'Promise',
+                url: 'node_modules/@dmail/promise-es6/index.js',
+                condition: function() {
+                    return true; // force because of node promise not implementing unhandled rejection
+                    // return false === 'Promise' in platform.global;
+                }
+            },
+            {
+                name: 'babel-polyfill',
+                url: engine.polyfillLocation
+            },
+            {
+                name: 'System',
+                url: engine.systemLocation,
+                condition: function() {
+                    return ('System' in engine.global) === false;
+                },
+                instantiate: function() {
+                    // logic moved to config
+                }
+            }
+        ].forEach(function(dependency) {
+            setupPhase.add(dependency);
+        });
 
-            start: function() {
-                this.phase = 'setup';
+        return {
+            phase: initPhase,
 
-                this.setup(function(error) {
-                    if (error) {
-                        engine.debug('error ocurred');
-                        throw error; // why not engine.throw ?
+            setup: setupPhase.add,
+            config: configPhase.add,
+            run: runPhase.add,
+            ready: readyPhase.add,
+
+            start: function(mainModuleData) {
+                if (typeof mainModuleData === 'string') {
+                    var mainModuleLocation;
+                    if (mainModuleData.match(/^[A-Z]:\/\//)) {
+                        mainModuleLocation = this.nodeFile(mainModuleData);
                     } else {
-                        engine.debug('start');
-                        this.phase = 'config';
-                        callEveryListener(configListeners, 'config').then(function(value) {
-                            this.phase = 'run';
-                            return callEveryListener(runListeners, 'run', value);
-                        }.bind(this)).then(function() {
-                            this.phase = 'main';
-                            this.mainImport = System.import(engine.mainLocation);
-                            return this.mainImport;
-                        }.bind(this)).then(function(mainModule) {
-                            this.phase = 'ready';
-                            engine.mainModule = mainModule;
-                            return callEveryListener(readyListeners, 'ready', mainModule);
-                        }.bind(this));
+                        mainModuleLocation = mainModuleData;
                     }
-                }.bind(this));
+                    this.mainLocation = mainModuleLocation;
+                } else {
+                    throw new Error('engine.start() expect a mainModule argument');
+                }
+
+                initPhase.done();
             }
         };
     });
