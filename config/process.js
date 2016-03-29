@@ -247,7 +247,7 @@ engine.config(function traceCoverage() {
         };
 
         return new Promise(function(resolve) {
-            engine.ready(function() {
+            engine.run(function() {
                 // when engine is ready set the coverage object
                 engine.coverage = engine.global[istanbulGlobal] || {};
                 resolve(engine.coverage);

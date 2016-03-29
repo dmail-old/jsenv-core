@@ -565,8 +565,7 @@
 
         engine.setup(function() {}); // function or file executed in serie onceengine.start is called
         engine.config(function() {}); // function or file executed in serie once setup is done
-        engine.run(function() {}); // function or file executed in serie once config is done
-        engine.ready(function() {}); // function or file executed in serie once once run is done & main module is imported (engine.mainModule)
+        engine.run(function() {}); // function or file executed in serie once once run is done & main module is imported (engine.mainModule)
         engine.start('./path/to/file.js'); // start the engine executing setup/config/run phases then importing the mainModule passed as argument
         */
 
@@ -698,9 +697,8 @@
         var initPhase = new Phase('init');
         var setupPhase = new Phase('setup');
         var configPhase = new Phase('config');
-        var runPhase = new Phase('run');
         var mainPhase = new Phase('main');
-        var readyPhase = new Phase('ready');
+        var runPhase = new Phase('run');
 
         setupPhase.done = function(callback) {
             // when setup phase is done we can load task using System.import
@@ -731,9 +729,8 @@
             initPhase,
             setupPhase,
             configPhase,
-            runPhase,
             mainPhase,
-            readyPhase
+            runPhase
         ].reduce(function(previous, current) {
             previous.nextPhase = current;
             return current;
@@ -745,7 +742,6 @@
             setup: setupPhase.add,
             config: configPhase.add,
             run: runPhase.add,
-            ready: readyPhase.add,
 
             start: function(mainModuleData) {
                 if (typeof mainModuleData === 'string') {
