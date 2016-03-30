@@ -5,27 +5,25 @@ import fs from 'node/fs';
 import require from 'node/require';
 import engine from 'engine';
 
-engine.provide(function restart() {
-    return {
-        restart: function() {
-            process.kill(2);
-        }
+engine.config(function restartConfig() {
+    engine.restart = function() {
+        process.kill(2);
     };
 });
 
-engine.provide(function platformData() {
+engine.config(function platformConfig() {
     // https://nodejs.org/api/process.html#process_process_platform
     // 'darwin', 'freebsd', 'linux', 'sunos', 'win32'
     engine.platform.setName(process.platform === 'win32' ? 'windows' : process.platform);
     engine.platform.setVersion(os.release());
 });
 
-engine.provide(function agentData() {
+engine.config(function agentConfig() {
     engine.agent.setName('node');
     engine.agent.setVersion(process.version.slice(1));
 });
 
-engine.provide(function languagePreferences() {
+engine.config(function languageConfig() {
     engine.language.listPreferences = function() {
         if ('lang' in process.env) {
             return process.env.lang;
@@ -34,7 +32,7 @@ engine.provide(function languagePreferences() {
     };
 });
 
-engine.config(function stackTraceSourceMap() {
+engine.config(function stackTraceSourceMapConfig() {
     return System.import('../node_modules/@dmail/node-stacktrace/index.js', __moduleName).then(function(module) {
         return module.default;
     }).then(function(StackTrace) {
@@ -210,7 +208,7 @@ engine.config(function stackTraceSourceMap() {
     });
 });
 
-engine.config(function traceCoverage() {
+engine.config(function traceCoverageConfig() {
     // https://github.com/guybedford/jspm-test-demo/blob/master/lib/coverage.js
     // when we want to get coverage object we call engine.enableCoverage();
 
@@ -269,7 +267,7 @@ engine.config(function traceCoverage() {
     var reportJSON = true;
     var reportHTML = true;
 
-    engine.traceCoverage().then(function(coverage) {
+    engine.reportCoverage = function(coverage) {
         // console.log('got coverage', coverage);
 
         var mainLocation = engine.main;
@@ -395,7 +393,7 @@ engine.config(function traceCoverage() {
             reporter.add('text');
         }
         if (reportJSON) {
-            reporter.add('json');
+            // reporter.add('json');
         }
         if (reportHTML) {
             reporter.add('html');
@@ -405,7 +403,9 @@ engine.config(function traceCoverage() {
             console.log('writing report from collected data');
             reporter.write(collector, false, resolve);
         });
-    });
+    };
+
+    // engine.traceCoverage().then(engine.reportCoverage);
 });
 
 /*

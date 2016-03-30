@@ -16,7 +16,7 @@
     };
 
     // version management logic, on va appeler ça dans un setup et plus un provide
-    engine.provide(function version() {
+    engine.provide(function versionProvider() {
         function Version(string) {
             var parts = String(string).split('.');
             var major = parts[0];
@@ -63,7 +63,7 @@
     });
 
     // platform logic, platform is what runs the agent : windows, linux, mac, ..
-    engine.provide(function platform() {
+    engine.provide(function platformProvider() {
         var platform = {
             name: 'unknown',
             version: '',
@@ -94,7 +94,7 @@
     });
 
     // agent logic, agent is what runs JavaScript : nodejs, iosjs, firefox, ...
-    engine.provide(function agent() {
+    engine.provide(function agentProvider() {
         var type;
 
         if (typeof window !== 'undefined') {
@@ -151,7 +151,7 @@
     });
 
     // log logic
-    engine.provide(function logging() {
+    engine.provide(function logProvider() {
         var logLevel;
 
         if (engine.isProcess() && process.argv.indexOf('-verbose') !== -1) {
@@ -184,7 +184,7 @@
     });
 
     // exception management logic
-    engine.provide(function exception() {
+    engine.provide(function exceptionProvider() {
         /*
         // wait 1000ms before throwing any error
         engine.exceptionHandler.add(function(e){
@@ -444,7 +444,7 @@
     });
 
     // location logic
-    engine.provide(function location() {
+    engine.provide(function locationProvider() {
         var baseURL;
         var location;
         var systemLocation;
@@ -476,7 +476,7 @@
                 if (mustReplaceBackSlashBySlash) {
                     path = replaceBackSlashBySlash(String(path));
                 }
-                if (path.match(/^[A-Z]:\/\//)) {
+                if (/^[A-Z]:\/.*?$/.test(path)) {
                     path = 'file:///' + path;
                 }
                 return path;
@@ -507,12 +507,12 @@
     });
 
     // global logic
-    engine.provide(function global() {
+    engine.provide(function globalProvider() {
         var globalValue;
 
         if (engine.isBrowser()) {
             globalValue = window;
-        } else {
+        } else if (engine.isProcess()) {
             globalValue = global;
         }
 
@@ -524,7 +524,7 @@
     });
 
     // include logic
-    engine.provide(function include() {
+    engine.provide(function includeProvider() {
         var include;
 
         if (engine.isBrowser()) {
@@ -558,8 +558,8 @@
         };
     });
 
-    // phases
-    engine.provide(function start() {
+    // task
+    engine.provide(function taskProvider() {
         /*
         WARNING : if your env does not support promise you must add an inline polyfill during init : before engine.start()
 
@@ -575,23 +575,26 @@
             if (arguments.length === 1) {
                 if (typeof arguments[0] === 'function') {
                     this.name = arguments[0].name;
-                    this.method = arguments[0];
+                    this.fn = arguments[0];
                 } else if (typeof arguments[0] === 'object') {
                     var properties = arguments[0];
                     for (var key in properties) { // eslint-disable-line
                         this[key] = properties[key];
                     }
+                } else if (typeof arguments[0] === 'string') {
+                    this.name = arguments[0];
+                    this.url = this.name;
                 }
             } else if (arguments.length === 2) {
                 this.name = arguments[0];
-                this.method = arguments[1];
+                this.fn = arguments[1];
             }
         };
 
         Task.prototype = {
             name: undefined,
             skipped: false,
-            done: false,
+            ended: false,
 
             before: null,
             condition: null,
@@ -600,14 +603,19 @@
             next: null,
 
             chain: function(task) {
-                if (this.done) {
-                    throw new Error(this.name + 'task is done : cannot chain more task to it');
+                if (this.ended) {
+                    throw new Error(this.name + 'task is ended : cannot chain more task to it');
                 }
 
-                if (this.next) {
-                    return this.next.chain(task);
+                // engine.debug('do', task.name, 'after', this.name);
+
+                var next = this.next;
+                if (next) {
+                    next.chain(task);
+                } else {
+                    this.next = task;
                 }
-                this.next = task;
+
                 return this;
             },
 
@@ -615,13 +623,15 @@
                 if (beforeTask) {
                     var next = this.next;
                     if (!next) {
-                        throw new Error('cannot insert before a task which has no next task');
+                        throw new Error('cannot insert ' + task.name + ' before ' + beforeTask.name);
                     }
 
                     if (next === beforeTask) {
                         this.next = null;
-                        task.chain(next);
+
                         this.chain(task);
+                        task.chain(next);
+                        return this;
                     }
                     return next.insert(task, beforeTask);
                 }
@@ -630,15 +640,21 @@
             },
 
             import: function() {
+                engine.debug('importing', this.url);
                 return engine.include(this.url);
             },
 
             exec: function(value) {
-                return this.url ? this.import() : this.fn(value);
+                if (this.url) {
+                    return this.import();
+                }
+                return this.fn(value);
             },
 
             end: function(value) {
-                this.passed = true;
+                engine.debug('end of task', this.name);
+
+                this.ended = true;
                 return Promise.resolve(value).then(function(resolutionValue) {
                     if (this.after) {
                         return this.after(resolutionValue);
@@ -646,14 +662,16 @@
                     return resolutionValue;
                 }.bind(this)).then(function(resolutionValue) {
                     if (this.next) {
-                        return this.next.perform(resolutionValue);
+                        // will throw but it will be ignored
+                        return this.next.start(resolutionValue);
                     }
                     return resolutionValue;
-                });
+                }.bind(this));
             },
 
             start: function(value) {
                 engine.task = this;
+                engine.debug('starting task', this.name);
 
                 return Promise.resolve(value).then(function(resolutionValue) {
                     if (this.before) {
@@ -690,30 +708,34 @@
         initTask.chain(setupTask).chain(configTask).chain(mainTask).chain(runTask);
 
         return {
-            Task: Task,
             task: undefined,
 
-            setup: function(task) {
-                return initTask.insert(task, configTask);
+            setup: function(taskData) {
+                return initTask.insert(new Task(taskData), configTask);
             },
 
-            config: function(task) {
-                return initTask.insert(task, runTask);
+            config: function(taskData) {
+                return initTask.insert(new Task(taskData), runTask);
             },
 
-            run: function(task) {
+            run: function(taskData) {
                 // insert at the end
-                return initTask.insert(task);
+                return initTask.insert(new Task(taskData));
             },
 
             start: function(mainModuleData) {
                 if (typeof mainModuleData === 'string') {
-                    this.mainLocation = engine.locate(mainModuleData);
+                    this.mainLocation = mainModuleData;
                 } else {
                     throw new Error('engine.start() expect a mainModule argument');
                 }
 
-                initTask.start();
+                return initTask.start().catch(function(error) {
+                    console.log('error during tasks', error);
+                    setTimeout(function() {
+                        throw error;
+                    }, 10);
+                });
             }
         };
     });
@@ -779,16 +801,19 @@
             return ('System' in engine.global) === false;
         },
         after: function() {
-            engine.include = System.import;
+            engine.include = function(url) {
+                engine.debug('importing with system', url);
+                return System.import(url);
+            };
         }
     });
 
-    engine.config(function enableExceptionHandler() {
+    engine.config(function enableExceptionHandlerConfig() {
         // enable exception handling only once the setup phase is done
         engine.exceptionHandler.enable();
     });
 
-    engine.config(function locate() {
+    engine.config(function locateConfig() {
         Object.assign(engine, {
             locateFrom: function(location, baseLocation, stripFile) {
                 var href = new URL(this.cleanPath(location), this.cleanPath(baseLocation)).href;
@@ -818,8 +843,12 @@
         });
     });
 
+    engine.config(function locateMainConfig() {
+        engine.mainLocation = engine.locate(engine.mainLocation);
+    });
+
     // ensure transpiling with babel & System.trace = true
-    engine.config(function system() {
+    engine.config(function systemConfig() {
         System.transpiler = 'babel';
         System.babelOptions = {};
         System.paths.babel = engine.dirname + '/node_modules/babel-core/browser.js';
@@ -827,7 +856,7 @@
     });
 
     // core modules config
-    engine.config(function coreModules() {
+    engine.config(function coreModulesConfig() {
         function createModuleExportingDefault(defaultExportsValue) {
             /* eslint-disable quote-props */
             return System.newModule({
@@ -872,7 +901,7 @@
     });
 
     // ensure sources (a pointer on module original sources & sourcemap needed by sourcemap & coverage)
-    engine.config(function sources() {
+    engine.config(function sourcesConfig() {
         function readSourceMapURL(source) {
             // Keep executing the search to find the *last* sourceMappingURL to avoid
             // picking up sourceMappingURLs from comments, strings, etc.
@@ -921,8 +950,13 @@
                     // Support source map URLs relative to the source URL
                     // engine.debug('the sourcemap url is', sourceMapURL);
                     sourceMapURL = engine.locateFrom(sourceMapURL, fromURL);
-                    // engine.debug('read sourcemap from file');
-                    sourceMapPromise = System.import(sourceMapURL + '!json');
+                    engine.debug('read sourcemap from file', sourceMapURL);
+
+                    try {
+                        sourceMapPromise = Promise.resolve(require(sourceMapURL));
+                    } catch (e) {
+                        sourceMapPromise = Promise.resolve();
+                    }
                 }
             } else {
                 sourceMapPromise = Promise.resolve();
@@ -1015,7 +1049,7 @@
     });
 
     // language config, language used by the agent (firefox, node, ...)
-    engine.config(function language() {
+    engine.config(function languageConfig() {
         /*
         dans un module tu fais
 
@@ -1048,7 +1082,7 @@
                 this.name = parts[0].toLowerCase();
                 this.locale = parts[1] ? parts[1].toLowerCase() : '';
 
-                engine.registerCoreModule('engine-language', this.toString());
+                // engine.registerCoreModule('engine-language', this.toString());
             },
 
             listPreferences: function() {

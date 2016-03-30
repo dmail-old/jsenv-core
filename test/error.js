@@ -2,11 +2,7 @@ require('../index.js');
 
 var engine = global.engine;
 
-engine.run(function testError() {
-    return engine.main(engine.locate('./test/modules/error.js')).then(function(module) {
-        return module.default;
-    });
-});
+engine.start('./test/modules/error.js');
 
 // var stack = error.stack;
 // assert.equal(error.lineNumber, 3);
