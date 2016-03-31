@@ -107,13 +107,10 @@
             },
 
             before: function(value) {
-                engine.debug('before task', this.name);
                 return value;
             },
 
             after: function(value) {
-                engine.debug('after task', this.name);
-
                 this.ended = true;
 
                 if (this.next) {
@@ -124,7 +121,9 @@
             },
 
             start: function(value) {
+                // engine.info(engine.type, engine.location, engine.baseURL);
                 engine.task = this;
+                engine.debug('start task', this.name);
 
                 return Promise.resolve(value).then(
                     this.before.bind(this)
@@ -416,105 +415,16 @@
         };
     });
 
-    // language config, language used by the agent (firefox, node, ...)
     engine.config(function provideLanguage() {
-        /*
-        dans un module tu fais
-
-        import I18N from 'i18n';
-
-        let i18n = I18N.module('moduleName', {
-            fr: './i18n/fr.js', // path to a file
-            en: {hello: "Hello"} // inline
-        });
-
-        du coup pour ce module on a direct les i18n dont on a besoin et la liste des i18n dispo
-        lorsque le module est chargé par system-run il faudrais qu'il regarde la liste et pour le language en cours
-        charge le fichier de langue
-
-        il faudrais le faire pour le module chargé et pour nimporte quel sous-module qu'on charge en tant que dépendance
-        */
+        // languague used by the agent
 
         var language = {
-            // default: 'en',
-            name: '',
-            locale: '',
-
-            toString: function() {
-                return this.name + '-' + this.locale;
-            },
-
-            set: function(string) {
-                var parts = string.split('-');
-
-                this.name = parts[0].toLowerCase();
-                this.locale = parts[1] ? parts[1].toLowerCase() : '';
-
-                // engine.registerCoreModule('engine-language', this.toString());
-            },
+            preferences: [],
 
             listPreferences: function() {
                 return '';
             },
 
-            /*
-            we can't known the availableLanguages without doing a request somewhere to get the list.
-            a .config() call can set proposed languages by any means
-
-            once language.init is called we known the best language to use, it's set into engine-language core module
-            most of the time we'll then add a .run() call to load the right i18n file that we're going to populate on I18N module
-            when is the I18N module loaded -> System.import('i18n') in a run() followed by i18n population with the loaded file
-
-            https://github.com/systemjs/systemjs/blob/master/lib/conditionals.js
-
-            we cannot have a conditional static loader:
-                - we would prevent module from loading the english translations when engine-language is not en
-                but we cannot force this only if there is a language for this module
-
-            current proposed solution:
-                - let every module load his default language then when we wants to use this default language
-                check the global I18N object if there is a better language for this module, if so use it
-                else populate i18n of this module with the default languague not overiding any existing key
-                -> we're loading a useless file that may never be useful, for now it's ok
-
-            If we don't load the default language for each module what happens?
-            the module has noi18n file so i18n will fails all the time
-            we may consider that once engine.config are done
-            we try to load the most appropriate i18n file right from where we are /i18n/$[language.name}.js
-            se we don't load a useless file
-            that would be a great solution but let's imagine this
-
-            main/
-                index.js -> will load i18/en.js but will not load dependency/i18n/en.js
-                i18n/
-                    en.js
-            dependency/
-                index.js
-                i18n/
-                    en.js
-
-            and we can't check for every import if the file i18n-ified
-            i18n should be automated and it's not fat from the way to go, keep thinking
-            a sort of meta inside index.js saying hey I got i18n files could be amazing
-            maybe a special export const i18nFolder = './i18n' would do the trick
-
-            ./i18n/en.js
-            import I18N;
-            export default I18N.module('schema').addLanguage('en', {});
-
-            ./index.js
-            import './i18n/?#{engine-language-is-en}.js'; // ne charger que si le module est en anglais, sinon on prend
-
-            il faudrais combiner la liste des languages dispo pour une module globalement et localement
-            puis récupérer le meilleur parmi ceux là et enfin le charger
-
-            bon y'a deux cas :
-                le module ne dispose que d'un language, localement:
-                    on charge ce language que si globalement aucun meilleur language n'est loadé
-                le module dispose de plusieurs language localement :
-                    on charge le meilleur language parmi ceux dispo globalement et localement
-
-            */
             bestLanguage: function(proposeds) {
                 return Promise.resolve(this.listPreferences()).then(function(preferenceString) {
                     var preferences = preferenceString.toLowerCase().split(',');
@@ -695,6 +605,10 @@
                 }
             },
 
+            throw: function(value) {
+                throw value;
+            },
+
             crash: function() {
                 // disableHooks to prevent hook from catching this error
                 // because the following creates an infinite loop (and is what we're doing)
@@ -788,16 +702,12 @@
         };
 
         engine.provide({
-            exceptionHandler: exceptionHandler,
-            throw: function(value) {
-                throw value;
-            }
+            exceptionHandler: exceptionHandler
         });
     });
 
     engine.config(function configExceptionHandler() {
-        // enable exception handling only once the setup phase is done
-        // engine.exceptionHandler.enable();
+        engine.exceptionHandler.enable();
     });
 
     engine.config(function provideImport() {
@@ -1028,11 +938,11 @@
                     sourceMapURL = engine.locateFrom(sourceMapURL, fromURL);
                     engine.debug('read sourcemap from file', sourceMapURL);
 
-                    try {
-                        sourceMapPromise = Promise.resolve(require(sourceMapURL));
-                    } catch (e) {
-                        sourceMapPromise = Promise.resolve();
-                    }
+                    // try {
+                    sourceMapPromise = Promise.resolve(require(sourceMapURL));
+                    // } catch (e) {
+                    //     sourceMapPromise = Promise.resolve();
+                    // }
                 }
             } else {
                 sourceMapPromise = Promise.resolve();
@@ -1070,7 +980,6 @@
                     sourceMapPromise = Promise.resolve(sourceMap);
                 } else {
                     // should disable this for browser.js which contains foo.js.map
-                    engine.debug('reading sourcemap from file source, the file is', load.name);
                     sourceMapPromise = readSourceMap(source, load.name);
                 }
 
@@ -1079,6 +988,10 @@
                         source: originalSource,
                         sourceMap: sourceMap
                     };
+
+                    if (sourceMap) {
+                        engine.debug('store sourcemap for', load.name);
+                    }
 
                     // Load all sources stored inline with the source map into the file cache
                     // to pretend like they are already loaded. They may not exist on disk.
@@ -1125,29 +1038,7 @@
         };
     });
 
-    /*
-    // this will be part of a nother module called eco-system that will be what most future module will depends on
-    // eco-system takes care of module dependency, hot reloading from github etc...
-    System.import(platform.dirname + '/namespace.js').then(function(exports) {
-        var NameSpaceConfig = exports['default']; // eslint-disable-line dot-notation
-        var nameSpaceConfig = NameSpaceConfig.create();
-
-        nameSpaceConfig.add({
-            namespace: 'dmail',
-            path: 'file:///C:/Users/Damien/Documents/Github'
-        });
-
-        var normalize = System.normalize;
-        System.normalize = function(moduleName , parentModuleName, parentModuleUrl) {
-            moduleName = nameSpaceConfig.locate(moduleName);
-            return normalize.apply(this, arguments);
-        };
-    });
-    */
-
     engine.config(function importAgentConfig() {
         return engine.import(engine.dirname + '/config/' + engine.agent.type + '.js');
     });
-
-    // engine.info(engine.type, engine.location, engine.baseURL);
 })();

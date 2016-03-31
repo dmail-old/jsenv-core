@@ -1,4 +1,4 @@
-/* global __moduleName */
+/* global __moduleName, URL */
 
 import os from 'node/os';
 import fs from 'node/fs';
@@ -200,7 +200,7 @@ engine.config(function enableStackTraceSourceMap() {
         };
 
         // we have to define the throw method else stack trace is not correctly printed
-        engine.throw = function(exceptionValue) {
+        engine.exceptionHandler.throw = function(exceptionValue) {
             // we don't need this anymore thanks to Error.prepareStackTrace in @dmail/node-stacktrace
             // StackTrace.install(exceptionValue);
 
@@ -216,279 +216,191 @@ engine.config(function enableStackTraceSourceMap() {
 
 engine.config(function provideCoverage() {
     // https://github.com/guybedford/jspm-test-demo/blob/master/lib/coverage.js
-    // when we want to get coverage object we call engine.enableCoverage();
 
-    var istanbul = require('istanbul');
-    var remapIstanbul = require('remap-istanbul/lib/remap');
-
-    engine.coverage = undefined;
-    engine.traceCoverage = function() {
-        var istanbulGlobal;
-        for (var key in global) {
-            if (key.match(/\$\$cov_\d+\$\$/)) {
-                istanbulGlobal = key;
-                break;
-            }
+    function stripTrailingSep(pathname) {
+        if (pathname[pathname.length - 1] === '/') {
+            pathname = pathname.slice(0, -1);
         }
-        istanbulGlobal = istanbulGlobal || '__coverage__';
+        return pathname;
+    }
 
-        // Coverage variable created by Istanbul and stored in global variables.
-        // https://github.com/gotwarlost/istanbul/blob/master/lib/instrumenter.js
-        var instrumenter = new istanbul.Instrumenter({
-            coverageVariable: istanbulGlobal
-        });
+    function urlIsSiblingOrDescendantOf(url, otherUrl) {
+        url = new URL(url, otherUrl);
+        otherUrl = new URL(otherUrl);
 
-        var translate = System.translate;
-        System.translate = function(load) {
-            return translate.call(this, load).then(function(source) {
-                if (load.metadata.format === 'json' || load.metadata.format === 'defined' || load.metadata.loader) {
+        if (url.protocol !== otherUrl.protocol) {
+            return false;
+        }
+        if (url.host !== otherUrl.host) {
+            return false;
+        }
+        if (url.port !== otherUrl.port) {
+            return false;
+        }
+
+        var pathname = stripTrailingSep(url.pathname);
+        var potentialParentOrSibling = stripTrailingSep(otherUrl.pathname);
+        var potentialDirname = potentialParentOrSibling.slice(0, potentialParentOrSibling.lastIndexOf('/'));
+
+        return pathname.startsWith(potentialDirname);
+    }
+
+    var coverage = {
+        variableName: '__coverage__',
+        value: {},
+
+        urlIsPartOfCoverage(url) {
+            // the url must be a sibling or a descendant of engine.mainLocation
+            return urlIsSiblingOrDescendantOf(url, engine.mainLocation);
+        },
+
+        // must be called during config, after it's too late
+        enable() {
+            var istanbul = require('istanbul');
+
+            for (var key in engine.global) {
+                if (key.match(/\$\$cov_\d+\$\$/)) {
+                    this.variableName = key;
+                    break;
+                }
+            }
+
+            // Coverage variable created by Istanbul and stored in global variables.
+            // https://github.com/gotwarlost/istanbul/blob/master/lib/instrumenter.js
+            var instrumenter = new istanbul.Instrumenter({
+                coverageVariable: this.variableName
+            });
+
+            var translate = System.translate;
+            var self = this;
+            System.translate = function(load) {
+                return translate.call(this, load).then(function(source) {
+                    if (load.metadata.format === 'json' || load.metadata.format === 'defined' || load.metadata.loader) {
+                        return source;
+                    }
+
+                    if (self.urlIsPartOfCoverage(load.address)) {
+                        try {
+                            return instrumenter.instrumentSync(source, load.address.substr(System.baseURL.length));
+                        } catch (e) {
+                            var newErr = new Error(
+                                'Unable to instrument "' + load.name + '" for istanbul.\n\t' + e.message
+                            );
+                            newErr.stack = 'Unable to instrument "' + load.name + '" for istanbul.\n\t' + e.stack;
+                            newErr.originalErr = e.originalErr || e;
+                            throw newErr;
+                        }
+                    }
+
                     return source;
-                }
-
-                console.log('instrumenting', load.address);
-
-                try {
-                    return instrumenter.instrumentSync(source, load.address.substr(System.baseURL.length));
-                } catch (e) {
-                    var newErr = new Error(
-                        'Unable to instrument "' + load.name + '" for istanbul.\n\t' + e.message
-                    );
-                    newErr.stack = 'Unable to instrument "' + load.name + '" for istanbul.\n\t' + e.stack;
-                    newErr.originalErr = e.originalErr || e;
-                    throw newErr;
-                }
-            });
-        };
-
-        return new Promise(function(resolve) {
-            engine.run(function() {
-                // when engine is ready set the coverage object
-                engine.coverage = engine.global[istanbulGlobal] || {};
-                resolve(engine.coverage);
-            });
-        });
-    };
-
-    var reportConsole = true;
-    var reportJSON = true;
-    var reportHTML = true;
-
-    engine.reportCoverage = function(coverage) {
-        // console.log('got coverage', coverage);
-
-        var mainLocation = engine.mainLocation;
-        var collector = remapIstanbul(coverage, {
-            readFile: function(path) {
-                var originalSourceObject = engine.sources[System.baseURL + path];
-                var source = originalSourceObject.source;
-
-                // I've to add this even if useless because it's how remapIstanbul knows there is a sourceMap for this file
-                if ('sourceMap' in originalSourceObject) {
-                    source += '\n//# sourceMappingURL=' + path.split('/').pop() + '.map';
-                }
-
-                // console.log('read file at', path, source);
-
-                return source;
-            },
-
-            readJSON: function(path) {
-                console.log('reading json at', path);
-
-                path = path.replace(/\\/g, '/');
-
-                var pathBase = System.baseURL + path.split('/').slice(0, -1).join('/');
-                var modulePath = System.baseURL + path.substr(0, path.length - 4);
-                var originalSourcesObj = engine.sources[modulePath];
-
-                // console.log('pathbase', pathBase);
-                // console.log('read json for', modulePath, 'got original source?', Boolean(originalSourcesObj));
-
-                // we may not have any sourcemap because file does not requires any?
-
-                // non transpilation-created source map -> load the source map file directly
-                if (!originalSourcesObj || !originalSourcesObj.sourceMap) {
-                    console.log('we dont have any sourcemap, parse json at', System.baseURL + path);
-
-                    return JSON.parse(fs.readFileSync(System.baseURL + path));
-                }
-
-                var map = originalSourcesObj.sourceMap.map;
-
-                // console.log('got sourcemap correctly', map);
-
-                map.sources = map.sources.map(function(src) {
-                    if (src.substr(0, pathBase.length) === pathBase) {
-                        src = './' + src.substr(pathBase.length);
-                    }
-                    return src;
                 });
+            };
 
-                return map;
-            },
-
-            warn: function(msg) {
-                if (msg.toString().indexOf('Could not find source map for') !== -1) {
-                    return;
-                }
-                console.warn(msg);
-            }
-        });
-
-        var coverageDir = engine.locateFrom('error-coverage', mainLocation, true);
-
-        console.log('coverage directory?', coverageDir);
-
-        var fileData = [];
-        var fileName;
-        var writer = {
-            on: function(evt, fn) {
-                if (evt === 'done') {
-                    this.done = fn;
-                }
-            },
-
-            writeFile: function(name, write) {
-                console.log('writing file', name);
-
-                fileName = fileName || name;
-                if (fileName !== name) {
-                    throw new Error('Multiple file outputs not currently supported.');
-                }
-                var contentWriter = {
-                    println: function(line) {
-                        // console.log('writing line', line);
-                        fileData.push(line + '\n');
-                    },
-
-                    write: function(data) {
-                        // console.log('writing', data);
-                        fileData.push(data);
+            return new Promise(function(resolve) {
+                engine.run(function() {
+                    // when engine is ready set the coverage object
+                    if (self.variableName in engine.global) {
+                        self.value = self.variableName;
                     }
-                };
-                write(contentWriter);
-            },
+                    resolve(self.value);
+                });
+            });
+        },
 
-            done: function() {
-                this.done();
-            }
-        };
+        collect() {
+            var remapIstanbul = require('remap-istanbul/lib/remap');
 
-        var cfg = {
-            reporting: {
-                reportConfig: function() {
-                    var reportConfig = {
+            var collector = remapIstanbul(coverage, {
+                readFile: function(path) {
+                    var originalSourceObject = engine.sources[System.baseURL + path];
+                    var source = originalSourceObject.source;
 
-                    };
-                    reportConfig.json = {
-                        writer: writer
-                    };
-                    return reportConfig;
+                    // I've to add this even if useless because it's how remapIstanbul knows there is a sourceMap for this file
+                    if ('sourceMap' in originalSourceObject) {
+                        source += '\n//# sourceMappingURL=' + path.split('/').pop() + '.map';
+                    }
+
+                    // console.log('read file at', path, source);
+
+                    return source;
                 },
 
-                watermarks: function() {
+                readJSON: function(path) {
+                    console.log('reading json at', path);
 
+                    path = path.replace(/\\/g, '/');
+
+                    var pathBase = System.baseURL + path.split('/').slice(0, -1).join('/');
+                    var modulePath = System.baseURL + path.substr(0, path.length - 4);
+                    var originalSourcesObj = engine.sources[modulePath];
+
+                    // console.log('pathbase', pathBase);
+                    // console.log('read json for', modulePath, 'got original source?', Boolean(originalSourcesObj));
+
+                    // we may not have any sourcemap because file does not requires any?
+
+                    // non transpilation-created source map -> load the source map file directly
+                    if (!originalSourcesObj || !originalSourcesObj.sourceMap) {
+                        console.log('we dont have any sourcemap, parse json at', System.baseURL + path);
+
+                        return JSON.parse(fs.readFileSync(System.baseURL + path));
+                    }
+
+                    var map = originalSourcesObj.sourceMap.map;
+
+                    // console.log('got sourcemap correctly', map);
+
+                    map.sources = map.sources.map(function(src) {
+                        if (src.substr(0, pathBase.length) === pathBase) {
+                            src = './' + src.substr(pathBase.length);
+                        }
+                        return src;
+                    });
+
+                    return map;
+                },
+
+                warn: function(msg) {
+                    if (msg.toString().indexOf('Could not find source map for') !== -1) {
+                        return;
+                    }
+                    console.warn(msg);
                 }
+            });
+
+            return collector;
+        },
+
+        report() {
+            var collector = this.collect();
+            var mainLocation = engine.mainLocation;
+            var coverageDir = engine.locateFrom('error-coverage', mainLocation, true);
+
+            var reportConsole = true;
+            var reportJSON = true;
+            var reportHTML = true;
+            var reporter = new istanbul.Reporter(null, coverageDir); // eslint-disable-line
+            if (reportConsole) {
+                reporter.add('text');
             }
-        };
+            if (reportJSON) {
+                reporter.add('json');
+            }
+            if (reportHTML) {
+                reporter.add('html');
+            }
 
-        cfg = null;
-
-        var reporter = new istanbul.Reporter(cfg, coverageDir); // eslint-disable-line
-        if (reportConsole) {
-            reporter.add('text');
+            return new Promise(function(resolve) {
+                reporter.write(collector, false, resolve);
+            });
         }
-        if (reportJSON) {
-            // reporter.add('json');
-        }
-        if (reportHTML) {
-            reporter.add('html');
-        }
-
-        return new Promise(function(resolve) {
-            console.log('writing report from collected data');
-            reporter.write(collector, false, resolve);
-        });
     };
+
+    engine.coverage = coverage;
 });
 
 engine.config(function configCoverage() {
-    // engine.traceCoverage().then(engine.reportCoverage);
+    // most time we do code coverage test to see how a file is covering all it's dependencies
+    // so checking that the file is the mainLocation or a peer or inside is sufficient
+    // engine.coverage.enable().then(engine.coverage.report);
 });
-
-/*
-engine.config(function() {
-    if (process.argv.indexOf('-cover') > -1) {
-
-    }
-
-    var fileData = [];
-    var fileName;
-    var writer = {
-        on: function(evt, fn) {
-            if (evt === 'done') {
-                this.done = fn;
-            }
-        },
-
-        writeFile: function(name, write) {
-            console.log('writing file', name);
-
-            fileName = fileName || name;
-            if (fileName !== name) {
-                throw new Error('Multiple file outputs not currently supported.');
-            }
-            var contentWriter = {
-                println: function(line) {
-                    fileData.push(line + '\n');
-                },
-
-                write: function(data) {
-                    fileData.push(data);
-                }
-            };
-            write(contentWriter);
-        },
-
-        done: function() {
-            this.done();
-        }
-    };
-    var cfg = {
-        reporting: {
-            reportConfig: function() {
-                var reportConfig = {
-                    json: {
-                        writer: writer
-                    }
-                };
-                return reportConfig;
-            },
-
-            watermarks: function() {
-
-            }
-        }
-    };
-
-    var reporter = new istanbul.Reporter(cfg, __dirname + '/myown-coverage'); // eslint-disable-line
-    if (reportConsole) {
-        reporter.add('text');
-    }
-    if (reportJSON) {
-        reporter.add('json');
-    }
-    if (reportHTML) {
-        reporter.add('html');
-    }
-
-    return new Promise(function(resolve) {
-        console.log('writing report from collected data');
-        reporter.write(collector, false, resolve);
-    }).then(function() {
-        // return fileData.join('');
-    }).then(function(output) {
-        // fs.writeFileSync('coverage.json', output);
-    });
-});
-*/
