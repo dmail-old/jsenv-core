@@ -5,8 +5,8 @@
 
     // engine.provide adds functionnality to engine object
     // it can be called anywhere but it makes more sense to call it as soon as possible to provide functionalities asap
-    engine.provide = function(fn) {
-        var properties = fn();
+    engine.provide = function(data) {
+        var properties = typeof data === 'function' ? data() : data;
 
         if (properties) {
             for (var key in properties) { // eslint-disable-line
@@ -15,86 +15,176 @@
         }
     };
 
-    // version management logic, on va appeler ça dans un setup et plus un provide
-    engine.provide(function versionProvider() {
-        function Version(string) {
-            var parts = String(string).split('.');
-            var major = parts[0];
-            var minor = parts[1];
-            var patch = parts[2];
+    // task
+    (function() {
+        /*
+        WARNING : if your env does not support promise you must provide a polyfill before calling engine.start()
 
-            this.major = parseInt(major);
-            this.minor = minor ? parseInt(minor) : 0;
-            this.patch = patch ? parseInt(patch) : 0;
+        in an external file you can do, once this file is included
+
+        engine.setup(function() {}); // function or file executed in serie onceengine.start is called
+        engine.config(function() {}); // function or file executed in serie once setup is done
+        engine.run(function() {}); // function or file executed in serie once once run is done & main module is imported (engine.mainModule)
+        engine.start('./path/to/file.js'); // start the engine executing setup/config/run phases then importing the mainModule passed as argument
+        */
+
+        var Task = function() {
+            if (arguments.length === 1) {
+                if (typeof arguments[0] === 'function') {
+                    this.name = arguments[0].name;
+                    this.fn = arguments[0];
+                } else if (typeof arguments[0] === 'object') {
+                    var properties = arguments[0];
+                    for (var key in properties) { // eslint-disable-line
+                        this[key] = properties[key];
+                    }
+                } else if (typeof arguments[0] === 'string') {
+                    this.name = arguments[0];
+                    this.url = this.name;
+                }
+            } else if (arguments.length === 2) {
+                this.name = arguments[0];
+                this.fn = arguments[1];
+            }
+        };
+
+        Task.prototype = {
+            name: undefined,
+            skipped: false,
+            ended: false,
+            next: null,
+
+            chain: function(task) {
+                if (this.ended) {
+                    throw new Error(this.name + 'task is ended : cannot chain more task to it');
+                }
+
+                // engine.debug('do', task.name, 'after', this.name);
+
+                var next = this.next;
+                if (next) {
+                    next.chain(task);
+                } else {
+                    this.next = task;
+                }
+
+                return this;
+            },
+
+            insert: function(task, beforeTask) {
+                if (beforeTask) {
+                    var next = this.next;
+                    if (!next) {
+                        throw new Error('cannot insert ' + task.name + ' before ' + beforeTask.name);
+                    }
+
+                    if (next === beforeTask) {
+                        this.next = null;
+
+                        this.chain(task);
+                        task.chain(next);
+                        return this;
+                    }
+                    return next.insert(task, beforeTask);
+                }
+
+                return this.chain(task);
+            },
+
+            skip: function() {
+                this.skipped = true;
+                engine.debug('skip task', this.name);
+            },
+
+            import: function() {
+                this.address = engine.locate(this.url);
+                engine.debug('importing', this.url);
+                return engine.import(this.url);
+            },
+
+            exec: function(value) {
+                return this.fn(value);
+            },
+
+            before: function(value) {
+                engine.debug('before task', this.name);
+                return value;
+            },
+
+            after: function(value) {
+                engine.debug('after task', this.name);
+
+                this.ended = true;
+
+                if (this.next) {
+                    // will throw but it will be ignored
+                    return this.next.start(value);
+                }
+                return value;
+            },
+
+            start: function(value) {
+                engine.task = this;
+
+                return Promise.resolve(value).then(
+                    this.before.bind(this)
+                ).then(function(resolutionValue) {
+                    if (this.skipped) {
+                        engine.debug('skip task', this.name);
+                        return resolutionValue;
+                    }
+                    return this.exec(resolutionValue);
+                }.bind(this)).then(
+                    this.after.bind(this)
+                );
+            }
+        };
+
+        var noop = function() {};
+        var configTask = new Task('config', noop);
+        var mainTask = new Task('main', function() {
+            engine.mainImport = System.import(engine.mainLocation).then(function(mainModule) {
+                engine.mainModule = mainModule;
+                return mainModule;
+            });
+            return engine.mainImport;
+        });
+        var runTask = new Task('run', noop);
+
+        configTask.chain(mainTask).chain(runTask);
+
+        function config(taskData) {
+            return configTask.insert(new Task(taskData), mainTask);
         }
 
-        function compareVersionPart(a, b) {
-            if (a === '*') {
-                return true;
-            }
-            if (b === '*') {
-                return true;
-            }
-            return a === b;
+        function run(taskData) {
+            return mainTask.chain(new Task(taskData));
         }
 
-        Version.prototype = {
-            match: function(version) {
-                if (typeof version === 'string') {
-                    version = new Version(version);
+        engine.provide({
+            task: undefined,
+            config: config,
+            run: run,
+
+            start: function(mainModuleData) {
+                if (typeof mainModuleData === 'string') {
+                    this.mainLocation = mainModuleData;
+                } else {
+                    throw new Error('engine.start() expect a mainModule argument');
                 }
 
-                return compareVersionPart(this.patch, version.patch) &&
-                    compareVersionPart(this.minor, version.minor) &&
-                    compareVersionPart(this.major, version.major)
-                ;
-            },
-
-            toString: function() {
-                return this.major + '.' + this.minor + '.' + this.patch;
+                return configTask.start().catch(function(error) {
+                    // console.log('error during tasks', error);
+                    setTimeout(function() {
+                        throw error;
+                    });
+                });
             }
-        };
+        });
+    })();
 
-        return {
-            createVersion: function(string) {
-                return new Version(string);
-            }
-        };
-    });
-
-    // platform logic, platform is what runs the agent : windows, linux, mac, ..
-    engine.provide(function platformProvider() {
-        var platform = {
-            name: 'unknown',
-            version: '',
-
-            setName: function(name) {
-                this.name = name.toLowerCase();
-            },
-
-            setVersion: function(version) {
-                this.version = engine.createVersion(version);
-            },
-
-            match: function(platform) {
-                if ('name' in platform && this.name !== platform.name) {
-                    return false;
-                }
-                if ('version' in platform && this.version.match(platform.version) === false) {
-                    return false;
-                }
-
-                return true;
-            }
-        };
-
-        return {
-            platform: platform
-        };
-    });
-
-    // agent logic, agent is what runs JavaScript : nodejs, iosjs, firefox, ...
     engine.provide(function agentProvider() {
+        // agent is what runs JavaScript : nodejs, iosjs, firefox, ...
         var type;
 
         if (typeof window !== 'undefined') {
@@ -137,7 +227,7 @@
             }
         };
 
-        return {
+        engine.provide({
             agent: agent,
 
             isBrowser: function() {
@@ -147,23 +237,104 @@
             isProcess: function() {
                 return this.agent.type === 'process';
             }
+        });
+    });
+
+    engine.provide(function globalProvider() {
+        var globalValue;
+
+        if (engine.isBrowser()) {
+            globalValue = window;
+        } else if (engine.isProcess()) {
+            globalValue = global;
+        }
+
+        globalValue.engine = engine;
+
+        return {
+            global: globalValue
         };
     });
 
-    // log logic
-    engine.provide(function logProvider() {
-        var logLevel;
+    engine.provide(function versionProvider() {
+        function Version(string) {
+            var parts = String(string).split('.');
+            var major = parts[0];
+            var minor = parts[1];
+            var patch = parts[2];
 
-        if (engine.isProcess() && process.argv.indexOf('-verbose') !== -1) {
-            logLevel = 'info';
-        } else {
-            logLevel = 'error';
+            this.major = parseInt(major);
+            this.minor = minor ? parseInt(minor) : 0;
+            this.patch = patch ? parseInt(patch) : 0;
         }
 
-        logLevel = 'debug';
+        function compareVersionPart(a, b) {
+            if (a === '*') {
+                return true;
+            }
+            if (b === '*') {
+                return true;
+            }
+            return a === b;
+        }
 
-        return {
-            logLevel: logLevel,
+        Version.prototype = {
+            match: function(version) {
+                if (typeof version === 'string') {
+                    version = new Version(version);
+                }
+
+                return compareVersionPart(this.patch, version.patch) &&
+                    compareVersionPart(this.minor, version.minor) &&
+                    compareVersionPart(this.major, version.major)
+                ;
+            },
+
+            toString: function() {
+                return this.major + '.' + this.minor + '.' + this.patch;
+            }
+        };
+
+        engine.provide({
+            createVersion: function(string) {
+                return new Version(string);
+            }
+        });
+    });
+
+    engine.provide(function platformProvider() {
+        // platform is what runs the agent : windows, linux, mac, ..
+
+        var platform = {
+            name: 'unknown',
+            version: '',
+
+            setName: function(name) {
+                this.name = name.toLowerCase();
+            },
+
+            setVersion: function(version) {
+                this.version = engine.createVersion(version);
+            },
+
+            match: function(platform) {
+                if ('name' in platform && this.name !== platform.name) {
+                    return false;
+                }
+                if ('version' in platform && this.version.match(platform.version) === false) {
+                    return false;
+                }
+
+                return true;
+            }
+        };
+
+        engine.platform = platform;
+    });
+
+    engine.provide(function logProvider() {
+        engine.provide({
+            logLevel: 'debug', // 'error',
 
             info: function() {
                 if (this.logLevel === 'info') {
@@ -180,11 +351,72 @@
                     console.log.apply(console, arguments);
                 }
             }
+        });
+    });
+
+    engine.provide(function locationDataProvider() {
+        var baseURL;
+        var location;
+        var systemLocation;
+        var polyfillLocation;
+        var clean;
+
+        if (engine.isBrowser()) {
+            clean = function(path) {
+                return path;
+            };
+
+            baseURL = (function() {
+                var href = window.location.href.split('#')[0].split('?')[0];
+                var base = href.slice(0, href.lastIndexOf('/') + 1);
+
+                return base;
+            })();
+            location = document.scripts[document.scripts.length - 1].src;
+
+            systemLocation = 'node_modules/systemjs/dist/system.js';
+            polyfillLocation = 'node_modules/babel-polyfill/dist/polyfill.js';
+        } else {
+            var mustReplaceBackSlashBySlash = process.platform.match(/^win/);
+            var replaceBackSlashBySlash = function(path) {
+                return path.replace(/\\/g, '/');
+            };
+
+            clean = function(path) {
+                if (mustReplaceBackSlashBySlash) {
+                    path = replaceBackSlashBySlash(String(path));
+                }
+                if (/^[A-Z]:\/.*?$/.test(path)) {
+                    path = 'file:///' + path;
+                }
+                return path;
+            };
+
+            baseURL = (function() {
+                var cwd = process.cwd();
+                var baseURL = clean(cwd);
+                if (baseURL[baseURL.length - 1] !== '/') {
+                    baseURL += '/';
+                }
+                return baseURL;
+            })();
+            location = clean(__filename);
+
+            systemLocation = 'node_modules/systemjs/index.js';
+            polyfillLocation = 'node_modules/babel-polyfill/lib/index.js';
+        }
+
+        return {
+            baseURL: baseURL, // from where am I running system-run
+            location: location, // where is this file
+            dirname: location.slice(0, location.lastIndexOf('/')), // dirname of this file
+            systemLocation: systemLocation, // where is the system file
+            polyfillLocation: polyfillLocation, // where is the babel polyfill file
+            cleanPath: clean
         };
     });
 
-    // exception management logic
-    engine.provide(function exceptionProvider() {
+    engine.config(function exceptionHandling() {
         /*
         // wait 1000ms before throwing any error
         engine.exceptionHandler.add(function(e){
@@ -198,7 +430,6 @@
 
         var exceptionHandler = {
             handlers: [],
-            // unRecoveredException: undefined,
             handledException: undefined,
             pendingExceptions: [],
 
@@ -230,34 +461,6 @@
                 return exception;
             },
 
-            handleException: function(exception) {
-                if (this.hasOwnProperty('ignoreExceptionWithValue') &&
-                    this.ignoreExceptionWithValue === exception.value) {
-                    return;
-                }
-
-                if (this.handledException) {
-                    this.pendingExceptions.push(exception);
-                    return this.promise;
-                }
-                this.handledException = exception;
-                this.promise = exception.attemptToRecover().then(function(recovered) {
-                    if (recovered) {
-                        this.handledException = undefined;
-                        if (this.pendingExceptions.length) {
-                            var pendingException = this.pendingExceptions.shift();
-                            return this.handleException(pendingException); // now try to recover this one
-                        }
-                    } else {
-                        // put in a timeout to prevent promise from catching this exception
-                        setTimeout(function() {
-                            engine.crash(exception);
-                        });
-                    }
-                }.bind(this));
-                return this.promise;
-            },
-
             markPromiseAsHandled: function(promise) {
                 var handledException = this.handledException;
 
@@ -265,7 +468,10 @@
                     if (handledException.isComingFromPromise(promise)) {
                         handledException.recover();
                     } else {
-                        for (var exception in this.pendingExceptions) {
+                        var pendings = this.pendingExceptions;
+                        var i = pendings.length;
+                        while (i--) {
+                            var exception = pendings[i];
                             if (exception.isComingFromPromise(promise)) {
                                 exception.recover();
                                 break;
@@ -349,6 +555,9 @@
 
             recover: function() {
                 if (this.settled === false) {
+                    if (this.pending) {
+                        exceptionHandler.pendingExceptions.splice(exceptionHandler.pendingExceptions.indexOf(this), 1);
+                    }
                     this.settled = true;
                     this.recovered = true;
                     this.resolve(true);
@@ -363,8 +572,47 @@
                 }
             },
 
+            crash: function() {
+                // disableHooks to prevent hook from catching this error
+                // because the following creates an infinite loop (and is what we're doing)
+                // process.on('uncaughtException', function() {
+                //     setTimeout(function() {
+                //         throw 'yo';
+                //     });
+                // });
+                // we have to ignore exception thrown while we are throwing, we could detect if the exception differs
+                // which can happens if when doing throw new Error(); an other error occurs
+                // -> may happen for instance if accessing error.stack throw an other error
+                exceptionHandler.disable();
+                exceptionHandler.throw(this.value);
+                // enabledHooks in case throwing error did not terminate js execution
+                // in the browser or if external code is listening for process.on('uncaughException');
+                exceptionHandler.enable();
+            },
+
             raise: function() {
-                return exceptionHandler.handleException(this);
+                var exception = this;
+
+                if (exceptionHandler.handledException) {
+                    this.pending = true;
+                    exceptionHandler.pendingExceptions.push(this);
+                } else {
+                    exceptionHandler.handledException = this;
+                    this.attemptToRecover().then(function(recovered) {
+                        if (recovered) {
+                            exceptionHandler.handledException = undefined;
+                            if (exceptionHandler.pendingExceptions.length) {
+                                var pendingException = exceptionHandler.pendingExceptions.shift();
+                                pendingException.raise(); // now try to recover this one
+                            }
+                        } else {
+                            // put in a timeout to prevent promise from catching this exception
+                            setTimeout(function() {
+                                exception.crash();
+                            });
+                        }
+                    });
+                }
             }
         };
 
@@ -416,119 +664,24 @@
             disableHooks();
         };
 
-        return {
+        engine.provide({
             exceptionHandler: exceptionHandler,
-            crash: function(exception) {
-                // disableHooks to prevent hook from catching this error
-                // because the following creates an infinite loop (and is what we're doing)
-                // process.on('uncaughtException', function() {
-                //     setTimeout(function() {
-                //         throw 'yo';
-                //     });
-                // });
-                // we have to ignore exception thrown while we are throwing, we could detect if the exception differs
-                // which can happens if when doing throw new Error(); an other error occurs
-                // -> may happen for instance if accessing error.stack throw an other error
-                this.disable();
-
-                this.throw(exception.value);
-
-                // enabledHooks in case throwing error did not terminate js execution
-                // in the browser or if external code is listening for process.on('uncaughException');
-                this.enable();
-            },
             throw: function(value) {
                 throw value;
             }
-        };
+        });
     });
 
-    // location logic
-    engine.provide(function locationProvider() {
-        var baseURL;
-        var location;
-        var systemLocation;
-        var polyfillLocation;
-        var clean;
-
-        if (engine.isBrowser()) {
-            clean = function(path) {
-                return path;
-            };
-
-            baseURL = (function() {
-                var href = window.location.href.split('#')[0].split('?')[0];
-                var base = href.slice(0, href.lastIndexOf('/') + 1);
-
-                return base;
-            })();
-            location = document.scripts[document.scripts.length - 1].src;
-
-            systemLocation = 'node_modules/systemjs/dist/system.js';
-            polyfillLocation = 'node_modules/babel-polyfill/dist/polyfill.js';
-        } else {
-            var mustReplaceBackSlashBySlash = process.platform.match(/^win/);
-            var replaceBackSlashBySlash = function(path) {
-                return path.replace(/\\/g, '/');
-            };
-
-            clean = function(path) {
-                if (mustReplaceBackSlashBySlash) {
-                    path = replaceBackSlashBySlash(String(path));
-                }
-                if (/^[A-Z]:\/.*?$/.test(path)) {
-                    path = 'file:///' + path;
-                }
-                return path;
-            };
-
-            baseURL = (function() {
-                var cwd = process.cwd();
-                var baseURL = clean(cwd);
-                if (baseURL[baseURL.length - 1] !== '/') {
-                    baseURL += '/';
-                }
-                return baseURL;
-            })();
-            location = clean(__filename);
-
-            systemLocation = 'node_modules/systemjs/index.js';
-            polyfillLocation = 'node_modules/babel-polyfill/lib/index.js';
-        }
-
-        return {
-            baseURL: baseURL, // from where am I running system-run
-            location: location, // where is this file
-            dirname: location.slice(0, location.lastIndexOf('/')), // dirname of this file
-            systemLocation: systemLocation, // where is the system file
-            polyfillLocation: polyfillLocation, // where is the babel polyfill file
-            cleanPath: clean
-        };
+    engine.config(function enableExceptionHandler() {
+        // enable exception handling only once the setup phase is done
+        // engine.exceptionHandler.enable();
     });
 
-    // global logic
-    engine.provide(function globalProvider() {
-        var globalValue;
+    engine.config(function importProvider() {
+        var importMethod;
 
         if (engine.isBrowser()) {
-            globalValue = window;
-        } else if (engine.isProcess()) {
-            globalValue = global;
-        }
-
-        globalValue.engine = engine;
-
-        return {
-            global: globalValue
-        };
-    });
-
-    // include logic
-    engine.provide(function includeProvider() {
-        var include;
-
-        if (engine.isBrowser()) {
-            include = function(url) {
+            importMethod = function(url) {
                 var script = document.createElement('script');
                 var promise = new Promise(function(resolve, reject) {
                     script.onload = resolve;
@@ -542,7 +695,7 @@
                 return promise;
             };
         } else {
-            include = function(url) {
+            importMethod = function(url) {
                 if (url.indexOf('file:///') === 0) {
                     url = url.slice('file:///'.length);
                 }
@@ -553,268 +706,27 @@
             };
         }
 
-        return {
-            include: include
-        };
+        engine.import = importMethod;
     });
 
-    // task
-    engine.provide(function taskProvider() {
-        /*
-        WARNING : if your env does not support promise you must add an inline polyfill during init : before engine.start()
-
-        in an external file you can do, once this file is included
-
-        engine.setup(function() {}); // function or file executed in serie onceengine.start is called
-        engine.config(function() {}); // function or file executed in serie once setup is done
-        engine.run(function() {}); // function or file executed in serie once once run is done & main module is imported (engine.mainModule)
-        engine.start('./path/to/file.js'); // start the engine executing setup/config/run phases then importing the mainModule passed as argument
-        */
-
-        var Task = function() {
-            if (arguments.length === 1) {
-                if (typeof arguments[0] === 'function') {
-                    this.name = arguments[0].name;
-                    this.fn = arguments[0];
-                } else if (typeof arguments[0] === 'object') {
-                    var properties = arguments[0];
-                    for (var key in properties) { // eslint-disable-line
-                        this[key] = properties[key];
-                    }
-                } else if (typeof arguments[0] === 'string') {
-                    this.name = arguments[0];
-                    this.url = this.name;
-                }
-            } else if (arguments.length === 2) {
-                this.name = arguments[0];
-                this.fn = arguments[1];
-            }
-        };
-
-        Task.prototype = {
-            name: undefined,
-            skipped: false,
-            ended: false,
-
-            before: null,
-            condition: null,
-            url: null,
-            after: null,
-            next: null,
-
-            chain: function(task) {
-                if (this.ended) {
-                    throw new Error(this.name + 'task is ended : cannot chain more task to it');
-                }
-
-                // engine.debug('do', task.name, 'after', this.name);
-
-                var next = this.next;
-                if (next) {
-                    next.chain(task);
-                } else {
-                    this.next = task;
-                }
-
-                return this;
-            },
-
-            insert: function(task, beforeTask) {
-                if (beforeTask) {
-                    var next = this.next;
-                    if (!next) {
-                        throw new Error('cannot insert ' + task.name + ' before ' + beforeTask.name);
-                    }
-
-                    if (next === beforeTask) {
-                        this.next = null;
-
-                        this.chain(task);
-                        task.chain(next);
-                        return this;
-                    }
-                    return next.insert(task, beforeTask);
-                }
-
-                return this.chain(task);
-            },
-
-            import: function() {
-                engine.debug('importing', this.url);
-                return engine.include(this.url);
-            },
-
-            exec: function(value) {
-                if (this.url) {
-                    return this.import();
-                }
-                return this.fn(value);
-            },
-
-            end: function(value) {
-                engine.debug('end of task', this.name);
-
-                this.ended = true;
-                return Promise.resolve(value).then(function(resolutionValue) {
-                    if (this.after) {
-                        return this.after(resolutionValue);
-                    }
-                    return resolutionValue;
-                }.bind(this)).then(function(resolutionValue) {
-                    if (this.next) {
-                        // will throw but it will be ignored
-                        return this.next.start(resolutionValue);
-                    }
-                    return resolutionValue;
-                }.bind(this));
-            },
-
-            start: function(value) {
-                engine.task = this;
-                engine.debug('starting task', this.name);
-
-                return Promise.resolve(value).then(function(resolutionValue) {
-                    if (this.before) {
-                        return this.before(resolutionValue);
-                    }
-                    return resolutionValue;
-                }).then(function(resolutionValue) {
-                    if (this.condition && !this.condition) {
-                        this.skipped = true;
-                    }
-
-                    if (this.skipped) {
-                        engine.debug('skip task', this.name);
-                        return resolutionValue;
-                    }
-                    return this.exec(resolutionValue);
-                }.bind(this)).then(this.end.bind(this));
-            }
-        };
-
-        var noop = function() {};
-        var initTask = new Task('init', noop);
-        var setupTask = new Task('setup', noop);
-        var configTask = new Task('config', noop);
-        var mainTask = new Task('main', function() {
-            engine.mainImport = System.import(engine.mainLocation).then(function(mainModule) {
-                engine.mainModule = mainModule;
-                return mainModule;
-            });
-            return engine.mainImport;
-        });
-        var runTask = new Task('run', noop);
-
-        initTask.chain(setupTask).chain(configTask).chain(mainTask).chain(runTask);
-
-        return {
-            task: undefined,
-
-            setup: function(taskData) {
-                return initTask.insert(new Task(taskData), configTask);
-            },
-
-            config: function(taskData) {
-                return initTask.insert(new Task(taskData), runTask);
-            },
-
-            run: function(taskData) {
-                // insert at the end
-                return initTask.insert(new Task(taskData));
-            },
-
-            start: function(mainModuleData) {
-                if (typeof mainModuleData === 'string') {
-                    this.mainLocation = mainModuleData;
-                } else {
-                    throw new Error('engine.start() expect a mainModule argument');
-                }
-
-                return initTask.start().catch(function(error) {
-                    console.log('error during tasks', error);
-                    setTimeout(function() {
-                        throw error;
-                    }, 10);
-                });
-            }
-        };
-    });
-
-    engine.setup({
-        name: 'URLSearchParams',
-        url: engine.dirname + '/node_modules/@dmail/url-search-params/index.js',
-        condition: function() {
-            return ('URLSearchParams' in engine.global) === false;
+    engine.config(function URLSearchParamsPolyfill() {
+        if ('URLSearchParams' in engine.global) {
+            this.skip();
+        } else {
+            return engine.import(engine.dirname + '/node_modules/@dmail/url-search-params/index.js');
         }
     });
 
-    engine.setup({
-        name: 'URL',
-        url: engine.dirname + '/node_modules/@dmail/url/index.js',
-        condition: function() {
-            return ('URL' in engine.global) === false;
+    engine.config(function URLPolyfill() {
+        if ('URL' in engine.global) {
+            this.skip();
+        } else {
+            return engine.import(engine.dirname + '/node_modules/@dmail/url/index.js');
         }
-    });
-
-    engine.setup({
-        name: 'Object.assign',
-        url: engine.dirname + '/node_modules/@dmail/object-assign/index.js',
-        condition: function() {
-            return ('assign' in Object) === false;
-        }
-    });
-
-    engine.setup({
-        name: 'Object.complete',
-        url: engine.dirname + '/node_modules/@dmail/object-complete/index.js',
-        condition: function() {
-            return ('complete' in Object) === false;
-        }
-    });
-
-    engine.setup({
-        name: 'setImmediate',
-        url: engine.dirname + '/node_modules/@dmail/set-immediate/index.js',
-        condition: function() {
-            return ('setImmediate' in engine.global) === false;
-        }
-    });
-
-    engine.setup({
-        name: 'Promise',
-        url: engine.dirname + '/node_modules/@dmail/promise-es6/index.js',
-        condition: function() {
-            return true; // force because of node promise not implementing unhandled rejection
-            // return false === 'Promise' in platform.global;
-        }
-    });
-
-    engine.setup({
-        name: 'babel-polyfill',
-        url: engine.dirname + '/' + engine.polyfillLocation
-    });
-
-    engine.setup({
-        name: 'System',
-        url: engine.dirname + '/' + engine.systemLocation,
-        condition: function() {
-            return ('System' in engine.global) === false;
-        },
-        after: function() {
-            engine.include = function(url) {
-                engine.debug('importing with system', url);
-                return System.import(url);
-            };
-        }
-    });
-
-    engine.config(function enableExceptionHandlerConfig() {
-        // enable exception handling only once the setup phase is done
-        engine.exceptionHandler.enable();
     });
 
     engine.config(function locateConfig() {
-        Object.assign(engine, {
+        engine.provide({
             locateFrom: function(location, baseLocation, stripFile) {
                 var href = new URL(this.cleanPath(location), this.cleanPath(baseLocation)).href;
 
@@ -840,6 +752,47 @@
             locateFromRoot: function(location) {
                 return this.locateFrom(location, this.location, true);
             }
+        });
+    });
+
+    engine.config(function ObjectAssignPolyfill() {
+        if ('assign' in Object) {
+            this.skip();
+        } else {
+            return engine.import(engine.dirname + '/node_modules/@dmail/object-assign/index.js');
+        }
+    });
+
+    engine.config(function ObjectCompletePolyfill() {
+        if ('complete' in Object) {
+            this.skip();
+        } else {
+            return engine.import(engine.dirname + '/node_modules/@dmail/object-complete/index.js');
+        }
+    });
+
+    engine.config(function setImmediatePolyfill() {
+        if ('setImmediate' in engine.global) {
+            this.skip();
+        } else {
+            return engine.import(engine.dirname + '/node_modules/@dmail/set-immediate/index.js');
+        }
+    });
+
+    engine.config(function promisePolyfill() {
+        // always load my promise polyfill because some Promise implementation does not provide
+        // unhandledRejection
+        return engine.import(engine.dirname + '/node_modules/@dmail/promise-es6/index.js');
+    });
+
+    engine.config(function corePolyfill() {
+        return engine.import(engine.dirname + '/' + engine.polyfillLocation);
+    });
+
+    engine.config(function SystemImport() {
+        return engine.import(engine.dirname + '/' + engine.systemLocation).then(function(module) {
+            engine.import = System.import.bind(System);
+            return module;
         });
     });
 
@@ -993,7 +946,8 @@
                 if (sourceMap) {
                     sourceMapPromise = Promise.resolve(sourceMap);
                 } else {
-                    // engine.debug('reading sourcemap from file source, the file is', load.name);
+                    // should disable this for browser.js which contains foo.js.map
+                    engine.debug('reading sourcemap from file source, the file is', load.name);
                     sourceMapPromise = readSourceMap(source, load.name);
                 }
 
@@ -1191,8 +1145,9 @@
     });
     */
 
-    // file config
-    engine.config(engine.dirname + '/config/' + engine.agent.type + '.js');
+    engine.config(function agentFileConfig() {
+        return engine.import(engine.dirname + '/config/' + engine.agent.type + '.js');
+    });
 
     // engine.info(engine.type, engine.location, engine.baseURL);
 })();

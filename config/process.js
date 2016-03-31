@@ -32,6 +32,12 @@ engine.config(function languageConfig() {
     };
 });
 
+engine.config(function logLevelConfig() {
+    if (process.argv.indexOf('-verbose') !== -1) {
+        engine.logLevel = 'error';
+    }
+});
+
 engine.config(function stackTraceSourceMapConfig() {
     return System.import('../node_modules/@dmail/node-stacktrace/index.js', __moduleName).then(function(module) {
         return module.default;
@@ -270,7 +276,7 @@ engine.config(function traceCoverageConfig() {
     engine.reportCoverage = function(coverage) {
         // console.log('got coverage', coverage);
 
-        var mainLocation = engine.main;
+        var mainLocation = engine.mainLocation;
         var collector = remapIstanbul(coverage, {
             readFile: function(path) {
                 var originalSourceObject = engine.sources[System.baseURL + path];
@@ -281,7 +287,7 @@ engine.config(function traceCoverageConfig() {
                     source += '\n//# sourceMappingURL=' + path.split('/').pop() + '.map';
                 }
 
-                console.log('read file at', path, source);
+                // console.log('read file at', path, source);
 
                 return source;
             },
@@ -296,7 +302,7 @@ engine.config(function traceCoverageConfig() {
                 var originalSourcesObj = engine.sources[modulePath];
 
                 // console.log('pathbase', pathBase);
-                console.log('read json for', modulePath, 'got original source?', Boolean(originalSourcesObj));
+                // console.log('read json for', modulePath, 'got original source?', Boolean(originalSourcesObj));
 
                 // we may not have any sourcemap because file does not requires any?
 
@@ -309,7 +315,7 @@ engine.config(function traceCoverageConfig() {
 
                 var map = originalSourcesObj.sourceMap.map;
 
-                console.log('got sourcemap correctly', map);
+                // console.log('got sourcemap correctly', map);
 
                 map.sources = map.sources.map(function(src) {
                     if (src.substr(0, pathBase.length) === pathBase) {
