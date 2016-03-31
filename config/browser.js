@@ -2,13 +2,19 @@
 
 import engine from 'engine';
 
-engine.restart = function() {
-    window.reload();
-};
+engine.config(function provideRestart() {
+    engine.provide({
+        restart() {
+            window.reload();
+        }
+    });
+});
 
-engine.platform.setName(navigator.platform);
+engine.config(function populatePlatform() {
+    engine.platform.setName(navigator.platform);
+});
 
-var agent = (function() {
+engine.config(function populateAgent() {
     var ua = navigator.userAgent.toLowerCase();
     var regex = /(opera|ie|firefox|chrome|version)[\s\/:]([\w\d\.]+(?:\.\d+)?)?.*?(safari|version[\s\/:]([\w\d\.]+)|$)/;
     var UA = ua.match(regex) || [null, 'unknown', 0];
@@ -24,27 +30,24 @@ var agent = (function() {
         version = UA[2];
     }
 
-    return {
-        name: name,
-        version: version
+    engine.agent.setName(name);
+    engine.agent.setVersion(version);
+});
+
+engine.config(function populateLanguage() {
+    engine.language.listPreferences = function() {
+        if ('languages' in navigator) {
+            return navigator.languages.join();
+        }
+        if ('language' in navigator) {
+            return navigator.language;
+        }
+        if ('userLanguage' in navigator) {
+            return navigator.userLanguage;
+        }
+        if ('browserLanguage' in navigator) {
+            return navigator.browserLanguage;
+        }
+        return '';
     };
-})();
-
-engine.agent.setName(agent.name);
-engine.agent.setVersion(agent.version);
-
-engine.language.listPreferences = function() {
-    if ('languages' in navigator) {
-        return navigator.languages.join();
-    }
-    if ('language' in navigator) {
-        return navigator.language;
-    }
-    if ('userLanguage' in navigator) {
-        return navigator.userLanguage;
-    }
-    if ('browserLanguage' in navigator) {
-        return navigator.browserLanguage;
-    }
-    return '';
-};
+});

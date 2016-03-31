@@ -5,25 +5,25 @@ import fs from 'node/fs';
 import require from 'node/require';
 import engine from 'engine';
 
-engine.config(function restartConfig() {
+engine.config(function provideRestart() {
     engine.restart = function() {
         process.kill(2);
     };
 });
 
-engine.config(function platformConfig() {
+engine.config(function populatePlatform() {
     // https://nodejs.org/api/process.html#process_process_platform
     // 'darwin', 'freebsd', 'linux', 'sunos', 'win32'
     engine.platform.setName(process.platform === 'win32' ? 'windows' : process.platform);
     engine.platform.setVersion(os.release());
 });
 
-engine.config(function agentConfig() {
+engine.config(function populateAgent() {
     engine.agent.setName('node');
     engine.agent.setVersion(process.version.slice(1));
 });
 
-engine.config(function languageConfig() {
+engine.config(function populateLanguage() {
     engine.language.listPreferences = function() {
         if ('lang' in process.env) {
             return process.env.lang;
@@ -32,13 +32,13 @@ engine.config(function languageConfig() {
     };
 });
 
-engine.config(function logLevelConfig() {
+engine.config(function configLogLevel() {
     if (process.argv.indexOf('-verbose') !== -1) {
         engine.logLevel = 'error';
     }
 });
 
-engine.config(function stackTraceSourceMapConfig() {
+engine.config(function enableStackTraceSourceMap() {
     return System.import('../node_modules/@dmail/node-stacktrace/index.js', __moduleName).then(function(module) {
         return module.default;
     }).then(function(StackTrace) {
@@ -214,7 +214,7 @@ engine.config(function stackTraceSourceMapConfig() {
     });
 });
 
-engine.config(function traceCoverageConfig() {
+engine.config(function provideCoverage() {
     // https://github.com/guybedford/jspm-test-demo/blob/master/lib/coverage.js
     // when we want to get coverage object we call engine.enableCoverage();
 
@@ -410,7 +410,9 @@ engine.config(function traceCoverageConfig() {
             reporter.write(collector, false, resolve);
         });
     };
+});
 
+engine.config(function configCoverage() {
     // engine.traceCoverage().then(engine.reportCoverage);
 });
 
