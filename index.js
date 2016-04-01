@@ -1002,8 +1002,10 @@
 
                     // Load all sources stored inline with the source map into the file cache
                     // to pretend like they are already loaded. They may not exist on disk.
+                    // we have to reenable support for this, currently it does not work because it updates the existing sources object
+                    // I don't see use of sourcesContents I have to check this
                     if (false && sourceMap && sourceMap.map && sourceMap.map.sourcesContent) {
-                        console.log('populate source content');
+                        // console.log('populate source content');
                         sourceMap.map.sources.forEach(function(source, i) {
                             var contents = sourceMap.map.sourcesContent[i];
                             if (contents) {
@@ -1013,9 +1015,10 @@
                                 } else {
                                     location = engine.locate(source);
                                 }
+                                // console.log('adding the source for', location, 'did it exists before ?', location in sources);
                                 sources[location] = {
                                     source: contents,
-                                    map: readSourceMap(contents, location)
+                                    sourceMap: readSourceMap(contents, location)
                                 };
                             }
                         });
