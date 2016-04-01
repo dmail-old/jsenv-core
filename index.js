@@ -153,11 +153,15 @@
         configTask.chain(mainTask).chain(runTask);
 
         function config(taskData) {
-            return configTask.insert(new Task(taskData), mainTask);
+            var task = new Task(taskData);
+            configTask.insert(task, mainTask);
+            return task;
         }
 
         function run(taskData) {
-            return mainTask.chain(new Task(taskData));
+            var task = new Task(taskData);
+            mainTask.chain(task);
+            return task;
         }
 
         engine.provide({
@@ -172,11 +176,14 @@
                     throw new Error('engine.start() expect a mainModule argument');
                 }
 
+                // the problem here is that we are still using native or user polyfilled Promise implementation
+                // which may not support unhandledRejection
+                // for this reason we have to catch the error explicitely
+                // the impact is that external code calling engine.start().catch() will never catch anything because
+                // error is handled by exceptionHandler
+
                 return configTask.start().catch(function(error) {
-                    // console.log('error during tasks', error);
-                    setTimeout(function() {
-                        throw error;
-                    });
+                    engine.exceptionHandler.handleError(error);
                 });
             }
         });
@@ -669,15 +676,15 @@
         var disableHooks;
         if (engine.isBrowser()) {
             enableHooks = function() {
-                window.addEventListener('unhandledRejection', unhandledRejection);
-                window.addEventListener('rejectionHandled', rejectionHandled);
+                window.onunhandledrejection = unhandledRejection;
+                window.onrejectionhandled = rejectionHandled;
                 window.onerror = function(errorMsg, url, lineNumber, column, error) {
                     catchError(error);
                 };
             };
             disableHooks = function() {
-                window.removeEventListener('unhandledRejection', unhandledRejection);
-                window.removeEventListener('rejectionHandled', rejectionHandled);
+                window.onunhandledrejection = undefined;
+                window.onrejectionhandled = undefined;
                 window.onerror = undefined;
             };
         } else if (engine.isProcess()) {
