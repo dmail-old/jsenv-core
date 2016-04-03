@@ -44,35 +44,29 @@ engine.config(function enableStackTraceSourceMap() {
     }).then(function(StackTrace) {
         var SourceMapConsumer = require('source-map').SourceMapConsumer;
 
-        // Maps a file path to a source map for that file
-        var sourceMaps = {};
-        function mapSourcePosition(position) {
-            var sourceLocation = position.source;
-            var sourceMap;
+        var consumers = {};
+        function getSourceMapConsumer(location) {
+            var consumer;
 
-            if (sourceLocation in sourceMaps) {
-                sourceMap = sourceMaps[sourceLocation];
+            if (location in consumers) {
+                consumer = consumers[location];
             } else {
-                sourceMap = engine.getSourceMap(sourceLocation);
-
+                var sourceMap = engine.sourceMaps.get(location);
                 if (sourceMap) {
-                    sourceMap = {
-                        url: sourceMap.url,
-                        map: new SourceMapConsumer(sourceMap.map)
-                    };
-                } else {
-                    sourceMap = {
-                        url: null,
-                        map: null
-                    };
+                    consumer = new SourceMapConsumer(sourceMap);
                 }
-
-                sourceMaps[sourceLocation] = sourceMap;
+                consumers[location] = consumer;
             }
 
-            // Resolve the source URL relative to the URL of the source map
-            if (sourceMap.map) {
-                var originalPosition = sourceMap.map.originalPositionFor(position);
+            return consumer;
+        }
+
+        function mapSourcePosition(position) {
+            var sourceLocation = position.source;
+            var consumer = getSourceMapConsumer(sourceLocation);
+
+            if (consumer) {
+                var originalPosition = consumer.originalPositionFor(position);
 
                 // Only return the original position if a matching line was found. If no
                 // matching line is found then we return position instead, which will cause
@@ -80,10 +74,6 @@ engine.config(function enableStackTraceSourceMap() {
                 // better to give a precise location in the compiled file than a vague
                 // location in the original file.
                 if (originalPosition.source !== null) {
-                    originalPosition.source = engine.locateFrom(
-                        sourceMap.url || sourceLocation,
-                        originalPosition.source
-                    );
                     return originalPosition;
                 }
             }
@@ -92,9 +82,9 @@ engine.config(function enableStackTraceSourceMap() {
         }
 
         function transformCallSite(callSite, index, callSites) {
-            var source = callSite.getScriptNameOrSourceURL() || callSite.getFileName();
+            var sourceLocation = callSite.getScriptNameOrSourceURL() || callSite.getFileName();
 
-            if (source && source !== __moduleName) {
+            if (sourceLocation) {
                 var line = callSite.getLineNumber();
                 var column = callSite.getColumnNumber() - 1;
 
@@ -105,11 +95,9 @@ engine.config(function enableStackTraceSourceMap() {
                 if (fromModule && line === 1) {
                     column -= 63;
                 }
-                // not very clean because it's hardcoded while we could read it from # sourceURL comments
-                source = source.replace(/!transpiled$/, '');
 
                 var position = mapSourcePosition({
-                    source: source,
+                    source: sourceLocation,
                     line: line,
                     column: column
                 });
@@ -152,32 +140,7 @@ engine.config(function enableStackTraceSourceMap() {
 
         StackTrace.setTransformer(transformCallSite);
 
-        // var improveSyntaxError = function(error) {
-        //     if (error && error.name === 'SyntaxError' && error._babel) {
-                   // error.loc contains {line: 0, column: 0}
-        //         var match = error.message.match(/([\s\S]+): Unterminated string constant \(([0-9]+)\:([0-9]+)/);
-        //         if (match) {
-        //             var improvedError = new SyntaxError();
-        //             var column = match[3];
-        //             column += 63; // because node-sourcemap/index.js:155 will do column-=63
-        //             var stack = '';
-        //             stack += 'SyntaxError: Unterminated string constant\n\t at ';
-        //             stack += match[1] + ':' + match[2] + ':' + column;
-        //             improvedError.stack = stack;
-        //             return improvedError;
-        //         }
-        //     }
-        //     return error;
-        // };
-
-        // var translate = System.translate;
-        // System.translate = function(load) {
-        //     return translate.call(this, load).catch(function(error) {
-        //         error = improveSyntaxError(error);
-        //         return Promise.reject(error);
-        //     });
-        // };
-
+        // we must make this cross platform or it's pretty useless
         engine.trace = function(error) {
             var stack; // eslint-disable-line no-unused-vars
             var stackTrace;
@@ -199,12 +162,11 @@ engine.config(function enableStackTraceSourceMap() {
             return stackTrace;
         };
 
-        // we have to define the throw method else stack trace is not correctly printed
         engine.exceptionHandler.throw = function(exceptionValue) {
             // we don't need this anymore thanks to Error.prepareStackTrace in @dmail/node-stacktrace
             // StackTrace.install(exceptionValue);
 
-            // if we throw we'll get a line saying we throwed error, useless, thats why we use console.error
+            // if we throw we'll get useless line saying we throwed error, thats why we use console.error
             // exceptionValue.stack;
             // throw exceptionValue;
 
@@ -213,6 +175,34 @@ engine.config(function enableStackTraceSourceMap() {
         };
     });
 });
+
+engine.config(function improveSyntaxError() {
+    var improveSyntaxError = function(error) {
+        if (error && error.name === 'SyntaxError' && error._babel) {
+            // error.loc contains {line: 0, column: 0}
+            var match = error.message.match(/([\s\S]+): Unterminated string constant \(([0-9]+)\:([0-9]+)/);
+            if (match) {
+                var improvedError = new SyntaxError();
+                var column = match[3];
+                column += 63; // because node-sourcemap/index.js:155 will do column-=63
+                var stack = '';
+                stack += 'SyntaxError: Unterminated string constant\n\t at ';
+                stack += match[1] + ':' + match[2] + ':' + column;
+                improvedError.stack = stack;
+                return improvedError;
+            }
+        }
+        return error;
+    };
+
+    var translate = System.translate;
+    System.translate = function(load) {
+        return translate.call(this, load).catch(function(error) {
+            error = improveSyntaxError(error);
+            return Promise.reject(error);
+        });
+    };
+}).skip('not ready yet');
 
 engine.config(function provideCoverage() {
     // https://github.com/guybedford/jspm-test-demo/blob/master/lib/coverage.js
@@ -279,9 +269,15 @@ engine.config(function provideCoverage() {
                         return source;
                     }
 
-                    if (self.urlIsPartOfCoverage(load.address)) {
+                    // instead of adding this manually we'll read it from source but this is already available in the sourceMap
+                    // provider so we'll reuse this logic
+                    var loadUrl = engine.moduleURLs.get(load.name);
+
+                    if (self.urlIsPartOfCoverage(loadUrl)) {
+                        engine.debug('instrumenting', loadUrl, 'for coverage');
+
                         try {
-                            return instrumenter.instrumentSync(source, load.address.substr(System.baseURL.length));
+                            return instrumenter.instrumentSync(source, loadUrl.slice(engine.baseURL.length));
                         } catch (e) {
                             var newErr = new Error(
                                 'Unable to instrument "' + load.name + '" for istanbul.\n\t' + e.message
@@ -297,11 +293,12 @@ engine.config(function provideCoverage() {
             };
 
             return new Promise(function(resolve) {
-                engine.run(function() {
-                    // when engine is ready set the coverage object
-                    if (self.variableName in engine.global) {
-                        self.value = self.variableName;
+                engine.run(function storeCoverageValue() {
+                    var variableName = self.variableName;
+                    if (variableName in engine.global) {
+                        self.value = engine.global[variableName];
                     }
+                    // engine.debug('raw coverage object', self.value);
                     resolve(self.value);
                 });
             });
@@ -310,54 +307,45 @@ engine.config(function provideCoverage() {
         collect() {
             var remapIstanbul = require('remap-istanbul/lib/remap');
 
-            var collector = remapIstanbul(coverage, {
+            var collector = remapIstanbul(this.value, {
+                // this function is faking that there is a file pointing to a sourcemap when needed
                 readFile: function(path) {
-                    var originalSourceObject = engine.sources[System.baseURL + path];
-                    var source = originalSourceObject.source;
+                    var url = engine.locate(path);
+                    var source = ''; // engine.moduleSources.get(url);
+                    var sourceMap = engine.sourceMaps.get(url);
 
-                    // I've to add this even if useless because it's how remapIstanbul knows there is a sourceMap for this file
-                    if ('sourceMap' in originalSourceObject) {
+                    if (sourceMap) {
                         source += '\n//# sourceMappingURL=' + path.split('/').pop() + '.map';
                     }
-
-                    // console.log('read file at', path, source);
 
                     return source;
                 },
 
                 readJSON: function(path) {
-                    console.log('reading json at', path);
+                    var sourceMapFileUrl = engine.locate(path);
+                    var sourceMapOwnerUrl = sourceMapFileUrl.slice(0, -'.map'.length);
+                    var sourceMap = engine.sourceMaps.get(sourceMapOwnerUrl);
 
-                    path = path.replace(/\\/g, '/');
-
-                    var pathBase = System.baseURL + path.split('/').slice(0, -1).join('/');
-                    var modulePath = System.baseURL + path.substr(0, path.length - 4);
-                    var originalSourcesObj = engine.sources[modulePath];
-
-                    // console.log('pathbase', pathBase);
-                    // console.log('read json for', modulePath, 'got original source?', Boolean(originalSourcesObj));
-
-                    // we may not have any sourcemap because file does not requires any?
-
-                    // non transpilation-created source map -> load the source map file directly
-                    if (!originalSourcesObj || !originalSourcesObj.sourceMap) {
-                        console.log('we dont have any sourcemap, parse json at', System.baseURL + path);
-
-                        return JSON.parse(fs.readFileSync(System.baseURL + path));
+                    if (!sourceMap) {
+                        var nodeFilePath = engine.locate(sourceMapFileUrl, true);
+                        return JSON.parse(fs.readFileSync(nodeFilePath));
                     }
 
-                    var map = originalSourcesObj.sourceMap.map;
-
-                    // console.log('got sourcemap correctly', map);
-
-                    map.sources = map.sources.map(function(src) {
-                        if (src.substr(0, pathBase.length) === pathBase) {
-                            src = './' + src.substr(pathBase.length);
+                    // the idea there is really to make source relative to sourceMapFileURL
+                    // we need sth like engine.relative()
+                    // it would also be used in instrumentSync currently hardcoded with slice(engine.baseURL.length)
+                    // somthing like URL.prototype.relativeTo(otherURL)
+                    var pathBase = engine.parentPath(sourceMapFileUrl);
+                    sourceMap.sources = sourceMap.sources.map(function(source) {
+                        if (source.startsWith(pathBase)) {
+                            source = '.' + source.slice(pathBase.length);
                         }
-                        return src;
+                        return source;
                     });
 
-                    return map;
+                    // engine.debug('the sourcemap', sourceMap);
+
+                    return sourceMap;
                 },
 
                 warn: function(msg) {
@@ -372,6 +360,8 @@ engine.config(function provideCoverage() {
         },
 
         report() {
+            var istanbul = require('istanbul');
+
             var collector = this.collect();
             var mainLocation = engine.mainLocation;
             var coverageDir = engine.locateFrom('error-coverage', mainLocation, true);
@@ -379,7 +369,7 @@ engine.config(function provideCoverage() {
             var reportConsole = true;
             var reportJSON = true;
             var reportHTML = true;
-            var reporter = new istanbul.Reporter(null, coverageDir); // eslint-disable-line
+            var reporter = new istanbul.Reporter(null, coverageDir);
             if (reportConsole) {
                 reporter.add('text');
             }
@@ -402,5 +392,7 @@ engine.config(function provideCoverage() {
 engine.config(function configCoverage() {
     // most time we do code coverage test to see how a file is covering all it's dependencies
     // so checking that the file is the mainLocation or a peer or inside is sufficient
-    // engine.coverage.enable().then(engine.coverage.report);
-});
+    engine.coverage.enable().then(function() {
+        engine.coverage.report();
+    });
+}); // .skip('not yet');

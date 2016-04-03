@@ -22,10 +22,9 @@
 
         in an external file you can do, once this file is included
 
-        engine.setup(function() {}); // function or file executed in serie onceengine.start is called
         engine.config(function() {}); // function or file executed in serie once setup is done
         engine.run(function() {}); // function or file executed in serie once once run is done & main module is imported (engine.mainModule)
-        engine.start('./path/to/file.js'); // start the engine executing setup/config/run phases then importing the mainModule passed as argument
+        engine.start('./path/to/file.js'); // start the engine executing config tasks, then the main task (import main module) then run tasks
         */
 
         var Task = function() {
@@ -91,9 +90,10 @@
                 return this.chain(task);
             },
 
-            skip: function() {
+            skip: function(reason) {
                 this.skipped = true;
-                engine.debug('skip task', this.name);
+                reason = reason || 'no specific reason';
+                engine.debug('skip task', this.name, ':', reason);
             },
 
             import: function() {
@@ -129,7 +129,6 @@
                     this.before.bind(this)
                 ).then(function(resolutionValue) {
                     if (this.skipped) {
-                        engine.debug('skip task', this.name);
                         return resolutionValue;
                     }
                     return this.exec(resolutionValue);
@@ -182,7 +181,9 @@
                 // the impact is that external code calling engine.start().catch() will never catch anything because
                 // error is handled by exceptionHandler
 
-                return configTask.start().catch(function(error) {
+                return configTask.start().then(function() {
+                    return engine.mainModule;
+                }).catch(function(error) {
                     engine.exceptionHandler.handleError(error);
                 });
             }
@@ -363,9 +364,12 @@
     engine.provide(function provideLocationData() {
         var baseURL;
         var location;
-        var systemLocation;
-        var polyfillLocation;
         var clean;
+        var parentPath;
+
+        parentPath = function(path) {
+            return path.slice(0, path.lastIndexOf('/'));
+        };
 
         if (engine.isBrowser()) {
             clean = function(path) {
@@ -379,9 +383,6 @@
                 return base;
             })();
             location = document.scripts[document.scripts.length - 1].src;
-
-            systemLocation = 'node_modules/systemjs/dist/system.js';
-            polyfillLocation = 'node_modules/babel-polyfill/dist/polyfill.js';
         } else {
             var mustReplaceBackSlashBySlash = process.platform.match(/^win/);
             var replaceBackSlashBySlash = function(path) {
@@ -407,18 +408,14 @@
                 return baseURL;
             })();
             location = clean(__filename);
-
-            systemLocation = 'node_modules/systemjs/index.js';
-            polyfillLocation = 'node_modules/babel-polyfill/lib/index.js';
         }
 
         return {
             baseURL: baseURL, // from where am I running system-run
             location: location, // where is this file
-            dirname: location.slice(0, location.lastIndexOf('/')), // dirname of this file
-            systemLocation: systemLocation, // where is the system file
-            polyfillLocation: polyfillLocation, // where is the babel polyfill file
-            cleanPath: clean
+            dirname: parentPath(location), // dirname of this file
+            cleanPath: clean,
+            parentPath: parentPath
         };
     });
 
@@ -475,6 +472,10 @@
 
             add: function(exceptionHandler) {
                 this.handlers.push(exceptionHandler);
+            },
+
+            throw: function(value) {
+                throw value;
             },
 
             createException: function(value) {
@@ -817,24 +818,45 @@
 
     engine.config(function polyfillSetImmediate() {
         if ('setImmediate' in engine.global) {
-            this.skip();
+            this.skip('not needed');
         } else {
             return engine.import(engine.dirname + '/node_modules/@dmail/set-immediate/index.js');
         }
     });
 
     engine.config(function polyfillPromise() {
+        if ('Promise' in engine.global) {
+            // test if promise support unhandledrejection hook, if so just dont load promise
+            // this test is async and involves detecting for browser or node dependening on platform, ignore for now
+        }
+
         // always load my promise polyfill because some Promise implementation does not provide
         // unhandledRejection
         return engine.import(engine.dirname + '/node_modules/@dmail/promise-es6/index.js');
     });
 
     engine.config(function polyfillES6() {
-        return engine.import(engine.dirname + '/' + engine.polyfillLocation);
+        var polyfillLocation;
+
+        if (engine.isBrowser()) {
+            polyfillLocation = 'node_modules/babel-polyfill/dist/polyfill.js';
+        } else {
+            polyfillLocation = 'node_modules/babel-polyfill/lib/index.js';
+        }
+
+        return engine.import(engine.dirname + '/' + polyfillLocation);
     });
 
     engine.config(function importSystem() {
-        return engine.import(engine.dirname + '/' + engine.systemLocation).then(function(module) {
+        var systemLocation;
+
+        if (engine.isBrowser()) {
+            systemLocation = 'node_modules/systemjs/dist/system.js';
+        } else {
+            systemLocation = 'node_modules/systemjs/index.js';
+        }
+
+        return engine.import(engine.dirname + '/' + systemLocation).then(function(module) {
             engine.import = System.import.bind(System);
             return module;
         });
@@ -893,8 +915,99 @@
         System.paths.proto = engine.dirname + '/node_modules/@dmail/proto/index.js';
     });
 
-    // ensure sources (a pointer on module original sources & sourcemap needed by sourcemap & coverage)
+    // module source is the code you write
+    engine.config(function provideModuleSources() {
+        var moduleSources = new Map();
+
+        var translate = System.translate;
+        System.translate = function(load) {
+            var moduleSource = load.source;
+            moduleSources.set(load.name, moduleSource);
+            return translate.call(this, load);
+        };
+
+        engine.provide({
+            moduleSources: moduleSources
+        });
+    });
+
+    engine.config(function provideModuleURLs() {
+        var moduleURLs = new Map();
+
+        // get real file name from sourceURL comment
+        function readSourceUrl(source) {
+            var lastMatch;
+            var match;
+            var sourceURLRegexp = /\/\/#\s*sourceURL=\s*(\S*)\s*/mg;
+            while (match = sourceURLRegexp.exec(source)) { // eslint-disable-line
+                lastMatch = match;
+            }
+
+            return lastMatch ? lastMatch[1] : null;
+        }
+
+        function getLoadOrSourceURL(source, loadURL) {
+            var loadSourceURL = readSourceUrl(source);
+            var loadOrSourceURL;
+            // get filename from the source if //# sourceURL exists in it
+            if (loadSourceURL) {
+                loadOrSourceURL = loadSourceURL;
+            } else {
+                loadOrSourceURL = loadURL;
+            }
+
+            return loadOrSourceURL;
+        }
+
+        moduleURLs.store = function(source, loadURL) {
+            var loadOrSourceURL;
+
+            if (this.has(loadURL)) {
+                loadOrSourceURL = this.get(loadURL);
+            } else {
+                loadOrSourceURL = getLoadOrSourceURL(source, loadURL);
+                this.set(loadURL, loadOrSourceURL);
+            }
+
+            return loadOrSourceURL;
+        };
+
+        var translate = System.translate;
+        System.translate = function(load) {
+            return translate.call(this, load).then(function(source) {
+                moduleURLs.store(source, load.name);
+                return source;
+            });
+        };
+
+        engine.provide({
+            moduleURLs: moduleURLs
+        });
+    });
+
+    // source is the executed code
     engine.config(function provideSources() {
+        var sources = new Map();
+        var translate = System.translate;
+        System.translate = function(load) {
+            return translate.call(this, load).then(function(source) {
+                sources.set(engine.moduleURLs.get(load.name), source);
+                return source;
+            });
+        };
+
+        engine.provide({
+            sources: sources
+        });
+    });
+
+    engine.config(function storeMetaSourceMap() {
+        // we could speed up sourcemap reading by storing load.metadata.sourceMap;
+        // but anyway systemjs do load.metadata.sourceMap = undefined
+        // so I just set this as a reminder that sourcemap could be available if set on load.metadata by the transpiler
+    }).skip('not ready yet');
+
+    engine.config(function provideSourceMaps() {
         function readSourceMapURL(source) {
             // Keep executing the search to find the *last* sourceMappingURL to avoid
             // picking up sourceMappingURLs from comments, strings, etc.
@@ -909,24 +1022,8 @@
             return lastMatch ? lastMatch[1] : null;
         }
 
-        // in order to get the file as it's going to appear in error stack but ignore this for now
-        // var sourceURLRegexp = /\/\/#\s*sourceURL=\s*(\S*)\s*/mg;
-        /*
-        function readSourceUrl() {
-            var lastMatch;
-            var match;
-
-            while (match = sourceURLRegexp.exec(source)) { // eslint-disable-line
-                lastMatch = match;
-            }
-
-            return lastMatch ? lastMatch[1] : null;
-        }
-        */
-
-        // returns a {map, optional url} object, or null if
-        // there is no source map. The map field may be either a string or the parsed JSON object
-        function readSourceMap(source, fromURL) {
+        // returns a {map, optional url} object, or null if there is no source map
+        function fetchSourceMapData(source, rootURL) {
             var sourceMapURL = readSourceMapURL(source);
             var sourceMapPromise;
 
@@ -936,13 +1033,13 @@
                     // Support source map URL as a data url
                     var rawData = sourceMapURL.slice(sourceMapURL.indexOf(',') + 1);
                     var sourceMap = JSON.parse(new Buffer(rawData, 'base64').toString());
-                    // engine.debug('read sourcemap from base64 for', fromURL);
+                    // engine.debug('read sourcemap from base64 for', rootURL);
                     sourceMapPromise = Promise.resolve(sourceMap);
                     sourceMapURL = null;
                 } else {
                     // Support source map URLs relative to the source URL
                     // engine.debug('the sourcemap url is', sourceMapURL);
-                    sourceMapURL = engine.locateFrom(sourceMapURL, fromURL);
+                    sourceMapURL = engine.locateFrom(sourceMapURL, rootURL, true);
                     engine.debug('read sourcemap from file', sourceMapURL);
 
                     // try {
@@ -966,11 +1063,55 @@
             });
         }
 
-        var sources = {};
+        var sourceMaps = new Map();
+        function detectSourceMap(source, rootURL) {
+            var sourceURL = engine.moduleURLs.store(source, rootURL);
+
+            // now read sourceMap url and object from the source
+            return fetchSourceMapData(source, sourceURL).then(function(sourceMapData) {
+                // if we find a sourcemap, store it
+                if (sourceMapData) {
+                    var sourceMap = sourceMapData.map;
+                    var sourceMapUrl = sourceMapData.url;
+
+                    // engine.debug('set sourcemap for', sourceURL, Boolean(sourceMap));
+                    sourceMaps.set(sourceURL, sourceMap);
+
+                    // if sourcemap has contents check for nested sourcemap in the content
+                    var sourcesContent = sourceMap.sourcesContent;
+                    if (sourcesContent) {
+                        return Promise.all(sourceMap.sources.map(function(source, i) {
+                            var content = sourcesContent[i];
+                            if (content) {
+                                // we cannot do engine.moduleSources.set(source, content)
+                                // because we can have many transpilation level like
+                                // moduleSource -> babelSource -> minifiedSource
+
+                                var sourceMapLocation;
+                                // nested sourcemap can be relative to their parent
+                                if (sourceMapUrl) {
+                                    sourceMapLocation = engine.locateFrom(source, sourceMapUrl);
+                                } else {
+                                    sourceMapLocation = engine.locate(source);
+                                }
+
+                                return detectSourceMap(content, sourceMapLocation);
+                            }
+                            return undefined;
+                        }));
+                    }
+                } else if (sourceMaps.has(sourceURL) === false) {
+                    // if no sourcemap is found store a null object to know their is no sourcemap for this file
+                    // the check sourceMaps.has(sourceURL) === false exists to prevent a indetical source wo
+                    // sourcemap to set sourcemap to null when we already got one
+                    // it happen when sourceMap.sourcesContent exists but does not contains sourceMap
+                    sourceMaps.set(sourceURL, null);
+                }
+            });
+        }
+
         var translate = System.translate;
         System.translate = function(load) {
-            var originalSource = load.source;
-
             return translate.call(this, load).then(function(source) {
                 var metadata = load.metadata;
                 var format = metadata.format;
@@ -978,74 +1119,15 @@
                     return source;
                 }
 
-                // get sourcemap from transpiled source because systemjs do load.metadata.sourceMap = undefined
-                // even if systemjs remove this undefined setter we need this in case transpiler do not set sourceMap
-                // in meta but appended it to the bottom of the file source
-                var sourceMapPromise;
-                var sourceMap = metadata.sourceMap;
-                if (sourceMap) {
-                    sourceMapPromise = Promise.resolve(sourceMap);
-                } else {
-                    // should disable this for browser.js which contains foo.js.map
-                    sourceMapPromise = readSourceMap(source, load.name);
-                }
-
-                return sourceMapPromise.then(function(sourceMap) {
-                    sources[load.name] = {
-                        source: originalSource,
-                        sourceMap: sourceMap
-                    };
-
-                    if (sourceMap) {
-                        engine.debug('store sourcemap for', load.name);
-                    }
-
-                    // Load all sources stored inline with the source map into the file cache
-                    // to pretend like they are already loaded. They may not exist on disk.
-                    // we have to reenable support for this, currently it does not work because it updates the existing sources object
-                    // I don't see use of sourcesContents I have to check this
-                    if (false && sourceMap && sourceMap.map && sourceMap.map.sourcesContent) {
-                        // console.log('populate source content');
-                        sourceMap.map.sources.forEach(function(source, i) {
-                            var contents = sourceMap.map.sourcesContent[i];
-                            if (contents) {
-                                var location;
-                                if (sourceMap.url) {
-                                    location = engine.locateFrom(source, sourceMap.url);
-                                } else {
-                                    location = engine.locate(source);
-                                }
-                                // console.log('adding the source for', location, 'did it exists before ?', location in sources);
-                                sources[location] = {
-                                    source: contents,
-                                    sourceMap: readSourceMap(contents, location)
-                                };
-                            }
-                        });
-                    }
-
+                return detectSourceMap(source, load.name).then(function() {
                     return source;
                 });
             });
         };
 
-        // engine.readSourceMap = readSourceMap;
-        engine.sources = sources;
-        engine.getSourceMap = function(path) {
-            // path = System.normalize(path);
-
-            var sources = this.sources;
-            var sourceMap;
-
-            if (path in sources) {
-                sourceMap = sources[path].sourceMap;
-            } else {
-                // console.warn('no sourcemap for ' + path);
-                // throw new Error('source undefined for ' + path);
-            }
-
-            return sourceMap;
-        };
+        engine.provide({
+            sourceMaps: sourceMaps
+        });
     });
 
     engine.config(function importAgentConfig() {
