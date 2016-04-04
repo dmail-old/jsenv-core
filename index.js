@@ -367,6 +367,32 @@
         var clean;
         var parentPath;
 
+        /*
+        once URL is loaded I must create some special object doing the following :
+
+        create an URLPath object that will parse a pathname into
+        dirname, extname, basename, filename
+        with resolve(otherPath) & relative(otherPath) methods
+
+        engine.createURL = function() {
+            // creates a custom object that will use URLSearchParams and URLPath objects
+            // and will have a relative(otherURL) method to make the url relative
+        };
+
+        engine.baseURL = engine.createURL(engine.baseURL);
+        engine.location = engine.createURL(engine.location);
+
+        then I'll be able to do
+
+        engine.location.resolve('./file.js');
+        engine.baseURL.resolve('./file.js');
+
+        engine.location will be renamed url
+        engine.baseURL will be renamed mainURL
+
+        instead of engine.locateFrom('./file.js', engine.location);
+        */
+
         parentPath = function(path) {
             return path.slice(0, path.lastIndexOf('/'));
         };
