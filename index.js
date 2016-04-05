@@ -1157,6 +1157,6 @@
     });
 
     engine.config(function importAgentConfig() {
-        return engine.import(engine.dirname + '/config/' + engine.agent.type + '.js');
+        return engine.import(engine.dirname + '/lib/config/' + engine.agent.type + '.js');
     });
 })();

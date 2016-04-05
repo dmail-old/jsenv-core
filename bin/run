@@ -8,3 +8,17 @@ var fileLocation = process.argv[2];
 process.argv.splice(2, 1);
 
 engine.start(fileLocation);
+
+/*
+var path = require('path');
+
+function hasParam(name) {
+    return process.argv.indexOf(name) > -1;
+}
+
+if (hasParam('--version') || hasParam('-v') || hasParam('-version')) {
+    var packagePath = path.resolve(__dirname, '../package.json');
+    var packageMeta = require(packagePath);
+    console.log(packageMeta.version);
+}
+*/
