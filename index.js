@@ -1276,7 +1276,6 @@
         var options = {
             recursive: false
         };
-        var mainLoad;
         var Test;
 
         engine.test.install().then(function() {
@@ -1286,14 +1285,10 @@
         }).then(function() {
             return System.normalize(engine.mainLocation);
         }).then(function(mainLocation) {
-            mainLoad = System.loads[mainLocation];
-            return System.import('./lib/dependency-graph/index.js', engine.dirname);
-        }).then(function(dependencyGraphModule) {
-            return dependencyGraphModule.default;
-        }).then(function(DependencyGraph) {
+            var mainLoad = System.loads[mainLocation];
             // trace api https://github.com/ModuleLoader/es6-module-loader/blob/master/docs/tracing-api.md
             var exports = mainLoad.metadata.entry.module.exports;
-            var isIndexFile = mainLoad.endsWith('/index.js'); // we will improve this non-robust check later
+            var isIndexFile = mainLoad.endsWith('/index.js'); // improve later with Url.filename === 'index.js'
             var hasTest = 'test' in exports;
 
             if (options.recursive === false && isIndexFile && hasTest === false) {
@@ -1305,14 +1300,12 @@
                 var test;
 
                 if ('test' in exports) {
-                    test = Test.create(exports.test);
+                    test = Test.create(load.address, exports.test);
                 } else {
-                    test = Test.create(function() {
+                    test = Test.create(load.address, function() {
                         this.skip('no test export');
                     });
                 }
-
-                test.name = load.address;
 
                 return test;
             }
@@ -1321,26 +1314,31 @@
             // si on est en mode recursif on doit commencer par tester le moulde le moins dépendants
             // puis tester les modules parents etc
             if (options.recursive) {
-                var loads = System.loads;
-                var graph = DependencyGraph.create();
-                var recusivelyRegisterDependencies = function(load) {
-                    var depMap = load.depMap;
-                    var normalizedDependencyNames = Object.keys(depMap).map(function(dependencyName) {
-                        return depMap[dependencyName];
-                    });
+                test = Test.create({
+                    modules: [engine.dirname + '/lib/dependency-graph/index.js#default'],
+                    name: 'testDependencies',
+                    fn: function(DependencyGraph) {
+                        var loads = System.loads;
+                        var graph = DependencyGraph.create();
+                        var recusivelyRegisterDependencies = function(load) {
+                            var depMap = load.depMap;
+                            var loadDependencies = Object.keys(depMap).map(function(dependencyName) {
+                                var normalizedDependencyName = depMap[dependencyName];
+                                return loads[normalizedDependencyName];
+                            }).filter(function(load) {
+                                return load.address.startsWith(mainLoad.address); // improve later with URL.prototype.includes
+                            });
 
-                    graph.register(load, normalizedDependencyNames);
-                    normalizedDependencyNames.forEach(function(normalizedDependencyName) {
-                        recusivelyRegisterDependencies(loads[normalizedDependencyName]);
-                    });
-                };
+                            graph.register(load, loadDependencies);
+                            loadDependencies.forEach(function(loadDependency) {
+                                recusivelyRegisterDependencies(loadDependency);
+                            });
+                        };
 
-                recusivelyRegisterDependencies(mainLoad);
+                        recusivelyRegisterDependencies(mainLoad);
 
-                var loadTests = graph.sort().map(createLoadTest);
-
-                test = Test.create(function() {
-                    loadTests.forEach(this.addTest, this);
+                        graph.sort().map(createLoadTest).forEach(this.addTest, this);
+                    }
                 });
             } else {
                 test = createLoadTest(mainLoad);
