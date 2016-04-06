@@ -2,8 +2,10 @@ import a from './module-a.js';
 
 a();
 
-export function test() {
+export const test = {
+    modules: ['node/assert'],
 
-}
-
-test.modules = ['node/assert'];
+    fn(assert) {
+        console.log(assert);
+    }
+};

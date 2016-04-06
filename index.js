@@ -1294,26 +1294,27 @@
             // trace api https://github.com/ModuleLoader/es6-module-loader/blob/master/docs/tracing-api.md
             var exports = mainLoad.metadata.entry.module.exports;
             var isIndexFile = mainLoad.endsWith('/index.js'); // we will improve this non-robust check later
-            var testExport = exports.test;
-            var hasTest = typeof testExport === 'function';
+            var hasTest = 'test' in exports;
 
             if (options.recursive === false && isIndexFile && hasTest === false) {
                 options.recursive = true;
             }
 
-            function runLoadTest(load) {
-                var test = load.metadata.entry.module.exports.test;
-
-                if (test) {
-                    return test();
-                }
-                this.skip('no test export');
-            }
-
             function createLoadTest(load) {
-                return Test.create(load.address, function() {
-                    return runLoadTest(load);
-                });
+                var exports = load.metadata.entry.module.exports;
+                var test;
+
+                if ('test' in exports) {
+                    test = Test.create(exports.test);
+                } else {
+                    test = Test.create(function() {
+                        this.skip('no test export');
+                    });
+                }
+
+                test.name = load.address;
+
+                return test;
             }
 
             var test;
