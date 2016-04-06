@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 
+// command line parser noopt or celeri
+
 require('../index.js');
 
 var engine = global.engine;

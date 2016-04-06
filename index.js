@@ -937,6 +937,17 @@
         }
 
         engine.registerCoreModule = registerCoreModule;
+    });
+
+    engine.config(function configInternalModules() {
+        [
+            'proto',
+            'options',
+            'dependency-graph',
+            'test'
+        ].forEach(function(moduleName) {
+            System.paths['dmail/' + moduleName] = engine.dirname + '/lib/' + moduleName + '/index.js';
+        });
 
         System.paths.proto = engine.dirname + '/node_modules/@dmail/proto/index.js';
     });
@@ -1158,5 +1169,37 @@
 
     engine.config(function importAgentConfig() {
         return engine.import(engine.dirname + '/lib/config/' + engine.agent.type + '.js');
+    });
+
+    engine.config(function provideTest() {
+        var test = {
+
+        };
+
+        test.install = function() {
+            System.trace = true;
+            System.execute = true;
+
+            return new Promise(function(resolve) {
+                engine.run(function runTests() {
+                    resolve();
+                });
+            });
+        };
+
+        test.collect = function(module) {
+            return System.import('dmail/test').then(function(testModule) {
+                testModule.run(module);
+            });
+        };
+
+        test.report = function() {
+            // idéallement le report se fait en même temps que le test
+            // donc ici on a pas cette notion
+        };
+
+        engine.provide({
+            test: test
+        });
     });
 })();
