@@ -1315,7 +1315,7 @@
             // puis tester les modules parents etc
             if (options.recursive) {
                 test = Test.create({
-                    modules: [engine.dirname + '/lib/dependency-graph/index.js#default'],
+                    modules: [engine.dirname + '/lib/dependency-graph/index.js'],
                     name: 'testDependencies',
                     fn: function(DependencyGraph) {
                         var loads = System.loads;
