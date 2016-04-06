@@ -190,6 +190,67 @@
         });
     })();
 
+    engine.provide(function providePlugins() {
+        /*
+        // the concept is to have some plugins as test, coverage, sourcemap etc
+        // which can be added/removed/disabled
+        // this way we could deactivate some useless plugins in some case
+        // activating the coverage plugin will not necessaryly log the coverage but give you access to the coverage plugin
+        // could also be called features
+
+        var Plugin = function(name, properties) {
+
+        };
+
+        Plugin.prototype = {
+            dependencies: [],
+            disabled: false,
+
+            enable: function() {
+                this.disabled = false;
+            },
+
+            disable: function() {
+                this.disabled = true;
+            }
+        };
+
+        var plugins = {
+            get: function(name) {
+
+            },
+
+            add: function(name, properties) {
+
+            },
+
+            remove: function(name) {
+
+            },
+
+            enable: function(name) {
+
+            },
+
+            disable: function(name) {
+
+            }
+        };
+
+        engine.plugin = function() {
+            new Plugin();
+        };
+
+        engine.config(function configPlugins() {
+            // Pour tous les plugins enabled fait plugin.config
+        });
+
+        engine.run(function runPlugins() {
+            // pour tous les plugins enabled, fait plugin.run
+        });
+        */
+    });
+
     engine.provide(function provideAgent() {
         // agent is what runs JavaScript : nodejs, iosjs, firefox, ...
         var type;
@@ -888,12 +949,11 @@
         });
     });
 
-    // ensure transpiling with babel & System.trace = true
+    // ensure transpiling with babel
     engine.config(function configSystem() {
         System.transpiler = 'babel';
         System.babelOptions = {};
         System.paths.babel = engine.dirname + '/node_modules/babel-core/browser.js';
-        System.trace = true;
     });
 
     // core modules config
@@ -1187,19 +1247,105 @@
             });
         };
 
-        test.collect = function(module) {
-            return System.import('dmail/test').then(function(testModule) {
-                testModule.run(module);
-            });
-        };
+        test.createOptions = function(customOptions) {
+            var options = {};
 
-        test.report = function() {
-            // idéallement le report se fait en même temps que le test
-            // donc ici on a pas cette notion
+            return System.import('./lib/test/reporter.js', engine.dirname).then(function(reporterModule) {
+                return reporterModule.default;
+            }).then(function(Reporter) {
+                var reporter = Reporter.create();
+
+                options.reporter = reporter;
+
+                if (customOptions.json) {
+                    reporter.use('console-json');
+                } else if (customOptions.silent !== true) {
+                    reporter.use('console-core', options);
+                }
+
+                return options;
+            });
         };
 
         engine.provide({
             test: test
+        });
+    });
+
+    engine.config(function testMainModule() {
+        var options = {
+            recursive: false
+        };
+        var mainLoad;
+        var Test;
+
+        engine.test.install().then(function() {
+            return System.import('./lib/test/index.js', engine.dirname);
+        }).then(function(testModule) {
+            Test = testModule.default;
+        }).then(function() {
+            return System.normalize(engine.mainLocation);
+        }).then(function(mainLocation) {
+            mainLoad = System.loads[mainLocation];
+            return System.import('./lib/dependency-graph/index.js', engine.dirname);
+        }).then(function(dependencyGraphModule) {
+            return dependencyGraphModule.default;
+        }).then(function(DependencyGraph) {
+            // trace api https://github.com/ModuleLoader/es6-module-loader/blob/master/docs/tracing-api.md
+            var exports = mainLoad.metadata.entry.module.exports;
+            var isIndexFile = mainLoad.endsWith('/index.js'); // we will improve this non-robust check later
+            var testExport = exports.test;
+            var hasTest = typeof testExport === 'function';
+
+            if (options.recursive === false && isIndexFile && hasTest === false) {
+                options.recursive = true;
+            }
+
+            function runLoadTest(load) {
+                var test = load.metadata.entry.module.exports.test;
+
+                if (test) {
+                    return test();
+                }
+                this.skip('no test export');
+            }
+
+            function createLoadTest(load) {
+                return Test.create(load.address, function() {
+                    return runLoadTest(load);
+                });
+            }
+
+            var test;
+            // si on est en mode recursif on doit commencer par tester le moulde le moins dépendants
+            // puis tester les modules parents etc
+            if (options.recursive) {
+                var loads = System.loads;
+                var graph = DependencyGraph.create();
+                var recusivelyRegisterDependencies = function(load) {
+                    var depMap = load.depMap;
+                    var normalizedDependencyNames = Object.keys(depMap).map(function(dependencyName) {
+                        return depMap[dependencyName];
+                    });
+
+                    graph.register(load, normalizedDependencyNames);
+                    normalizedDependencyNames.forEach(function(normalizedDependencyName) {
+                        recusivelyRegisterDependencies(loads[normalizedDependencyName]);
+                    });
+                };
+
+                recusivelyRegisterDependencies(mainLoad);
+
+                var loadTests = graph.sort().map(createLoadTest);
+
+                test = Test.create(function() {
+                    loadTests.forEach(this.addTest, this);
+                });
+            } else {
+                test = createLoadTest(mainLoad);
+            }
+
+            return test.exec();
         });
     });
 })();
