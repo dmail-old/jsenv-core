@@ -1,26 +1,173 @@
 #!/usr/bin/env node
 
-// command line parser noopt or celeri
+var optionList = process.argv.slice(2);
+var commandOptions = optionList.map(function(string) {
+    var data = {};
+
+    if (string[0] === '-') {
+        if (string[1] === '-') {
+            data.name = string.slice(2);
+        } else {
+            data.name = string.slice(1);
+        }
+
+        var equalCharIndex = string.indexOf('=');
+        if (equalCharIndex > -1) {
+            data.value = string.slice(equalCharIndex);
+        }
+    } else {
+        data.value = string;
+    }
+
+    return data;
+});
 
 require('../index.js');
-
 var engine = global.engine;
-var fileLocation = process.argv[2];
 
-process.argv.splice(2, 1);
-
-engine.start(fileLocation);
-
-/*
-var path = require('path');
-
-function hasParam(name) {
-    return process.argv.indexOf(name) > -1;
+function stripTrailingSep(pathname) {
+    if (pathname[pathname.length - 1] === '/') {
+        pathname = pathname.slice(0, -1);
+    }
+    return pathname;
 }
 
-if (hasParam('--version') || hasParam('-v') || hasParam('-version')) {
-    var packagePath = path.resolve(__dirname, '../package.json');
-    var packageMeta = require(packagePath);
-    console.log(packageMeta.version);
+function urlIsSiblingOrDescendantOf(url, otherUrl) {
+    url = new global.URL(url, otherUrl);
+    otherUrl = new global.URL(otherUrl);
+
+    if (url.protocol !== otherUrl.protocol) {
+        return false;
+    }
+    if (url.host !== otherUrl.host) {
+        return false;
+    }
+    if (url.port !== otherUrl.port) {
+        return false;
+    }
+
+    var pathname = stripTrailingSep(url.pathname);
+    var potentialParentOrSibling = stripTrailingSep(otherUrl.pathname);
+    var potentialDirname = potentialParentOrSibling.slice(0, potentialParentOrSibling.lastIndexOf('/'));
+
+    return pathname.startsWith(potentialDirname);
 }
-*/
+
+var commandSignature = [
+    {
+        name: 'version',
+        type: 'Boolean',
+        default: false,
+        unique: true, // incompatible with others
+        fn: function() {
+            var path = require('path');
+            var packagePath = path.resolve(__dirname, '../package.json');
+            var packageMeta = require(packagePath);
+            console.log(packageMeta.version);
+        }
+    },
+    {
+        name: 'test',
+        type: 'Boolean',
+        default: false,
+        fn: function() {
+            engine.config(function() {
+                var options = {};
+                return engine.test.install(options);
+            });
+
+            engine.run(function() {
+                return engine.test.run(engine.mainLocation);
+            });
+        }
+    },
+    {
+        name: 'cover',
+        type: 'Boolean',
+        default: false,
+        fn: function() {
+            engine.config(function() {
+                var options = {
+                    urlIsPartOfCoverage: function(url) {
+                        // the url must be a sibling or a descendant of engine.mainLocation
+                        return urlIsSiblingOrDescendantOf(url, engine.mainLocation);
+                    }
+                };
+
+                // most time we do code coverage test to see how a file is covering all it's dependencies
+                // so checking that the file is the mainLocation or a peer or inside is sufficient
+                return engine.coverage.install(options);
+            });
+
+            engine.run(function() {
+                var mainLocation = engine.mainLocation;
+                var options = {
+                    directory: engine.locateFrom('error-coverage', mainLocation, true),
+                    reportConsole: true
+                };
+
+                return engine.coverage.collect(engine.coverage.value).then(function(collector) {
+                    return engine.coverage.report(collector, options);
+                });
+            });
+        }
+    },
+    {
+        name: 'run',
+        type: 'Boolean',
+        default: optionList[0],
+        fn: function(path) {
+            console.log('running on', path);
+            engine.start(path);
+        }
+    }
+];
+
+var defaultOptions = commandSignature.filter(function(action) {
+    return 'default' in action;
+}).map(function(action) {
+    return {
+        name: action.name,
+        value: action.default
+    };
+});
+var options = [].concat(commandOptions, defaultOptions);
+function getOption(actionName) {
+    var possibleNames = [
+        actionName,
+        actionName,
+        actionName[0]
+    ];
+    var option = null;
+    var i = 0;
+    var j = options.length;
+    for (; i < j; i++) {
+        option = options[i];
+        if (possibleNames.indexOf(option.name) > -1) {
+            break;
+        } else {
+            option = null;
+        }
+    }
+
+    return option;
+}
+
+commandSignature.forEach(function(action) {
+    var option = getOption(action.name);
+
+    if (option && action.fn) {
+        var args = (action.dependencies || []).map(function(optionName) {
+            return getOption(optionName).value;
+        });
+        if ('value' in option) {
+            args.unshift(option.value);
+        }
+
+        if (action.type === 'Boolean' && args[0] === false) {
+            // skipping
+        } else {
+            action.fn.apply(action, args);
+        }
+    }
+});

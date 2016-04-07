@@ -1247,104 +1247,96 @@
             });
         };
 
-        test.createOptions = function(customOptions) {
-            var options = {};
+        test.run = function(moduleName) {
+            var moduleLoad;
+            var options = {
+                recursive: false
+            };
 
-            return System.import('./lib/test/reporter.js', engine.dirname).then(function(reporterModule) {
+            return System.normalize(moduleName).then(function(normalizedModuleName) {
+                moduleLoad = System.loads[normalizedModuleName];
+                // trace api https://github.com/ModuleLoader/es6-module-loader/blob/master/docs/tracing-api.md
+                var exports = moduleLoad.metadata.entry.module.exports;
+                var isIndexFile = moduleLoad.endsWith('/index.js'); // improve later with Url.filename === 'index.js'
+                var hasTest = 'test' in exports;
+
+                if (options.recursive === false && isIndexFile && hasTest === false) {
+                    options.recursive = true;
+                }
+            }).then(function() {
+                return System.import('./lib/test/reporter.js', engine.dirname);
+            }).then(function(reporterModule) {
                 return reporterModule.default;
             }).then(function(Reporter) {
                 var reporter = Reporter.create();
 
                 options.reporter = reporter;
 
-                if (customOptions.json) {
+                if (options.json) {
                     reporter.use('console-json');
-                } else if (customOptions.silent !== true) {
+                } else if (options.silent !== true) {
                     reporter.use('console-core', options);
                 }
+            }).then(function() {
+                return System.import('./lib/test/index.js', engine.dirname);
+            }).then(function(testModule) {
+                return testModule.default;
+            }).then(function(Test) {
+                function createLoadTest(load) {
+                    var exports = load.metadata.entry.module.exports;
+                    var test;
 
-                return options;
+                    if ('test' in exports) {
+                        test = Test.create(load.address, exports.test);
+                    } else {
+                        test = Test.create(load.address, function() {
+                            this.skip('no test export');
+                        });
+                    }
+
+                    return test;
+                }
+
+                var test;
+                // si on est en mode recursif on doit commencer par tester le moulde le moins dépendants
+                // puis tester les modules parents etc
+                if (options.recursive) {
+                    test = Test.create({
+                        modules: [engine.dirname + '/lib/dependency-graph/index.js'],
+                        name: 'testDependencies',
+                        fn: function(DependencyGraph) {
+                            var loads = System.loads;
+                            var graph = DependencyGraph.create();
+                            var recusivelyRegisterDependencies = function(load) {
+                                var depMap = load.depMap;
+                                var loadDependencies = Object.keys(depMap).map(function(dependencyName) {
+                                    var normalizedDependencyName = depMap[dependencyName];
+                                    return loads[normalizedDependencyName];
+                                }).filter(function(load) {
+                                    return load.address.startsWith(moduleLoad.address); // improve later with URL.prototype.includes
+                                });
+
+                                graph.register(load, loadDependencies);
+                                loadDependencies.forEach(function(loadDependency) {
+                                    recusivelyRegisterDependencies(loadDependency);
+                                });
+                            };
+
+                            recusivelyRegisterDependencies(moduleLoad);
+
+                            graph.sort().map(createLoadTest).forEach(this.addTest, this);
+                        }
+                    });
+                } else {
+                    test = createLoadTest(moduleLoad);
+                }
+
+                return test.exec();
             });
         };
 
         engine.provide({
             test: test
-        });
-    });
-
-    engine.config(function testMainModule() {
-        var options = {
-            recursive: false
-        };
-        var Test;
-
-        engine.test.install().then(function() {
-            return System.import('./lib/test/index.js', engine.dirname);
-        }).then(function(testModule) {
-            Test = testModule.default;
-        }).then(function() {
-            return System.normalize(engine.mainLocation);
-        }).then(function(mainLocation) {
-            var mainLoad = System.loads[mainLocation];
-            // trace api https://github.com/ModuleLoader/es6-module-loader/blob/master/docs/tracing-api.md
-            var exports = mainLoad.metadata.entry.module.exports;
-            var isIndexFile = mainLoad.endsWith('/index.js'); // improve later with Url.filename === 'index.js'
-            var hasTest = 'test' in exports;
-
-            if (options.recursive === false && isIndexFile && hasTest === false) {
-                options.recursive = true;
-            }
-
-            function createLoadTest(load) {
-                var exports = load.metadata.entry.module.exports;
-                var test;
-
-                if ('test' in exports) {
-                    test = Test.create(load.address, exports.test);
-                } else {
-                    test = Test.create(load.address, function() {
-                        this.skip('no test export');
-                    });
-                }
-
-                return test;
-            }
-
-            var test;
-            // si on est en mode recursif on doit commencer par tester le moulde le moins dépendants
-            // puis tester les modules parents etc
-            if (options.recursive) {
-                test = Test.create({
-                    modules: [engine.dirname + '/lib/dependency-graph/index.js'],
-                    name: 'testDependencies',
-                    fn: function(DependencyGraph) {
-                        var loads = System.loads;
-                        var graph = DependencyGraph.create();
-                        var recusivelyRegisterDependencies = function(load) {
-                            var depMap = load.depMap;
-                            var loadDependencies = Object.keys(depMap).map(function(dependencyName) {
-                                var normalizedDependencyName = depMap[dependencyName];
-                                return loads[normalizedDependencyName];
-                            }).filter(function(load) {
-                                return load.address.startsWith(mainLoad.address); // improve later with URL.prototype.includes
-                            });
-
-                            graph.register(load, loadDependencies);
-                            loadDependencies.forEach(function(loadDependency) {
-                                recusivelyRegisterDependencies(loadDependency);
-                            });
-                        };
-
-                        recusivelyRegisterDependencies(mainLoad);
-
-                        graph.sort().map(createLoadTest).forEach(this.addTest, this);
-                    }
-                });
-            } else {
-                test = createLoadTest(mainLoad);
-            }
-
-            return test.exec();
         });
     });
 })();

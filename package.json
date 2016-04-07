@@ -17,10 +17,6 @@
 		"@dmail/proto": "*",
 		"source-map": "0.4.4",
 		"@dmail/node-stacktrace": "git+https://github.com/dmail/node-stacktrace",
-		"@dmail/options": "git+https://github.com/dmail/options",
-    	"@dmail/timeout": "git+https://github.com/dmail/timeout",
-    	"@dmail/thenable": "git+https://github.com/dmail/thenable",
-   		"@dmail/iterable": "git+https://github.com/dmail/iterable",
 		"open": "*"
 	},
 	"bin": {
