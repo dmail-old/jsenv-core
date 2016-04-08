@@ -141,11 +141,15 @@
         var noop = function() {};
         var configTask = new Task('config', noop);
         var mainTask = new Task('main', function() {
-            engine.mainImport = System.import(engine.mainLocation).then(function(mainModule) {
+            if (engine.mainSource) {
+                return System.module(engine.mainSource, {
+                    address: engine.mainLocation
+                });
+            }
+            return System.import(engine.mainLocation).then(function(mainModule) {
                 engine.mainModule = mainModule;
                 return mainModule;
             });
-            return engine.mainImport;
         });
         var runTask = new Task('run', noop);
 
@@ -170,7 +174,20 @@
 
             start: function(mainModuleData) {
                 if (typeof mainModuleData === 'string') {
-                    this.mainLocation = mainModuleData;
+                    if (arguments.length > 1) { // two argument means it's source code to evaluate with a given name
+                        var name = arguments[1];
+                        if (name === true) {
+                            name = 'anonymous';
+                        }
+                        this.mainSource = mainModuleData;
+                        this.mainLocation = engine.baseURL + '/' + name;
+                    } else {
+                        this.mainLocation = mainModuleData;
+                    }
+                } else if (typeof mainModuleData === 'function') {
+                    this.mainLocation = engine.baseURL + '/' + (mainModuleData.name || 'anonymous');
+                    var source = mainModuleData.toString().slice();
+                    this.mainSource = source.slice(source.indexOf('{') + 1, source.lastIndexOf('}'));
                 } else {
                     throw new Error('engine.start() expect a mainModule argument');
                 }
