@@ -71,7 +71,7 @@ function startCommand(params) {
         });
     }
 
-    engine.start(params.path);
+    engine.start(params[0]);
 }
 
 function versionCommand() {
@@ -83,7 +83,6 @@ function versionCommand() {
 
 var commandSignatures = {
     0: {
-        name: 'path',
         type: 'string',
         params: {
             cover: {
@@ -115,10 +114,13 @@ var commandSignatures = {
         type: 'boolean',
         default: false,
         fn: versionCommand
+    },
+    usage: {
+        fn: function() {
+            console.log('system-run <path>');
+        }
     }
 };
 
 var commandApi = commandAPI(commandSignatures);
-
-commandApi.parse(process.argv.slice(2));
-commandApi.exec();
+commandApi.exec(process.argv.slice(2));
