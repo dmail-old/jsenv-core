@@ -22,9 +22,6 @@ var commandOptions = optionList.map(function(string) {
     return data;
 });
 
-require('../index.js');
-var engine = global.engine;
-
 function stripTrailingSep(pathname) {
     if (pathname[pathname.length - 1] === '/') {
         pathname = pathname.slice(0, -1);
@@ -67,58 +64,56 @@ var commandSignature = [
         }
     },
     {
-        name: 'test',
-        type: 'Boolean',
-        default: false,
-        fn: function() {
-            engine.config(function() {
-                var options = {};
-                return engine.test.install(options);
-            });
-
-            engine.run(function() {
-                return engine.test.run(engine.mainLocation);
-            });
-        }
-    },
-    {
-        name: 'cover',
-        type: 'Boolean',
-        default: false,
-        fn: function() {
-            engine.config(function() {
-                var options = {
-                    urlIsPartOfCoverage: function(url) {
-                        // the url must be a sibling or a descendant of engine.mainLocation
-                        return urlIsSiblingOrDescendantOf(url, engine.mainLocation);
-                    }
-                };
-
-                // most time we do code coverage test to see how a file is covering all it's dependencies
-                // so checking that the file is the mainLocation or a peer or inside is sufficient
-                return engine.coverage.install(options);
-            });
-
-            engine.run(function() {
-                var mainLocation = engine.mainLocation;
-                var options = {
-                    directory: engine.locateFrom('error-coverage', mainLocation, true),
-                    reportConsole: true
-                };
-
-                return engine.coverage.collect(engine.coverage.value).then(function(collector) {
-                    return engine.coverage.report(collector, options);
-                });
-            });
-        }
-    },
-    {
         name: 'run',
         type: 'Boolean',
-        default: optionList[0],
-        fn: function(path) {
-            console.log('running on', path);
-            engine.start(path);
+        signature: [
+            {type: 'string', name: '0'},
+            {type: 'boolean', name: 'test', default: false},
+            {type: 'boolean', name: 'cover', default: false}
+
+        ],
+        fn: function(options) {
+            require('../index.js');
+            var engine = global.engine;
+
+            if (options.test) {
+                engine.config(function() {
+                    var options = {};
+                    return engine.test.install(options);
+                });
+
+                engine.run(function() {
+                    return engine.test.run(engine.mainLocation);
+                });
+            }
+            if (options.cover) {
+                engine.config(function() {
+                    var options = {
+                        urlIsPartOfCoverage: function(url) {
+                            // the url must be a sibling or a descendant of engine.mainLocation
+                            return urlIsSiblingOrDescendantOf(url, engine.mainLocation);
+                        }
+                    };
+
+                    // most time we do code coverage test to see how a file is covering all it's dependencies
+                    // so checking that the file is the mainLocation or a peer or inside is sufficient
+                    return engine.coverage.install(options);
+                });
+
+                engine.run(function() {
+                    var mainLocation = engine.mainLocation;
+                    var options = {
+                        directory: engine.locateFrom('error-coverage', mainLocation, true),
+                        reportConsole: true
+                    };
+
+                    return engine.coverage.collect(engine.coverage.value).then(function(collector) {
+                        return engine.coverage.report(collector, options);
+                    });
+                });
+            }
+
+            engine.start(options[0]);
         }
     }
 ];
