@@ -6,6 +6,8 @@ function startCommand(params) {
     require('../index.js');
     var engine = global.engine;
 
+    engine.debug('start with params', params);
+
     function stripTrailingSep(pathname) {
         if (pathname[pathname.length - 1] === '/') {
             pathname = pathname.slice(0, -1);
@@ -37,7 +39,7 @@ function startCommand(params) {
     if (params.test) {
         engine.config(function() {
             var options = {};
-            return engine.test.install(options);
+            engine.test.install(options);
         });
 
         engine.run(function() {
@@ -71,7 +73,7 @@ function startCommand(params) {
         });
     }
 
-    engine.start(params[0]);
+    engine.importMain(params[0]);
 }
 
 function versionCommand() {

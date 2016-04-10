@@ -142,10 +142,18 @@
         var configTask = new Task('config', noop);
         var mainTask = new Task('main', function() {
             if (engine.mainSource) {
+                engine.debug('get mainModule from source string');
                 return System.module(engine.mainSource, {
                     address: engine.mainLocation
                 });
             }
+            if (engine.mainModule) {
+                engine.debug('get mainModule from source object');
+                engine.mainModule = System.newModule(engine.mainModule);
+                System.set(engine.mainLocation, engine.mainModule);
+                return Promise.resolve(engine.mainModule);
+            }
+            engine.debug('get mainModule from source file', engine.mainLocation);
             return System.import(engine.mainLocation).then(function(mainModule) {
                 engine.mainModule = mainModule;
                 return mainModule;
@@ -172,32 +180,34 @@
             config: config,
             run: run,
 
-            start: function(mainModuleData) {
-                if (typeof mainModuleData === 'string') {
-                    if (arguments.length > 1) { // two argument means it's source code to evaluate with a given name
-                        var name = arguments[1];
-                        if (name === true) {
-                            name = 'anonymous';
-                        }
-                        this.mainSource = mainModuleData;
-                        this.mainLocation = engine.baseURL + '/' + name;
-                    } else {
-                        this.mainLocation = mainModuleData;
-                    }
-                } else if (typeof mainModuleData === 'function') {
-                    this.mainLocation = engine.baseURL + '/' + (mainModuleData.name || 'anonymous');
-                    var source = mainModuleData.toString().slice();
-                    this.mainSource = source.slice(source.indexOf('{') + 1, source.lastIndexOf('}'));
-                } else {
-                    throw new Error('engine.start() expect a mainModule argument');
-                }
+            evalMain: function(source, sourceURL) {
+                this.mainSource = source;
+                this.mainLocation = sourceURL || './anonymous';
+                return this.start();
+            },
 
+            exportMain: function(moduleExports) {
+                // seems strange to pass an object because this object will not benefit
+                // from any polyfill/transpilation etc
+                this.mainModule = moduleExports;
+                this.mainLocation = './anonymous';
+                return this.start();
+            },
+
+            importMain: function(moduleLocation) {
+                this.mainLocation = moduleLocation;
+                return this.start();
+            },
+
+            start: function() {
+                if (!this.mainLocation) {
+                    throw new Error('mainLocation must be set before calling engine.start()');
+                }
                 // the problem here is that we are still using native or user polyfilled Promise implementation
                 // which may not support unhandledRejection
                 // for this reason we have to catch the error explicitely
                 // the impact is that external code calling engine.start().catch() will never catch anything because
                 // error is handled by exceptionHandler
-
                 return configTask.start().then(function() {
                     return engine.mainModule;
                 }).catch(function(error) {
@@ -465,8 +475,8 @@
         engine.location.resolve('./file.js');
         engine.baseURL.resolve('./file.js');
 
-        engine.location will be renamed url
-        engine.baseURL will be renamed mainURL
+        engine.location will be renamed internalLocation
+        engine.baseURL will be renamed location
 
         instead of engine.locateFrom('./file.js', engine.location);
         */
@@ -1020,6 +1030,9 @@
         [
             'proto',
             'options',
+            'timeout',
+            'thenable',
+            'iterable',
             'dependency-graph',
             'test'
         ].forEach(function(moduleName) {
@@ -1254,14 +1267,10 @@
         };
 
         test.install = function() {
+            engine.debug('install test');
+
             System.trace = true;
             System.execute = true;
-
-            return new Promise(function(resolve) {
-                engine.run(function runTests() {
-                    resolve();
-                });
-            });
         };
 
         test.run = function(moduleName) {
@@ -1274,14 +1283,14 @@
                 moduleLoad = System.loads[normalizedModuleName];
                 // trace api https://github.com/ModuleLoader/es6-module-loader/blob/master/docs/tracing-api.md
                 var exports = moduleLoad.metadata.entry.module.exports;
-                var isIndexFile = moduleLoad.endsWith('/index.js'); // improve later with Url.filename === 'index.js'
+                var isIndexFile = moduleLoad.name.endsWith('/index.js'); // improve later with Url.filename === 'index.js'
                 var hasTest = 'test' in exports;
 
                 if (options.recursive === false && isIndexFile && hasTest === false) {
                     options.recursive = true;
                 }
             }).then(function() {
-                return System.import('./lib/test/reporter.js', engine.dirname);
+                return System.import('./lib/test/reporter.js', engine.location);
             }).then(function(reporterModule) {
                 return reporterModule.default;
             }).then(function(Reporter) {
@@ -1295,7 +1304,7 @@
                     reporter.use('console-core', options);
                 }
             }).then(function() {
-                return System.import('./lib/test/index.js', engine.dirname);
+                return System.import('./lib/test/index.js', engine.location);
             }).then(function(testModule) {
                 return testModule.default;
             }).then(function(Test) {
@@ -1304,11 +1313,15 @@
                     var test;
 
                     if ('test' in exports) {
-                        test = Test.create(load.address, exports.test);
+                        test = Test.create(exports.test);
                     } else {
-                        test = Test.create(load.address, function() {
+                        test = Test.create(function() {
                             this.skip('no test export');
-                        });
+                        }, load.address);
+                    }
+
+                    if (!test.name) {
+                        test.name = load.address;
                     }
 
                     return test;
