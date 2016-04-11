@@ -38,12 +38,7 @@ function startCommand(params) {
 
     if (params.test) {
         engine.config(function() {
-            var options = {};
-            engine.test.install(options);
-        });
-
-        engine.run(function() {
-            return engine.test.run(engine.mainLocation);
+            engine.test(engine.mainLocation);
         });
     }
     if (params.cover) {
