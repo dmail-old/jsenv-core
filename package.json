@@ -8,13 +8,6 @@
 		"babel-core": "^5.8.22",
 		"babel-polyfill": "6.0.16",
 		"systemjs": "git+https://github.com/dmail/systemjs",
-		"@dmail/promise-es6": "*",
-		"@dmail/set-immediate": "*",
-		"@dmail/object-assign": "*",
-		"@dmail/object-complete": "git+https://github.com/dmail/object-complete",
-		"@dmail/url-search-params": "*",
-		"@dmail/url": "*",
-		"@dmail/proto": "*",
 		"source-map": "0.4.4",
 		"@dmail/node-stacktrace": "git+https://github.com/dmail/node-stacktrace",
 		"open": "*"

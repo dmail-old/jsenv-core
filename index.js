@@ -1,5 +1,15 @@
 /* eslint-env browser, node */
 
+/*
+WARNING : if your env does not support promise you must provide a polyfill before calling engine.start()
+
+after including this file you can do
+
+engine.config(function() {}); // function or file executed in serie before engine.mainTask
+engine.run(function() {}); // function or file executed in serie after engine.mainTask
+engine.importMain('./path/to/file.js'); // set engine.mainTask to import/execute this file then auto call engine.start
+*/
+
 (function() {
     var engine = {};
 
@@ -14,269 +24,6 @@
             }
         }
     };
-
-    // task
-    (function() {
-        /*
-        WARNING : if your env does not support promise you must provide a polyfill before calling engine.start()
-
-        in an external file you can do, once this file is included
-
-        engine.config(function() {}); // function or file executed in serie once setup is done
-        engine.run(function() {}); // function or file executed in serie once once run is done & main module is imported (engine.mainModule)
-        engine.start('./path/to/file.js'); // start the engine executing config tasks, then the main task (import main module) then run tasks
-        */
-
-        var Task = function() {
-            if (arguments.length === 1) {
-                if (typeof arguments[0] === 'function') {
-                    this.name = arguments[0].name;
-                    this.fn = arguments[0];
-                } else if (typeof arguments[0] === 'object') {
-                    var properties = arguments[0];
-                    for (var key in properties) { // eslint-disable-line
-                        this[key] = properties[key];
-                    }
-                } else if (typeof arguments[0] === 'string') {
-                    this.name = arguments[0];
-                    this.url = this.name;
-                }
-            } else if (arguments.length === 2) {
-                this.name = arguments[0];
-                this.fn = arguments[1];
-            }
-        };
-
-        Task.prototype = {
-            name: undefined,
-            skipped: false,
-            ended: false,
-            next: null,
-
-            chain: function(task) {
-                if (this.ended) {
-                    throw new Error(this.name + 'task is ended : cannot chain more task to it');
-                }
-
-                // engine.debug('do', task.name, 'after', this.name);
-
-                var next = this.next;
-                if (next) {
-                    next.chain(task);
-                } else {
-                    this.next = task;
-                }
-
-                return this;
-            },
-
-            insert: function(task, beforeTask) {
-                if (beforeTask) {
-                    var next = this.next;
-                    if (!next) {
-                        throw new Error('cannot insert ' + task.name + ' before ' + beforeTask.name);
-                    }
-
-                    if (next === beforeTask) {
-                        this.next = null;
-
-                        this.chain(task);
-                        task.chain(next);
-                        return this;
-                    }
-                    return next.insert(task, beforeTask);
-                }
-
-                return this.chain(task);
-            },
-
-            skip: function(reason) {
-                this.skipped = true;
-                reason = reason || 'no specific reason';
-                engine.debug('skip task', this.name, ':', reason);
-            },
-
-            import: function() {
-                this.address = engine.locate(this.url);
-                engine.debug('importing', this.url);
-                return engine.import(this.url);
-            },
-
-            exec: function(value) {
-                return this.fn(value);
-            },
-
-            before: function(value) {
-                return value;
-            },
-
-            after: function(value) {
-                this.ended = true;
-
-                if (this.next) {
-                    // will throw but it will be ignored
-                    return this.next.start(value);
-                }
-                return value;
-            },
-
-            start: function(value) {
-                // engine.info(engine.type, engine.location, engine.baseURL);
-                engine.task = this;
-                engine.debug('start task', this.name);
-
-                return Promise.resolve(value).then(
-                    this.before.bind(this)
-                ).then(function(resolutionValue) {
-                    if (this.skipped) {
-                        return resolutionValue;
-                    }
-                    return this.exec(resolutionValue);
-                }.bind(this)).then(
-                    this.after.bind(this)
-                );
-            }
-        };
-
-        var noop = function() {};
-        var configTask = new Task('config', noop);
-        var mainTask = new Task('main', function() {
-            if (engine.mainSource) {
-                engine.debug('get mainModule from source string');
-                return System.module(engine.mainSource, {
-                    address: engine.mainLocation
-                });
-            }
-            if (engine.mainModule) {
-                engine.debug('get mainModule from source object');
-                engine.mainModule = System.newModule(engine.mainModule);
-                System.set(engine.mainLocation, engine.mainModule);
-                return Promise.resolve(engine.mainModule);
-            }
-            engine.debug('get mainModule from source file', engine.mainLocation);
-            return System.import(engine.mainLocation).then(function(mainModule) {
-                engine.mainModule = mainModule;
-                return mainModule;
-            });
-        });
-        var runTask = new Task('run', noop);
-
-        configTask.chain(mainTask).chain(runTask);
-
-        function config(taskData) {
-            var task = new Task(taskData);
-            configTask.insert(task, mainTask);
-            return task;
-        }
-
-        function run(taskData) {
-            var task = new Task(taskData);
-            mainTask.chain(task);
-            return task;
-        }
-
-        engine.provide({
-            task: undefined,
-            config: config,
-            run: run,
-
-            evalMain: function(source, sourceURL) {
-                this.mainSource = source;
-                this.mainLocation = sourceURL || './anonymous';
-                return this.start();
-            },
-
-            exportMain: function(moduleExports) {
-                // seems strange to pass an object because this object will not benefit
-                // from any polyfill/transpilation etc
-                this.mainModule = moduleExports;
-                this.mainLocation = './anonymous';
-                return this.start();
-            },
-
-            importMain: function(moduleLocation) {
-                this.mainLocation = moduleLocation;
-                return this.start();
-            },
-
-            start: function() {
-                if (!this.mainLocation) {
-                    throw new Error('mainLocation must be set before calling engine.start()');
-                }
-                // the problem here is that we are still using native or user polyfilled Promise implementation
-                // which may not support unhandledRejection
-                // for this reason we have to catch the error explicitely
-                // the impact is that external code calling engine.start().catch() will never catch anything because
-                // error is handled by exceptionHandler
-                return configTask.start().then(function() {
-                    return engine.mainModule;
-                }).catch(function(error) {
-                    engine.exceptionHandler.handleError(error);
-                });
-            }
-        });
-    })();
-
-    engine.provide(function providePlugins() {
-        /*
-        // the concept is to have some plugins as test, coverage, sourcemap etc
-        // which can be added/removed/disabled
-        // this way we could deactivate some useless plugins in some case
-        // activating the coverage plugin will not necessaryly log the coverage but give you access to the coverage plugin
-        // could also be called features
-
-        var Plugin = function(name, properties) {
-
-        };
-
-        Plugin.prototype = {
-            dependencies: [],
-            disabled: false,
-
-            enable: function() {
-                this.disabled = false;
-            },
-
-            disable: function() {
-                this.disabled = true;
-            }
-        };
-
-        var plugins = {
-            get: function(name) {
-
-            },
-
-            add: function(name, properties) {
-
-            },
-
-            remove: function(name) {
-
-            },
-
-            enable: function(name) {
-
-            },
-
-            disable: function(name) {
-
-            }
-        };
-
-        engine.plugin = function() {
-            new Plugin();
-        };
-
-        engine.config(function configPlugins() {
-            // Pour tous les plugins enabled fait plugin.config
-        });
-
-        engine.run(function runPlugins() {
-            // pour tous les plugins enabled, fait plugin.run
-        });
-        */
-    });
 
     engine.provide(function provideAgent() {
         // agent is what runs JavaScript : nodejs, iosjs, firefox, ...
@@ -427,28 +174,6 @@
         engine.platform = platform;
     });
 
-    engine.provide(function provideLogger() {
-        engine.provide({
-            logLevel: 'debug', // 'error',
-
-            info: function() {
-                if (this.logLevel === 'info') {
-                    console.info.apply(console, arguments);
-                }
-            },
-
-            warn: function() {
-                console.warn.apply(console, arguments);
-            },
-
-            debug: function() {
-                if (this.logLevel === 'debug') {
-                    console.log.apply(console, arguments);
-                }
-            }
-        });
-    });
-
     engine.provide(function provideLocationData() {
         var baseURL;
         var location;
@@ -533,306 +258,7 @@
         };
     });
 
-    engine.config(function provideLanguage() {
-        // languague used by the agent
-
-        var language = {
-            preferences: [],
-
-            listPreferences: function() {
-                return '';
-            },
-
-            bestLanguage: function(proposeds) {
-                return Promise.resolve(this.listPreferences()).then(function(preferenceString) {
-                    var preferences = preferenceString.toLowerCase().split(',');
-                    var best;
-
-                    // get first language matching exactly
-                    best = proposeds.find(function(proposed) {
-                        return preferences.findIndex(function(preference) {
-                            return preference.startsWith(proposed);
-                        });
-                    });
-
-                    if (!best) {
-                        best = proposeds[0];
-                    }
-
-                    return best;
-                });
-            }
-        };
-
-        engine.language = language;
-    });
-
-    engine.config(function provideExceptionHandler() {
-        /*
-        // wait 1000ms before throwing any error
-        engine.exceptionHandler.add(function(e){
-            return new Promise(function(res, rej){ setTimeout(function(){ rej(e); }, 1000); });
-        });
-        // do not throw error with code itsok
-        engine.exceptionHandler.add(function(e){
-            return e && e instanceof Error && e.code === 'itsok' ? undefined : Promise.reject(e);
-        });
-        */
-
-        var exceptionHandler = {
-            handlers: [],
-            handledException: undefined,
-            pendingExceptions: [],
-
-            add: function(exceptionHandler) {
-                this.handlers.push(exceptionHandler);
-            },
-
-            throw: function(value) {
-                throw value;
-            },
-
-            createException: function(value) {
-                var exception = new Exception(value);
-                return exception;
-            },
-
-            handleError: function(error) {
-                var exception;
-
-                exception = this.createException(error);
-                exception.raise();
-
-                return exception;
-            },
-
-            handleRejection: function(rejectedValue, promise) {
-                var exception;
-
-                exception = this.createException(rejectedValue);
-                exception.promise = promise;
-                exception.raise();
-
-                return exception;
-            },
-
-            markPromiseAsHandled: function(promise) {
-                var handledException = this.handledException;
-
-                if (handledException) {
-                    if (handledException.isComingFromPromise(promise)) {
-                        handledException.recover();
-                    } else {
-                        var pendings = this.pendingExceptions;
-                        var i = pendings.length;
-                        while (i--) {
-                            var exception = pendings[i];
-                            if (exception.isComingFromPromise(promise)) {
-                                exception.recover();
-                                break;
-                            }
-                        }
-                    }
-                }
-            }
-        };
-
-        function Exception(value) {
-            this.value = value;
-            this.recoveredPromise = new Promise(function(resolve) {
-                this.resolve = resolve;
-            }.bind(this));
-        }
-
-        Exception.prototype = {
-            promise: undefined,
-            settled: false,
-            recovered: false,
-
-            isRejection: function() {
-                return this.hasOwnProperty('promise');
-            },
-
-            isComingFromPromise: function(promise) {
-                return this.isRejection() && this.promise === promise;
-            },
-
-            attemptToRecover: function() {
-                var exception = this;
-                var index = 0;
-                var handlers = exceptionHandler.handlers.slice();
-                var nextHandler = function() {
-                    var promise;
-
-                    if (exception.settled) {
-                        promise = Promise.resolve(this.recovered);
-                    } else if (index < handlers.length) {
-                        var handler = handlers[index];
-                        index++;
-
-                        promise = new Promise(function(resolve) {
-                            resolve(handler(exception.value, exception));
-                        }).then(
-                            function(/* resolutionValue */) {
-                                return true;
-                            },
-                            function(rejectionValue) {
-                                if (rejectionValue === exception.value) {
-                                    engine.debug('call next exception handler');
-                                    return nextHandler();
-                                }
-                                // an error occured during exception handling, log it and consider exception as not recovered
-                                console.error(
-                                    'the following occurred during exception handling : ',
-                                    rejectionValue
-                                );
-                                return false;
-                            }
-                        );
-                    } else {
-                        promise = Promise.resolve(false);
-                    }
-
-                    return promise;
-                };
-
-                // let handler make exception recover or propagate
-                nextHandler().then(function(recovered) {
-                    if (recovered) {
-                        exception.recover();
-                    } else {
-                        exception.propagate();
-                    }
-                });
-
-                return exception.recoveredPromise;
-            },
-
-            recover: function() {
-                if (this.settled === false) {
-                    if (this.pending) {
-                        exceptionHandler.pendingExceptions.splice(exceptionHandler.pendingExceptions.indexOf(this), 1);
-                    }
-                    this.settled = true;
-                    this.recovered = true;
-                    this.resolve(true);
-                }
-            },
-
-            propagate: function() {
-                if (this.settled === false) {
-                    this.settled = true;
-                    this.recovered = false;
-                    this.resolve(false);
-                }
-            },
-
-            throw: function(value) {
-                throw value;
-            },
-
-            crash: function() {
-                // disableHooks to prevent hook from catching this error
-                // because the following creates an infinite loop (and is what we're doing)
-                // process.on('uncaughtException', function() {
-                //     setTimeout(function() {
-                //         throw 'yo';
-                //     });
-                // });
-                // we have to ignore exception thrown while we are throwing, we could detect if the exception differs
-                // which can happens if when doing throw new Error(); an other error occurs
-                // -> may happen for instance if accessing error.stack throw an other error
-                exceptionHandler.disable();
-                exceptionHandler.throw(this.value);
-                // enabledHooks in case throwing error did not terminate js execution
-                // in the browser or if external code is listening for process.on('uncaughException');
-                exceptionHandler.enable();
-            },
-
-            raise: function() {
-                var exception = this;
-
-                if (exceptionHandler.handledException) {
-                    this.pending = true;
-                    exceptionHandler.pendingExceptions.push(this);
-                } else {
-                    exceptionHandler.handledException = this;
-                    this.attemptToRecover().then(function(recovered) {
-                        if (recovered) {
-                            exceptionHandler.handledException = undefined;
-                            if (exceptionHandler.pendingExceptions.length) {
-                                var pendingException = exceptionHandler.pendingExceptions.shift();
-                                pendingException.raise(); // now try to recover this one
-                            }
-                        } else {
-                            // put in a timeout to prevent promise from catching this exception
-                            setTimeout(function() {
-                                exception.crash();
-                            });
-                        }
-                    });
-                }
-            }
-        };
-
-        function catchError(error) {
-            return exceptionHandler.handleError(error);
-        }
-
-        function unhandledRejection(value, promise) {
-            return exceptionHandler.handleRejection(value, promise);
-        }
-
-        function rejectionHandled(promise) {
-            return exceptionHandler.markPromiseAsHandled(promise);
-        }
-
-        var enableHooks;
-        var disableHooks;
-        if (engine.isBrowser()) {
-            enableHooks = function() {
-                window.onunhandledrejection = unhandledRejection;
-                window.onrejectionhandled = rejectionHandled;
-                window.onerror = function(errorMsg, url, lineNumber, column, error) {
-                    catchError(error);
-                };
-            };
-            disableHooks = function() {
-                window.onunhandledrejection = undefined;
-                window.onrejectionhandled = undefined;
-                window.onerror = undefined;
-            };
-        } else if (engine.isProcess()) {
-            enableHooks = function() {
-                process.on('unhandledRejection', unhandledRejection);
-                process.on('rejectionHandled', rejectionHandled);
-                process.on('uncaughtException', catchError);
-            };
-            disableHooks = function() {
-                process.removeListener('unhandledRejection', unhandledRejection);
-                process.removeListener('rejectionHandled', rejectionHandled);
-                process.removeListener('uncaughtException', catchError);
-            };
-        }
-
-        exceptionHandler.enable = function() {
-            enableHooks();
-        };
-
-        exceptionHandler.disable = function() {
-            disableHooks();
-        };
-
-        engine.provide({
-            exceptionHandler: exceptionHandler
-        });
-    });
-
-    engine.config(function configExceptionHandler() {
-        engine.exceptionHandler.enable();
-    });
-
-    engine.config(function provideImport() {
+    engine.provide(function provideImport() {
         var importMethod;
 
         if (engine.isBrowser()) {
@@ -861,26 +287,328 @@
             };
         }
 
-        engine.import = importMethod;
+        return {
+            import: importMethod
+        };
     });
 
-    engine.config(function polyfillURLSearchParams() {
-        if ('URLSearchParams' in engine.global) {
-            this.skip();
-        } else {
-            return engine.import(engine.dirname + '/node_modules/@dmail/url-search-params/index.js');
+    engine.provide(function provideLogger() {
+        engine.provide({
+            logLevel: 'debug', // 'error',
+
+            info: function() {
+                if (this.logLevel === 'info') {
+                    console.info.apply(console, arguments);
+                }
+            },
+
+            warn: function() {
+                console.warn.apply(console, arguments);
+            },
+
+            debug: function() {
+                if (this.logLevel === 'debug') {
+                    console.log.apply(console, arguments);
+                }
+            }
+        });
+    });
+
+    engine.provide(function provideTask() {
+        var Task = function() {
+            if (arguments.length === 1) {
+                this.populate(arguments[0]);
+            } else if (arguments.length === 2) {
+                this.name = arguments[0];
+                this.populate(arguments[1]);
+            }
+        };
+
+        Task.prototype = {
+            dependencies: [], // should check that taks dependencies have been executed before executing this one
+            name: undefined,
+            skipped: false,
+            disabled: false,
+            ended: false,
+            next: null,
+
+            populate: function(properties) {
+                if (typeof properties === 'object') {
+                    for (var key in properties) { // eslint-disable-line
+                        this[key] = properties[key];
+                    }
+                } else if (typeof properties === 'function') {
+                    this.fn = properties;
+                    if (this.hasOwnProperty('name') === false) {
+                        this.name = this.fn.name;
+                    }
+                }
+            },
+
+            enable: function() {
+                this.disabled = false;
+            },
+
+            disable: function() {
+                this.disabled = true;
+            },
+
+            chain: function(task) {
+                if (this.ended) {
+                    throw new Error(this.name + 'task is ended : cannot chain more task to it');
+                }
+
+                // engine.debug('do', task.name, 'after', this.name);
+
+                var next = this.next;
+                if (next) {
+                    next.chain(task);
+                } else {
+                    this.next = task;
+                }
+
+                return this;
+            },
+
+            insert: function(task, beforeTask) {
+                if (beforeTask) {
+                    var next = this.next;
+                    if (!next) {
+                        throw new Error('cannot insert ' + task.name + ' before ' + beforeTask.name);
+                    }
+
+                    if (next === beforeTask) {
+                        this.next = null;
+
+                        this.chain(task);
+                        task.chain(next);
+                        return this;
+                    }
+                    return next.insert(task, beforeTask);
+                }
+
+                return this.chain(task);
+            },
+
+            skip: function(reason) {
+                this.skipped = true;
+                reason = reason || 'no specific reason';
+                engine.debug('skip task', this.name, ':', reason);
+            },
+
+            locate: function() {
+                var location;
+                if (this.url) {
+                    location = engine.locate(this.url);
+                } else {
+                    location = engine.locate(this.name);
+                }
+                return location;
+            },
+
+            locateHook: function() {
+                return Promise.resolve(this.locate()).then(function(location) {
+                    this.location = location;
+                    return location;
+                }.bind(this));
+            },
+
+            import: function() {
+                return this.locateHook().then(function(location) {
+                    engine.debug('importing', location);
+                    return engine.import(location);
+                });
+            },
+
+            exec: function(value) {
+                if (this.hasOwnProperty('fn') === false) {
+                    return this.import();
+                }
+                return this.fn(value);
+            },
+
+            before: function(value) {
+                return value;
+            },
+
+            after: function(value) {
+                return value;
+            },
+
+            start: function(value) {
+                // engine.info(engine.type, engine.location, engine.baseURL);
+                engine.task = this;
+                engine.debug('start task', this.name);
+
+                return Promise.resolve(value).then(
+                    this.before.bind(this)
+                ).then(function(resolutionValue) {
+                    if (this.disabled) {
+                        this.skip('disabled');
+                    } else {
+                        var skipReason = this.getSkipReason();
+                        if (skipReason) {
+                            this.skip(skipReason);
+                        }
+                    }
+
+                    if (this.skipped) {
+                        return resolutionValue;
+                    }
+                    return this.exec(resolutionValue);
+                }.bind(this)).then(function(resolutionValue) {
+                    this.ended = true;
+                    return this.after(resolutionValue);
+                }.bind(this)).then(function(resolutionValue) {
+                    if (this.next) {
+                        // will throw but it will be ignored
+                        return this.next.start(value);
+                    }
+                    return resolutionValue;
+                }.bind(this));
+            }
+        };
+
+        var noop = function() {};
+        var headTask = new Task('head', noop);
+        var tailTask = new Task('tail', noop);
+
+        headTask.chain(tailTask);
+
+        var tasks = {
+            head: headTask,
+            tail: tailTask,
+
+            get: function(taskName) {
+                var task = this.head;
+
+                while (task) {
+                    if (task.name === taskName) {
+                        break;
+                    } else {
+                        task = task.next;
+                    }
+                }
+
+                return task;
+            },
+
+            enable: function(taskName) {
+                return this.get(taskName).enable();
+            },
+
+            disable: function(taskName) {
+                return this.get(taskName).disabled();
+            },
+
+            add: function(task) {
+                return this.head.chain(task);
+            },
+
+            insert: function(task, beforeTask) {
+                return this.head.insert(task, beforeTask);
+            },
+
+            create: function(firstArg, secondArg) {
+                return new Task(firstArg, secondArg);
+            }
+        };
+
+        return {
+            tasks: tasks
+        };
+    });
+
+    engine.provide(function provideMainTask() {
+        var mainTask = engine.tasks.create('main', function() {
+            var mainModulePromise;
+
+            if (engine.mainSource) {
+                engine.debug('get mainModule from source string');
+                mainModulePromise = System.module(engine.mainSource, {
+                    address: engine.mainLocation
+                });
+            } else if (engine.mainModule) {
+                engine.debug('get mainModule from source object');
+                engine.mainModule = System.newModule(engine.mainModule);
+                System.set(engine.mainLocation, engine.mainModule);
+                mainModulePromise = Promise.resolve(engine.mainModule);
+            } else {
+                engine.debug('get mainModule from source file', engine.mainLocation);
+                mainModulePromise = System.import(engine.mainLocation);
+            }
+
+            return mainModulePromise.then(function(mainModule) {
+                engine.mainModule = mainModule;
+                return mainModule;
+            });
+        });
+
+        return {
+            mainTask: mainTask,
+
+            config: function() {
+                var task = engine.tasks.create.apply(null, arguments);
+                return engine.tasks.insert(task, mainTask);
+            },
+
+            run: function() {
+                var task = engine.tasks.create.apply(null, arguments);
+                return engine.tasks.add(task);
+            },
+
+            evalMain: function(source, sourceURL) {
+                this.mainSource = source;
+                this.mainLocation = sourceURL || './anonymous';
+                return this.start();
+            },
+
+            exportMain: function(moduleExports) {
+                // seems strange to pass an object because this object will not benefit
+                // from any polyfill/transpilation etc
+                this.mainModule = moduleExports;
+                this.mainLocation = './anonymous';
+                return this.start();
+            },
+
+            importMain: function(moduleLocation) {
+                this.mainLocation = moduleLocation;
+                return this.start();
+            },
+
+            start: function() {
+                if (!this.mainLocation) {
+                    throw new Error('mainLocation must be set before calling engine.start()');
+                }
+
+                return engine.tasks.head.start().then(function() {
+                    return engine.mainModule;
+                });
+            }
+        };
+    });
+
+    engine.config('exception-handler', {
+
+    });
+
+    engine.config('url', {
+        getSkipReason: function() {
+            if ('URL' in engine.global) {
+                return 'not needed';
+            }
         }
     });
 
-    engine.config(function polyfillURL() {
-        if ('URL' in engine.global) {
-            this.skip();
-        } else {
-            return engine.import(engine.dirname + '/node_modules/@dmail/url/index.js');
+    engine.config('url-search-params', {
+        getSkipReason: function() {
+            if ('URLSearchParams' in engine.global) {
+                return 'not needed';
+            }
         }
     });
 
-    engine.config(function provideLocate() {
+    engine.config('locate', function() {
         engine.provide({
             locateFrom: function(location, baseLocation, stripFile) {
                 var href = new URL(this.cleanPath(location), this.cleanPath(baseLocation)).href;
@@ -910,81 +638,68 @@
         });
     });
 
-    engine.config(function locateMain() {
+    engine.config('locate-main', function() {
         engine.mainLocation = engine.locate(engine.mainLocation);
     });
 
-    engine.config(function polyfillObjectAssign() {
-        if ('assign' in Object) {
-            this.skip();
-        } else {
-            return engine.import(engine.dirname + '/node_modules/@dmail/object-assign/index.js');
+    engine.config('set-immediate', {
+        condition: function() {
+            if ('setImmediate' in engine.global) {
+                return 'not needed';
+            }
         }
     });
 
-    engine.config(function polyfillObjectComplete() {
-        if ('complete' in Object) {
-            this.skip();
-        } else {
-            return engine.import(engine.dirname + '/node_modules/@dmail/object-complete/index.js');
+    engine.config('promise', {
+        getSkipReason: function() {
+            // always load my promise polyfill because some Promise implementation does not provide
+            // unhandledRejection
+
+            if ('Promise' in engine.global) {
+                // test if promise support unhandledrejection hook, if so just dont load promise
+                // this test is async and involves detecting for browser or node dependening on platform, ignore for now
+            }
         }
     });
 
-    engine.config(function polyfillSetImmediate() {
-        if ('setImmediate' in engine.global) {
-            this.skip('not needed');
-        } else {
-            return engine.import(engine.dirname + '/node_modules/@dmail/set-immediate/index.js');
+    engine.config('es6', {
+        locate: function() {
+            var polyfillLocation;
+
+            if (engine.isBrowser()) {
+                polyfillLocation = 'node_modules/babel-polyfill/dist/polyfill.js';
+            } else {
+                polyfillLocation = 'node_modules/babel-polyfill/lib/index.js';
+            }
+
+            return engine.dirname + '/' + polyfillLocation;
         }
     });
 
-    engine.config(function polyfillPromise() {
-        if ('Promise' in engine.global) {
-            // test if promise support unhandledrejection hook, if so just dont load promise
-            // this test is async and involves detecting for browser or node dependening on platform, ignore for now
-        }
+    engine.config('system', {
+        locate: function() {
+            var systemLocation;
 
-        // always load my promise polyfill because some Promise implementation does not provide
-        // unhandledRejection
-        return engine.import(engine.dirname + '/node_modules/@dmail/promise-es6/index.js');
-    });
+            if (engine.isBrowser()) {
+                systemLocation = 'node_modules/systemjs/dist/system.js';
+            } else {
+                systemLocation = 'node_modules/systemjs/index.js';
+            }
 
-    engine.config(function polyfillES6() {
-        var polyfillLocation;
+            return engine.dirname + '/' + systemLocation;
+        },
 
-        if (engine.isBrowser()) {
-            polyfillLocation = 'node_modules/babel-polyfill/dist/polyfill.js';
-        } else {
-            polyfillLocation = 'node_modules/babel-polyfill/lib/index.js';
-        }
-
-        return engine.import(engine.dirname + '/' + polyfillLocation);
-    });
-
-    engine.config(function importSystem() {
-        var systemLocation;
-
-        if (engine.isBrowser()) {
-            systemLocation = 'node_modules/systemjs/dist/system.js';
-        } else {
-            systemLocation = 'node_modules/systemjs/index.js';
-        }
-
-        return engine.import(engine.dirname + '/' + systemLocation).then(function(module) {
+        after: function(System) {
             engine.import = System.import.bind(System);
-            return module;
-        });
-    });
 
-    // ensure transpiling with babel
-    engine.config(function configSystem() {
-        System.transpiler = 'babel';
-        System.babelOptions = {};
-        System.paths.babel = engine.dirname + '/node_modules/babel-core/browser.js';
+            System.transpiler = 'babel';
+            System.babelOptions = {};
+            System.paths.babel = engine.dirname + '/node_modules/babel-core/browser.js';
+        }
     });
 
     // core modules config
-    engine.config(function provideCoreModules() {
+    engine.config('module-core', function() {
         function createModuleExportingDefault(defaultExportsValue) {
             /* eslint-disable quote-props */
             return System.newModule({
@@ -1026,7 +741,7 @@
         engine.registerCoreModule = registerCoreModule;
     });
 
-    engine.config(function configInternalModules() {
+    engine.config('module-internal', function() {
         [
             'proto',
             'options',
@@ -1043,7 +758,7 @@
     });
 
     // module source is the code you write
-    engine.config(function provideModuleSources() {
+    engine.config('module-source', function() {
         var moduleSources = new Map();
 
         var translate = System.translate;
@@ -1058,7 +773,7 @@
         });
     });
 
-    engine.config(function provideModuleURLs() {
+    engine.config('module-name', function() {
         var moduleURLs = new Map();
 
         // get real file name from sourceURL comment
@@ -1113,7 +828,7 @@
     });
 
     // source is the executed code
-    engine.config(function provideSources() {
+    engine.config('module-source-transpiled', function() {
         var sources = new Map();
         var translate = System.translate;
         System.translate = function(load) {
@@ -1128,13 +843,7 @@
         });
     });
 
-    engine.config(function storeMetaSourceMap() {
-        // we could speed up sourcemap reading by storing load.metadata.sourceMap;
-        // but anyway systemjs do load.metadata.sourceMap = undefined
-        // so I just set this as a reminder that sourcemap could be available if set on load.metadata by the transpiler
-    }).skip('not ready yet');
-
-    engine.config(function provideSourceMaps() {
+    engine.config('module-sourcemap', function() {
         function readSourceMapURL(source) {
             // Keep executing the search to find the *last* sourceMappingURL to avoid
             // picking up sourceMappingURLs from comments, strings, etc.
@@ -1257,11 +966,51 @@
         });
     });
 
-    engine.config(function importAgentConfig() {
+    engine.config('module-meta-sourcemap', function() {
+        // we could speed up sourcemap reading by storing load.metadata.sourceMap;
+        // but anyway systemjs do load.metadata.sourceMap = undefined
+        // so I just set this as a reminder that sourcemap could be available if set on load.metadata by the transpiler
+    }).skip('not ready yet');
+
+    engine.config('language', function() {
+        // languague used by the agent
+
+        var language = {
+            preferences: [],
+
+            listPreferences: function() {
+                return '';
+            },
+
+            bestLanguage: function(proposeds) {
+                return Promise.resolve(this.listPreferences()).then(function(preferenceString) {
+                    var preferences = preferenceString.toLowerCase().split(',');
+                    var best;
+
+                    // get first language matching exactly
+                    best = proposeds.find(function(proposed) {
+                        return preferences.findIndex(function(preference) {
+                            return preference.startsWith(proposed);
+                        });
+                    });
+
+                    if (!best) {
+                        best = proposeds[0];
+                    }
+
+                    return best;
+                });
+            }
+        };
+
+        engine.language = language;
+    });
+
+    engine.config('agent-config', function() {
         return engine.import(engine.dirname + '/lib/config/' + engine.agent.type + '.js');
     });
 
-    engine.config(function provideTest() {
+    engine.config('test', function() {
         var test = {
 
         };
