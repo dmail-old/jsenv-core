@@ -235,8 +235,12 @@
     var disableHooks;
     if (engine.isBrowser()) {
         enableHooks = function() {
-            window.onunhandledrejection = unhandledRejection;
-            window.onrejectionhandled = rejectionHandled;
+            window.onunhandledrejection = function(e) {
+                unhandledRejection(e.reason, e.promise);
+            };
+            window.onrejectionhandled = function(e) {
+                rejectionHandled(e.promise);
+            };
             window.onerror = function(errorMsg, url, lineNumber, column, error) {
                 catchError(error);
             };

@@ -17,11 +17,11 @@ engine.config(function populatePlatform() {
 });
 
 engine.config(function populateAgent() {
-    engine.agent.setName('node');
-    engine.agent.setVersion(process.version.slice(1));
+
 });
 
 engine.config(function populateLanguage() {
+    // https://github.com/sindresorhus/os-locale/blob/master/index.js
     engine.language.listPreferences = function() {
         if ('lang' in process.env) {
             return process.env.lang;
