@@ -1,15 +1,15 @@
 import engine from 'engine';
 
-import Reporter from '../../lib/test/reporter.js';
-import Test from '../../lib/test/test.js';
+import Reporter from './lib/test/reporter.js';
+import Test from './lib/test/test.js';
 
-engine.test = function(moduleName) {
+export default function enableTestModule(moduleName) {
     engine.debug('install test');
 
     System.trace = true;
     System.execute = true;
 
-    return engine.run(function() {
+    return engine.run(function testModule() {
         var reporter = Reporter.create();
         var options = {
             recursive: false,
@@ -93,4 +93,4 @@ engine.test = function(moduleName) {
             return test.exec();
         });
     });
-};
+}

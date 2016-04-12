@@ -3,10 +3,10 @@ import engine from 'engine';
 
 // import Reporter from './reporter.js';
 
-import Options from 'dmail/options';
-import Timeout from 'dmail/timeout';
-import Thenable from 'dmail/thenable';
-import Iterable from 'dmail/iterable';
+import Options from 'options';
+import Timeout from 'timeout';
+import Thenable from 'thenable';
+import Iterable from 'iterable';
 
 function createTimeoutError(test, timeoutDuration) {
     var error = new Error();

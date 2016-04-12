@@ -20,12 +20,13 @@ engine.importMain('./path/to/file.js'); // set engine.mainTask to import/execute
 
         if (properties) {
             for (var key in properties) { // eslint-disable-line
-                this[key] = properties[key];
+                engine[key] = properties[key];
             }
         }
     };
+    var provide = engine.provide;
 
-    engine.provide(function provideAgent() {
+    provide(function provideAgent() {
         // agent is what runs JavaScript : nodejs, iosjs, firefox, ...
         var type;
 
@@ -82,7 +83,7 @@ engine.importMain('./path/to/file.js'); // set engine.mainTask to import/execute
         });
     });
 
-    engine.provide(function provideGlobal() {
+    provide(function provideGlobal() {
         var globalValue;
 
         if (engine.isBrowser()) {
@@ -98,7 +99,7 @@ engine.importMain('./path/to/file.js'); // set engine.mainTask to import/execute
         };
     });
 
-    engine.provide(function provideVersion() {
+    provide(function provideVersion() {
         function Version(string) {
             var parts = String(string).split('.');
             var major = parts[0];
@@ -144,7 +145,7 @@ engine.importMain('./path/to/file.js'); // set engine.mainTask to import/execute
         });
     });
 
-    engine.provide(function providePlatform() {
+    provide(function providePlatform() {
         // platform is what runs the agent : windows, linux, mac, ..
 
         var platform = {
@@ -174,7 +175,7 @@ engine.importMain('./path/to/file.js'); // set engine.mainTask to import/execute
         engine.platform = platform;
     });
 
-    engine.provide(function provideLocationData() {
+    provide(function provideLocationData() {
         var baseURL;
         var location;
         var clean;
@@ -258,7 +259,7 @@ engine.importMain('./path/to/file.js'); // set engine.mainTask to import/execute
         };
     });
 
-    engine.provide(function provideImport() {
+    provide(function provideImport() {
         var importMethod;
 
         if (engine.isBrowser()) {
@@ -292,7 +293,7 @@ engine.importMain('./path/to/file.js'); // set engine.mainTask to import/execute
         };
     });
 
-    engine.provide(function provideLogger() {
+    provide(function provideLogger() {
         engine.provide({
             logLevel: 'debug', // 'error',
 
@@ -314,7 +315,7 @@ engine.importMain('./path/to/file.js'); // set engine.mainTask to import/execute
         });
     });
 
-    engine.provide(function provideTask() {
+    provide(function provideTask() {
         var Task = function() {
             if (arguments.length === 1) {
                 this.populate(arguments[0]);
@@ -343,6 +344,11 @@ engine.importMain('./path/to/file.js'); // set engine.mainTask to import/execute
                         this.name = this.fn.name;
                     }
                 }
+            },
+
+            skipIf: function(getSkipReason) {
+                this.getSkipReason = getSkipReason;
+                return this;
             },
 
             enable: function() {
@@ -519,7 +525,7 @@ engine.importMain('./path/to/file.js'); // set engine.mainTask to import/execute
         };
     });
 
-    engine.provide(function provideMainTask() {
+    provide(function provideMainTask() {
         var mainTask = engine.tasks.create('main', function() {
             var mainModulePromise;
 
@@ -588,391 +594,24 @@ engine.importMain('./path/to/file.js'); // set engine.mainTask to import/execute
         };
     });
 
-    engine.config('exception-handler', {
-
-    });
-
-    engine.config('url', {
-        getSkipReason: function() {
-            if ('URL' in engine.global) {
-                return 'not needed';
+    provide(function providePlugin() {
+        return {
+            plugin: function(name, properties) {
+                var task = engine.config(name);
+                task.locate = function() {
+                    return engine.dirname + '/plugins/' + this.name + '/index.js';
+                };
+                task.populate(properties);
+                return task;
             }
-        }
-    });
-
-    engine.config('url-search-params', {
-        getSkipReason: function() {
-            if ('URLSearchParams' in engine.global) {
-                return 'not needed';
-            }
-        }
-    });
-
-    engine.config('locate', function() {
-        engine.provide({
-            locateFrom: function(location, baseLocation, stripFile) {
-                var href = new URL(this.cleanPath(location), this.cleanPath(baseLocation)).href;
-
-                if (stripFile && href.indexOf('file:///') === 0) {
-                    href = href.slice('file:///'.length);
-                }
-
-                return href;
-            },
-
-            locate: function(location, stripFile) {
-                return this.locateFrom(location, this.baseURL, stripFile);
-            },
-
-            locateRelative: function(location, stripFile) {
-                var trace = this.trace();
-
-                trace.callSites.shift();
-
-                return this.locateFrom(location, trace.fileName, stripFile);
-            },
-
-            locateFromRoot: function(location) {
-                return this.locateFrom(location, this.location, true);
-            }
-        });
-    });
-
-    engine.config('locate-main', function() {
-        engine.mainLocation = engine.locate(engine.mainLocation);
-    });
-
-    engine.config('set-immediate', {
-        condition: function() {
-            if ('setImmediate' in engine.global) {
-                return 'not needed';
-            }
-        }
-    });
-
-    engine.config('promise', {
-        getSkipReason: function() {
-            // always load my promise polyfill because some Promise implementation does not provide
-            // unhandledRejection
-
-            if ('Promise' in engine.global) {
-                // test if promise support unhandledrejection hook, if so just dont load promise
-                // this test is async and involves detecting for browser or node dependening on platform, ignore for now
-            }
-        }
-    });
-
-    engine.config('es6', {
-        locate: function() {
-            var polyfillLocation;
-
-            if (engine.isBrowser()) {
-                polyfillLocation = 'node_modules/babel-polyfill/dist/polyfill.js';
-            } else {
-                polyfillLocation = 'node_modules/babel-polyfill/lib/index.js';
-            }
-
-            return engine.dirname + '/' + polyfillLocation;
-        }
-    });
-
-    engine.config('system', {
-        locate: function() {
-            var systemLocation;
-
-            if (engine.isBrowser()) {
-                systemLocation = 'node_modules/systemjs/dist/system.js';
-            } else {
-                systemLocation = 'node_modules/systemjs/index.js';
-            }
-
-            return engine.dirname + '/' + systemLocation;
-        },
-
-        after: function(System) {
-            engine.import = System.import.bind(System);
-
-            System.transpiler = 'babel';
-            System.babelOptions = {};
-            System.paths.babel = engine.dirname + '/node_modules/babel-core/browser.js';
-        }
-    });
-
-    // core modules config
-    engine.config('module-core', function() {
-        function createModuleExportingDefault(defaultExportsValue) {
-            /* eslint-disable quote-props */
-            return System.newModule({
-                "default": defaultExportsValue
-            });
-            /* eslint-enable quote-props */
-        }
-
-        function registerCoreModule(moduleName, defaultExport) {
-            System.set(moduleName, createModuleExportingDefault(defaultExport));
-        }
-
-        registerCoreModule('engine', engine);
-        // registerCoreModule('engine-type', engine.type);
-
-        if (engine.isProcess()) {
-            // https://github.com/sindresorhus/os-locale/blob/master/index.js
-            var nativeModules = [
-                'assert',
-                'http',
-                'https',
-                'fs',
-                'stream',
-                'path',
-                'url',
-                'querystring',
-                'child_process',
-                'util',
-                'os'
-            ];
-
-            nativeModules.forEach(function(name) {
-                registerCoreModule('node/' + name, require(name));
-            });
-
-            registerCoreModule('node/require', require);
-        }
-
-        engine.registerCoreModule = registerCoreModule;
-    });
-
-    engine.config('module-internal', function() {
-        [
-            'proto',
-            'options',
-            'timeout',
-            'thenable',
-            'iterable',
-            'dependency-graph',
-            'test'
-        ].forEach(function(moduleName) {
-            System.paths['dmail/' + moduleName] = engine.dirname + '/lib/' + moduleName + '/index.js';
-        });
-
-        System.paths.proto = engine.dirname + '/node_modules/@dmail/proto/index.js';
-    });
-
-    // module source is the code you write
-    engine.config('module-source', function() {
-        var moduleSources = new Map();
-
-        var translate = System.translate;
-        System.translate = function(load) {
-            var moduleSource = load.source;
-            moduleSources.set(load.name, moduleSource);
-            return translate.call(this, load);
         };
-
-        engine.provide({
-            moduleSources: moduleSources
-        });
     });
 
-    engine.config('module-name', function() {
-        var moduleURLs = new Map();
+    var config = engine.config;
+    // var run = engine.run;
+    var plugin = engine.plugin;
 
-        // get real file name from sourceURL comment
-        function readSourceUrl(source) {
-            var lastMatch;
-            var match;
-            var sourceURLRegexp = /\/\/#\s*sourceURL=\s*(\S*)\s*/mg;
-            while (match = sourceURLRegexp.exec(source)) { // eslint-disable-line
-                lastMatch = match;
-            }
-
-            return lastMatch ? lastMatch[1] : null;
-        }
-
-        function getLoadOrSourceURL(source, loadURL) {
-            var loadSourceURL = readSourceUrl(source);
-            var loadOrSourceURL;
-            // get filename from the source if //# sourceURL exists in it
-            if (loadSourceURL) {
-                loadOrSourceURL = loadSourceURL;
-            } else {
-                loadOrSourceURL = loadURL;
-            }
-
-            return loadOrSourceURL;
-        }
-
-        moduleURLs.store = function(source, loadURL) {
-            var loadOrSourceURL;
-
-            if (this.has(loadURL)) {
-                loadOrSourceURL = this.get(loadURL);
-            } else {
-                loadOrSourceURL = getLoadOrSourceURL(source, loadURL);
-                this.set(loadURL, loadOrSourceURL);
-            }
-
-            return loadOrSourceURL;
-        };
-
-        var translate = System.translate;
-        System.translate = function(load) {
-            return translate.call(this, load).then(function(source) {
-                moduleURLs.store(source, load.name);
-                return source;
-            });
-        };
-
-        engine.provide({
-            moduleURLs: moduleURLs
-        });
-    });
-
-    // source is the executed code
-    engine.config('module-source-transpiled', function() {
-        var sources = new Map();
-        var translate = System.translate;
-        System.translate = function(load) {
-            return translate.call(this, load).then(function(source) {
-                sources.set(engine.moduleURLs.get(load.name), source);
-                return source;
-            });
-        };
-
-        engine.provide({
-            sources: sources
-        });
-    });
-
-    engine.config('module-sourcemap', function() {
-        function readSourceMapURL(source) {
-            // Keep executing the search to find the *last* sourceMappingURL to avoid
-            // picking up sourceMappingURLs from comments, strings, etc.
-            var lastMatch;
-            var match;
-            // eslint-disable-next-line
-            var sourceMappingURLRegexp = /(?:\/\/[@#][ \t]+sourceMappingURL=([^\s'"]+?)[ \t]*$)|(?:\/\*[@#][ \t]+sourceMappingURL=([^\*]+?)[ \t]*(?:\*\/)[ \t]*$)/mg;
-            while (match = sourceMappingURLRegexp.exec(source)) { // eslint-disable-line
-                lastMatch = match;
-            }
-
-            return lastMatch ? lastMatch[1] : null;
-        }
-
-        // returns a {map, optional url} object, or null if there is no source map
-        function fetchSourceMapData(source, rootURL) {
-            var sourceMapURL = readSourceMapURL(source);
-            var sourceMapPromise;
-
-            if (sourceMapURL) {
-                var base64SourceMapRegexp = /^data:application\/json[^,]+base64,/;
-                if (base64SourceMapRegexp.test(sourceMapURL)) {
-                    // Support source map URL as a data url
-                    var rawData = sourceMapURL.slice(sourceMapURL.indexOf(',') + 1);
-                    var sourceMap = JSON.parse(new Buffer(rawData, 'base64').toString());
-                    // engine.debug('read sourcemap from base64 for', rootURL);
-                    sourceMapPromise = Promise.resolve(sourceMap);
-                    sourceMapURL = null;
-                } else {
-                    // Support source map URLs relative to the source URL
-                    // engine.debug('the sourcemap url is', sourceMapURL);
-                    sourceMapURL = engine.locateFrom(sourceMapURL, rootURL, true);
-                    engine.debug('read sourcemap from file', sourceMapURL);
-
-                    // try {
-                    sourceMapPromise = Promise.resolve(require(sourceMapURL));
-                    // } catch (e) {
-                    //     sourceMapPromise = Promise.resolve();
-                    // }
-                }
-            } else {
-                sourceMapPromise = Promise.resolve();
-            }
-
-            return sourceMapPromise.then(function(sourceMap) {
-                if (sourceMap) {
-                    return {
-                        url: sourceMapURL,
-                        map: sourceMap
-                    };
-                }
-                return null;
-            });
-        }
-
-        var sourceMaps = new Map();
-        function detectSourceMap(source, rootURL) {
-            var sourceURL = engine.moduleURLs.store(source, rootURL);
-
-            // now read sourceMap url and object from the source
-            return fetchSourceMapData(source, sourceURL).then(function(sourceMapData) {
-                // if we find a sourcemap, store it
-                if (sourceMapData) {
-                    var sourceMap = sourceMapData.map;
-                    var sourceMapUrl = sourceMapData.url;
-
-                    // engine.debug('set sourcemap for', sourceURL, Boolean(sourceMap));
-                    sourceMaps.set(sourceURL, sourceMap);
-
-                    // if sourcemap has contents check for nested sourcemap in the content
-                    var sourcesContent = sourceMap.sourcesContent;
-                    if (sourcesContent) {
-                        return Promise.all(sourceMap.sources.map(function(source, i) {
-                            var content = sourcesContent[i];
-                            if (content) {
-                                // we cannot do engine.moduleSources.set(source, content)
-                                // because we can have many transpilation level like
-                                // moduleSource -> babelSource -> minifiedSource
-
-                                var sourceMapLocation;
-                                // nested sourcemap can be relative to their parent
-                                if (sourceMapUrl) {
-                                    sourceMapLocation = engine.locateFrom(source, sourceMapUrl);
-                                } else {
-                                    sourceMapLocation = engine.locate(source);
-                                }
-
-                                return detectSourceMap(content, sourceMapLocation);
-                            }
-                            return undefined;
-                        }));
-                    }
-                } else if (sourceMaps.has(sourceURL) === false) {
-                    // if no sourcemap is found store a null object to know their is no sourcemap for this file
-                    // the check sourceMaps.has(sourceURL) === false exists to prevent a indetical source wo
-                    // sourcemap to set sourcemap to null when we already got one
-                    // it happen when sourceMap.sourcesContent exists but does not contains sourceMap
-                    sourceMaps.set(sourceURL, null);
-                }
-            });
-        }
-
-        var translate = System.translate;
-        System.translate = function(load) {
-            return translate.call(this, load).then(function(source) {
-                var metadata = load.metadata;
-                var format = metadata.format;
-                if (format === 'json' || format === 'defined' || format === 'global' || metadata.loader) {
-                    return source;
-                }
-
-                return detectSourceMap(source, load.name).then(function() {
-                    return source;
-                });
-            });
-        };
-
-        engine.provide({
-            sourceMaps: sourceMaps
-        });
-    });
-
-    engine.config('module-meta-sourcemap', function() {
-        // we could speed up sourcemap reading by storing load.metadata.sourceMap;
-        // but anyway systemjs do load.metadata.sourceMap = undefined
-        // so I just set this as a reminder that sourcemap could be available if set on load.metadata by the transpiler
-    }).skip('not ready yet');
-
-    engine.config('language', function() {
+    config('language', function() {
         // languague used by the agent
 
         var language = {
@@ -1006,15 +645,164 @@ engine.importMain('./path/to/file.js'); // set engine.mainTask to import/execute
         engine.language = language;
     });
 
-    engine.config('agent-config', {
-        locate: function() {
-            return engine.dirname + '/plugins/config/' + engine.agent.type + '.js';
+    plugin('url').skipIf(function() {
+        if ('URL' in engine.global) {
+            return 'not needed';
         }
     });
 
-    engine.config('test', {
-        locate: function() {
-            return engine.dirname + '/plugins/test/index.js';
+    plugin('url-search-params').skipIf(function() {
+        if ('URLSearchParams' in engine.global) {
+            return 'not needed';
         }
     });
+
+    config('locate', function() {
+        engine.provide({
+            locateFrom: function(location, baseLocation, stripFile) {
+                var href = new URL(this.cleanPath(location), this.cleanPath(baseLocation)).href;
+
+                if (stripFile && href.indexOf('file:///') === 0) {
+                    href = href.slice('file:///'.length);
+                }
+
+                return href;
+            },
+
+            locate: function(location, stripFile) {
+                return this.locateFrom(location, this.baseURL, stripFile);
+            },
+
+            locateRelative: function(location, stripFile) {
+                var trace = this.trace();
+
+                trace.callSites.shift();
+
+                return this.locateFrom(location, trace.fileName, stripFile);
+            },
+
+            locateFromRoot: function(location) {
+                return this.locateFrom(location, this.location, true);
+            }
+        });
+    });
+
+    config('locate-main', function() {
+        engine.mainLocation = engine.locate(engine.mainLocation);
+    });
+
+    plugin('set-immediate').skipIf(function() {
+        if ('setImmediate' in engine.global) {
+            return 'not needed';
+        }
+    });
+
+    plugin('promise').skipIf(function() {
+        // always load my promise polyfill because some Promise implementation does not provide
+        // unhandledRejection
+
+        if ('Promise' in engine.global) {
+            // test if promise support unhandledrejection hook, if so just dont load promise
+            // this test is async and involves detecting for browser or node dependening on platform, ignore for now
+        }
+    });
+
+    plugin('es6', {
+        locate: function() {
+            var polyfillLocation;
+
+            if (engine.isBrowser()) {
+                polyfillLocation = 'node_modules/babel-polyfill/dist/polyfill.js';
+            } else {
+                polyfillLocation = 'node_modules/babel-polyfill/lib/index.js';
+            }
+
+            return engine.dirname + '/' + polyfillLocation;
+        }
+    });
+
+    plugin('system', {
+        locate: function() {
+            var systemLocation;
+
+            if (engine.isBrowser()) {
+                systemLocation = 'node_modules/systemjs/dist/system.js';
+            } else {
+                systemLocation = 'node_modules/systemjs/index.js';
+            }
+
+            return engine.dirname + '/' + systemLocation;
+        },
+
+        after: function(System) {
+            engine.import = System.import.bind(System);
+
+            System.transpiler = 'babel';
+            System.babelOptions = {};
+            System.paths.babel = engine.dirname + '/node_modules/babel-core/browser.js';
+
+            function createModuleExportingDefault(defaultExportsValue) {
+                /* eslint-disable quote-props */
+                return System.newModule({
+                    "default": defaultExportsValue
+                });
+                /* eslint-enable quote-props */
+            }
+
+            function registerCoreModule(moduleName, defaultExport) {
+                System.set(moduleName, createModuleExportingDefault(defaultExport));
+            }
+
+            registerCoreModule('engine', engine);
+            // registerCoreModule('engine-type', engine.type);
+
+            if (engine.isProcess()) {
+                // https://github.com/sindresorhus/os-locale/blob/master/index.js
+                var nativeModules = [
+                    'assert',
+                    'http',
+                    'https',
+                    'fs',
+                    'stream',
+                    'path',
+                    'url',
+                    'querystring',
+                    'child_process',
+                    'util',
+                    'os'
+                ];
+
+                nativeModules.forEach(function(name) {
+                    registerCoreModule('node/' + name, require(name));
+                });
+
+                registerCoreModule('node/require', require);
+            }
+
+            engine.registerCoreModule = registerCoreModule;
+
+            return System;
+        }
+    });
+
+    // we wait for promise, & system before adding exceptionHandler
+    plugin('exception-handler');
+
+    plugin('module-internal');
+
+    plugin('module-source');
+
+    plugin('module-script-name');
+
+    plugin('module-source-transpiled');
+
+    plugin('module-sourcemap');
+
+    plugin('agent-config', {
+        locate: function() {
+            return engine.dirname + '/plugins/agent-' + engine.agent.type + '/index.js';
+        }
+    });
+
+    plugin('module-test');
 })();
