@@ -1,8 +1,6 @@
 /* eslint-env browser, node */
 
 /*
-WARNING : if your env does not support promise you must provide a polyfill before calling engine.start()
-
 after including this file you can do
 
 engine.config(function() {}); // function or file executed in serie before engine.mainTask
@@ -12,8 +10,7 @@ engine.importMain('./path/to/file.js'); // set engine.mainTask to import/execute
 
 (function() {
     var engine = {};
-    // engine.provide adds functionnality to engine object
-    // it can be called anywhere but it makes more sense to call it as soon as possible to provide functionalities asap
+    // engine.provide adds properties to the engine object and can be called anywhere
     engine.provide = function(data) {
         var properties = typeof data === 'function' ? data() : data;
 
@@ -263,6 +260,8 @@ engine.importMain('./path/to/file.js'); // set engine.mainTask to import/execute
             };
         },
 
+        /*
+        DEPRECATED (not used anymore)
         function include() {
             var importMethod;
 
@@ -296,7 +295,10 @@ engine.importMain('./path/to/file.js'); // set engine.mainTask to import/execute
                 import: importMethod
             };
         },
+        */
 
+        /*
+        DEPRECATED (will certainly be moved into a plugin)
         function language() {
             // languague used by the agent
             var language = {
@@ -331,6 +333,7 @@ engine.importMain('./path/to/file.js'); // set engine.mainTask to import/execute
                 language: language
             };
         },
+        */
 
         function logger() {
             return {
@@ -357,180 +360,17 @@ engine.importMain('./path/to/file.js'); // set engine.mainTask to import/execute
         engine.provide(method);
     });
 
-    // https://github.com/YuzuJS/setImmediate
-    function polyfillSetImmediate(global) {
-        if ('setImmediate' in global) {
-            return;
+    var setup = (function() {
+        function hasSetImmediate() {
+            return 'setImmediate' in engine.global;
         }
 
-        var nextHandle = 1; // Spec says greater than zero
-        var tasksByHandle = {};
-        var currentlyRunningATask = false;
-        var doc = global.document;
-        var setImmediate;
-
-        function addFromSetImmediateArguments(args) {
-            tasksByHandle[nextHandle] = partiallyApplied.apply(undefined, args);
-            return nextHandle++;
-        }
-
-        // This function accepts the same arguments as setImmediate, but
-        // returns a function that requires no arguments.
-        function partiallyApplied(handler) {
-            var args = [].slice.call(arguments, 1);
-            return function() {
-                if (typeof handler === "function") {
-                    handler.apply(undefined, args);
-                } else {
-                    (new Function(String(handler)))(); // eslint-disable-line no-new-func
-                }
-            };
-        }
-
-        function runIfPresent(handle) {
-            // From the spec: "Wait until any invocations of this algorithm started before this one have completed."
-            // So if we're currently running a task, we'll need to delay this invocation.
-            if (currentlyRunningATask) {
-                // Delay by doing a setTimeout. setImmediate was tried instead, but in Firefox 7 it generated a
-                // "too much recursion" error.
-                setTimeout(partiallyApplied(runIfPresent, handle), 0);
-            } else {
-                var task = tasksByHandle[handle];
-                if (task) {
-                    currentlyRunningATask = true;
-                    try {
-                        task();
-                    } finally {
-                        clearImmediate(handle);
-                        currentlyRunningATask = false;
-                    }
-                }
-            }
-        }
-
-        function clearImmediate(handle) {
-            delete tasksByHandle[handle];
-        }
-
-        function installNextTickImplementation() {
-            setImmediate = function() {
-                var handle = addFromSetImmediateArguments(arguments);
-                process.nextTick(partiallyApplied(runIfPresent, handle));
-                return handle;
-            };
-        }
-
-        function canUsePostMessage() {
-            // The test against `importScripts` prevents this implementation from being installed inside a web worker,
-            // where `global.postMessage` means something completely different and can't be used for this purpose.
-            if (global.postMessage && !global.importScripts) {
-                var postMessageIsAsynchronous = true;
-                var oldOnMessage = global.onmessage;
-                global.onmessage = function() {
-                    postMessageIsAsynchronous = false;
-                };
-                global.postMessage("", "*");
-                global.onmessage = oldOnMessage;
-                return postMessageIsAsynchronous;
-            }
-        }
-
-        function installPostMessageImplementation() {
-            // Installs an event handler on `global` for the `message` event: see
-            // * https://developer.mozilla.org/en/DOM/window.postMessage
-            // * http://www.whatwg.org/specs/web-apps/current-work/multipage/comms.html#crossDocumentMessages
-
-            var messagePrefix = "setImmediate$" + Math.random() + "$";
-            var onGlobalMessage = function(event) {
-                if (event.source === global &&
-                    typeof event.data === "string" &&
-                    event.data.indexOf(messagePrefix) === 0) {
-                    runIfPresent(Number(event.data.slice(messagePrefix.length)));
-                }
-            };
-
-            if (global.addEventListener) {
-                global.addEventListener("message", onGlobalMessage, false);
-            } else {
-                global.attachEvent("onmessage", onGlobalMessage);
-            }
-
-            setImmediate = function() {
-                var handle = addFromSetImmediateArguments(arguments);
-                global.postMessage(messagePrefix + handle, "*");
-                return handle;
-            };
-        }
-
-        function installMessageChannelImplementation() {
-            var channel = new global.MessageChannel();
-            channel.port1.onmessage = function(event) {
-                var handle = event.data;
-                runIfPresent(handle);
-            };
-
-            setImmediate = function() {
-                var handle = addFromSetImmediateArguments(arguments);
-                channel.port2.postMessage(handle);
-                return handle;
-            };
-        }
-
-        function installReadyStateChangeImplementation() {
-            var html = doc.documentElement;
-            setImmediate = function() {
-                var handle = addFromSetImmediateArguments(arguments);
-                // Create a <script> element; its readystatechange event will be fired asynchronously once it is inserted
-                // into the document. Do so, thus queuing up the task. Remember to clean up once it's been called.
-                var script = doc.createElement("script");
-                script.onreadystatechange = function() {
-                    runIfPresent(handle);
-                    script.onreadystatechange = null;
-                    html.removeChild(script);
-                    script = null;
-                };
-                html.appendChild(script);
-                return handle;
-            };
-        }
-
-        function installSetTimeoutImplementation() {
-            setImmediate = function() {
-                var handle = addFromSetImmediateArguments(arguments);
-                setTimeout(partiallyApplied(runIfPresent, handle), 0);
-                return handle;
-            };
-        }
-
-        // If supported, we should attach to the prototype of global, since that is where setTimeout et al. live.
-        var attachTo = Object.getPrototypeOf && Object.getPrototypeOf(global);
-        attachTo = attachTo && attachTo.setTimeout ? attachTo : global;
-
-        if (engine.isNode()) {
-            // For Node.js before 0.9
-            installNextTickImplementation();
-        } else if (canUsePostMessage()) {
-            // For non-IE10 modern browsers
-            installPostMessageImplementation();
-        } else if (global.MessageChannel) {
-            // For web workers, where supported
-            installMessageChannelImplementation();
-        } else if (doc && "onreadystatechange" in doc.createElement("script")) {
-            // For IE 6–8
-            installReadyStateChangeImplementation();
-        } else {
-            // For older browsers
-            installSetTimeoutImplementation();
-        }
-
-        attachTo.setImmediate = setImmediate;
-        attachTo.clearImmediate = clearImmediate;
-    }
-
-    function polyfillPromise(global) {
         function hasPromise() {
             if (('Promise' in engine.global) === false) {
                 return false;
+            }
+            if (Promise.isPolyfill) {
+                return true;
             }
             // agent must implement onunhandledrejection to consider promise implementation valid
             if (engine.isBrowser()) {
@@ -546,379 +386,137 @@ engine.importMain('./path/to/file.js'); // set engine.mainTask to import/execute
             return false;
         }
 
-        if (hasPromise()) {
-            return;
+        function hasURL() {
+            return 'URL' in engine.global;
         }
 
-        function emitUnhandledOnBrowser(value, promise) {
-            // https://googlechrome.github.io/samples/promise-rejection-events/
-            if (window.onunhandledrejection) {
-                window.onunhandledrejection({
-                    promise: promise,
-                    reason: value
-                });
-            } else {
-                console.log('possibly unhandled rejection "' + value + '" for promise', promise);
-            }
+        var fileToLoad = [];
+        if (hasSetImmediate() === false) {
+            fileToLoad.push('lib/set-immediate/index.js');
+        }
+        if (hasPromise() === false) {
+            fileToLoad.push('lib/promise/index.js');
+        }
+        if (hasURL() === false) {
+            fileToLoad.push('lib/url/index.js');
         }
 
-        function emitUnhandledOnNode(value, promise) {
-            if (process.listeners('unhandledRejection').length === 0) {
-                var mess = value instanceof Error ? value.stack : value;
-                console.log('possibly unhandled rejection "' + mess + '" for promise', promise);
-            }
-            process.emit('unhandledRejection', value, promise);
+        if (engine.isBrowser()) {
+            fileToLoad.push('node_modules/systemjs/dist/system.js');
+        } else {
+            fileToLoad.push('node_modules/systemjs/index.js');
         }
 
-        function emitHandledOnBrowser(value, promise) {
-            if (window.onrejectionhandled) {
-                window.onrejectionhandled({
-                    promise: promise,
-                    reason: value
-                });
-            }
-        }
+        function includeAllBrowser(urls, callback) {
+            var i = 0;
+            var j = urls.length;
+            var url;
+            var loadCount = 0;
 
-        function emitHandledOnNode(value, promise) {
-            process.emit('rejectionHandled', promise);
-        }
-
-        var emitUnhandled = engine.isBrowser() ? emitUnhandledOnBrowser : emitUnhandledOnNode;
-        var emitHandled = engine.isBrowser() ? emitHandledOnBrowser : emitHandledOnNode;
-
-        function forOf(iterable, fn, bind) {
-            var method;
-            var iterator;
-            var next;
-
-            method = iterable[Symbol.iterator];
-
-            if (typeof method !== 'function') {
-                throw new TypeError(iterable + 'is not iterable');
-            }
-
-            if (typeof fn !== 'function') {
-                throw new TypeError('second argument must be a function');
-            }
-
-            iterator = method.call(iterable);
-            next = iterator.next();
-            while (next.done === false) {
-                try {
-                    fn.call(bind, next.value);
-                } catch (e) {
-                    if (typeof iterator['return'] === 'function') { // eslint-disable-line dot-notation
-                        iterator['return'](); // eslint-disable-line dot-notation
-                    }
-                    throw e;
+            window.includeLoaded = function() {
+                loadCount++;
+                if (loadCount === j) {
+                    delete window.includeLoaded;
+                    callback();
                 }
-                next = iterator.next();
+            };
+
+            for (;i < j; i++) {
+                url = urls[i];
+                var scriptSource;
+
+                scriptSource = '<';
+                scriptSource += 'script type="text/javascript" onload="includeLoaded()" src="';
+                scriptSource += url;
+                scriptSource += '">';
+                scriptSource += '<';
+                scriptSource += '/script>';
+
+                document.write(scriptSource);
             }
         }
 
-        function callThenable(thenable, resolve, reject) {
-            var then;
+        function includeAllNode(urls, callback) {
+            var i = 0;
+            var j = urls.length;
+            var url;
+            for (;i < j; i++) {
+                url = urls[i];
+                if (url.indexOf('file:///') === 0) {
+                    url = url.slice('file:///'.length);
+                }
 
-            try {
-                then = thenable.then;
-                then.call(thenable, resolve, reject);
-            } catch (e) {
-                reject(e);
+                require(url);
             }
+            callback();
         }
 
-        function isThenable(object) {
-            return object ? typeof object.then === 'function' : false;
-        }
+        var includeAll = engine.isBrowser() ? includeAllBrowser : includeAllNode;
 
-        var Promise = {
-            executor: function() {},
-            state: 'pending',
-            value: null,
-            pendingList: null,
-            onResolve: null,
-            onReject: null,
-
-            constructor: function(executor) {
-                if (arguments.length === 0) {
-                    throw new Error('missing executor function');
-                }
-                if (typeof executor !== 'function') {
-                    throw new TypeError('function expected as executor');
-                }
-
-                this.state = 'pending';
-                this.resolver = this.resolve.bind(this);
-                this.rejecter = this.reject.bind(this);
-
-                if (executor !== this.executor) {
-                    try {
-                        executor(this.resolver, this.rejecter);
-                    } catch (e) {
-                        this.reject(e);
-                    }
-                }
-            },
-
-            toString: function() {
-                return '[object Promise]';
-            },
-
-            createPending: function(onResolve, onReject) {
-                var promise = new this.constructor(this.executor);
-                promise.onResolve = onResolve;
-                promise.onReject = onReject;
-                return promise;
-            },
-
-            adoptState: function(promise) {
-                var isResolved;
-                var fn;
-                var value;
-                var ret;
-                var error;
-
-                value = promise.value;
-                isResolved = promise.state === 'fulfilled';
-                fn = isResolved ? this.onResolve : this.onReject;
-
-                if (fn !== null && fn !== undefined) {
-                    try {
-                        ret = fn(value);
-                    } catch (e) {
-                        error = e;
-                    }
-
-                    if (error) {
-                        isResolved = false;
-                        value = error;
-                    } else {
-                        isResolved = true;
-                        value = ret;
-                    }
-                }
-
-                if (isResolved) {
-                    this.resolve(value);
-                } else {
-                    this.reject(value);
-                }
-            },
-
-            addPending: function(promise) {
-                this.pendingList = this.pendingList || [];
-                this.pendingList.push(promise);
-            },
-
-            startPending: function(pending) {
-                pending.adoptState(this);
-            },
-
-            // called when the promise is settled
-            clean: function() {
-                if (this.pendingList) {
-                    this.pendingList.forEach(this.startPending, this);
-                    this.pendingList = null;
-                }
-            },
-
-            onFulFilled: function(/* value */) {
-                this.clean();
-            },
-
-            onRejected: function(value) {
-                this.clean();
-
-                // then() never called
-                if (!this.handled) {
-                    this.unhandled = global.setImmediate(function() {
-                        this.unhandled = null;
-                        if (!this.handled) { // then() still never called
-                            this.unhandledEmitted = true;
-                            this.unhandledReasonEmitted = true;
-                            emitUnhandled(value, this);
-                        }
-                    }.bind(this));
-                }
-            },
-
-            resolvedValueResolver: function(value) {
-                if (isThenable(value)) {
-                    if (value === this) {
-                        this.reject(new TypeError('A promise cannot be resolved with itself'));
-                    } else {
-                        callThenable(value, this.resolver, this.rejecter);
-                    }
-                } else {
-                    this.state = 'fulfilled';
-                    this.resolving = false;
-                    this.value = value;
-                    this.onFulFilled(value);
-                }
-            },
-
-            resolve: function(value) {
-                if (this.state === 'pending') {
-                    if (!this.resolving) {
-                        this.resolving = true;
-                        this.resolver = this.resolvedValueResolver.bind(this);
-                        this.resolver(value);
-                    }
-                }
-            },
-
-            reject: function(value) {
-                if (this.state === 'pending') {
-                    this.state = 'rejected';
-                    this.value = value;
-                    this.onRejected(value);
-                }
-            },
-
-            then: function(onResolve, onReject) {
-                if (onResolve && typeof onResolve !== 'function') {
-                    throw new TypeError('onResolve must be a function ' + onResolve + ' given');
-                }
-                if (onReject && typeof onReject !== 'function') {
-                    throw new TypeError('onReject must be a function ' + onReject + ' given');
-                }
-
-                var pending = this.createPending(onResolve, onReject);
-
-                this.handled = true;
-
-                if (this.state === 'pending') {
-                    this.addPending(pending);
-                } else {
-                    global.setImmediate(function() {
-                        this.startPending(pending);
-                    }.bind(this));
-
-                    if (this.unhandledEmitted) {
-                        emitHandled(this.unhandledReasonEmitted, this);
-                    } else if (this.unhandled) {
-                        global.clearImmediate(this.unhandled);
-                        this.unhandled = null;
-                    }
-                }
-
-                return pending;
-            },
-
-            catch: function(onreject) {
-                return this.then(null, onreject);
-            }
-        };
-
-        // make all properties non enumerable this way Promise.toJSON returns {}
-        /*
-        [
-            'value',
-            'state',
-            'pendingList',
-            //'onResolve',
-            //'onReject',
-            'pendingList',
-            //'resolver',
-            //'rejecter',
-            //'unhandled',
-            //'resolving',
-            //'handled'
-        ].forEach(function(name){
-            Object.defineProperty(Promise, name, {enumerable: false, value: Promise[name]});
-        });
-        */
-
-        Promise.constructor.prototype = Promise;
-        Promise = Promise.constructor;
-
-        // que fait-on lorsque value est thenable?
-        Promise.resolve = function(value) {
-            if (arguments.length > 0) {
-                if (value instanceof this && value.constructor === this) {
-                    return value;
-                }
-            }
-
-            return new this(function resolveExecutor(resolve) {
-                resolve(value);
-            });
-        };
-
-        Promise.reject = function(value) {
-            return new this(function rejectExecutor(resolve, reject) {
-                reject(value);
-            });
-        };
-
-        Promise.all = function(iterable) {
-            return new this(function allExecutor(resolve, reject) {
-                var index = 0;
-                var length = 0;
-                var values = [];
-                var res = function(value, index) {
-                    if (isThenable(value)) {
-                        callThenable(value, function(value) {
-                            res(value, index);
-                        }, reject);
-                    } else {
-                        values[index] = value;
-                        length--;
-                        if (length === 0) {
-                            resolve(values);
-                        }
-                    }
-                };
-
-                forOf(iterable, function(value) {
-                    length++;
-                    res(value, index);
-                    index++;
-                });
-
-                if (length === 0) {
-                    resolve(values);
-                }
-            });
-        };
-
-        Promise.race = function(iterable) {
-            return new this(function(resolve, reject) {
-                forOf(iterable, function(thenable) {
-                    thenable.then(resolve, reject);
-                });
-            });
-        };
-
-        // prevent Promise.resolve from being call() or apply() just like chrome does
-        ['resolve', 'reject', 'race', 'all'].forEach(function(name) {
-            Promise[name].call = null;
-            Promise[name].apply = null;
+        fileToLoad = fileToLoad.map(function(filePath) {
+            return engine.dirname + '/' + filePath;
         });
 
-        Promise.polyfill = true;
-    }
+        return function setup(callback) {
+            includeAll(fileToLoad, callback);
+        };
+    })();
 
-    polyfillSetImmediate(engine.global);
-    polyfillPromise(engine.global);
+    var init = (function() {
+        // setImmediate, Promise, URL, System are now available
+        // url-search-params will be part of Location object that will certainly be define here to be available everywhere
+        // (even before any plugin but it's to be defined)
+        // we must also provide es6 polyfills (Map, Set, Iterator, ...)
+        // so here we only provide task & plugin API to be able to do engine.config(), engine.run(), engine.importMain()
+        // and we add some default plugin like es6, Location, agent-config etc that user can later disable or add plugin before of after
 
-    // now we'll just load url polyfill
-    // concerning url-search-params it will be part of the location that will be user right after to manage location
-    // but url may need the location stuff ? for now just ignore that and build location ignoring the url implementation details
-    // so the URL polyfill will be inlined like others
-    // once this is done we will provide location
-    // then system
-    // then we can enjoy the true power of a solid js environment so we provide tasks, and plugins to manage startup
-    // and the first plugin is es6 polyfill (core-js) that will be loaded by systemjs (let's hope babel will not polyfill before us)
+        System.transpiler = 'babel';
+        System.babelOptions = {};
+        System.paths.babel = engine.dirname + '/node_modules/babel-core/browser.js';
 
-    /*
-    // inline this
-    plugin('url').skipIf(function() {
-        if ('URL' in engine.global) {
-            return 'not needed';
+        function createModuleExportingDefault(defaultExportsValue) {
+            /* eslint-disable quote-props */
+            return System.newModule({
+                "default": defaultExportsValue
+            });
+            /* eslint-enable quote-props */
         }
-    });
-    */
+
+        function registerCoreModule(moduleName, defaultExport) {
+            System.set(moduleName, createModuleExportingDefault(defaultExport));
+        }
+
+        registerCoreModule('engine', engine);
+        // registerCoreModule('engine-type', engine.type);
+
+        if (engine.isNode()) {
+            // already done via @node/fs LOOOOOOL
+            // https://github.com/systemjs/systemjs/blob/master/dist/system.src.js#L1695
+            var nativeModules = [
+                'assert',
+                'http',
+                'https',
+                'fs',
+                'stream',
+                'path',
+                'url',
+                'querystring',
+                'child_process',
+                'util',
+                'os'
+            ];
+
+            nativeModules.forEach(function(name) {
+                registerCoreModule('node/' + name, require(name));
+            });
+
+            registerCoreModule('node/require', require);
+        }
+
+        engine.registerCoreModule = registerCoreModule;
+    })();
+
+    setup(init);
 
     /*
     // this will be part of location object
@@ -948,87 +546,6 @@ engine.importMain('./path/to/file.js'); // set engine.mainTask to import/execute
         engine.mainLocation = engine.locate(engine.mainLocation);
     });
     */
-
-    // now load system, couldn't we just document.write the script to prevent execution?
-    // no we'll just load every script using promise
-    plugin('system', {
-        locate: function() {
-            var systemLocation;
-
-            if (engine.isBrowser()) {
-                systemLocation = 'node_modules/systemjs/dist/system.js';
-            } else {
-                systemLocation = 'node_modules/systemjs/index.js';
-            }
-
-            return engine.dirname + '/' + systemLocation;
-        },
-
-        after: function(System) {
-            engine.import = System.import.bind(System);
-
-            System.transpiler = 'babel';
-            System.babelOptions = {};
-            System.paths.babel = engine.dirname + '/node_modules/babel-core/browser.js';
-
-            function createModuleExportingDefault(defaultExportsValue) {
-                /* eslint-disable quote-props */
-                return System.newModule({
-                    "default": defaultExportsValue
-                });
-                /* eslint-enable quote-props */
-            }
-
-            function registerCoreModule(moduleName, defaultExport) {
-                System.set(moduleName, createModuleExportingDefault(defaultExport));
-            }
-
-            registerCoreModule('engine', engine);
-            // registerCoreModule('engine-type', engine.type);
-
-            if (engine.isNode()) {
-                // already done via @node/fs LOOOOOOL
-                // https://github.com/systemjs/systemjs/blob/master/dist/system.src.js#L1695
-                var nativeModules = [
-                    'assert',
-                    'http',
-                    'https',
-                    'fs',
-                    'stream',
-                    'path',
-                    'url',
-                    'querystring',
-                    'child_process',
-                    'util',
-                    'os'
-                ];
-
-                nativeModules.forEach(function(name) {
-                    registerCoreModule('node/' + name, require(name));
-                });
-
-                registerCoreModule('node/require', require);
-            }
-
-            engine.registerCoreModule = registerCoreModule;
-
-            return System;
-        }
-    });
-
-    plugin('es6', {
-        locate: function() {
-            var polyfillLocation;
-
-            if (engine.isBrowser()) {
-                polyfillLocation = 'node_modules/babel-polyfill/dist/polyfill.js';
-            } else {
-                polyfillLocation = 'node_modules/babel-polyfill/lib/index.js';
-            }
-
-            return engine.dirname + '/' + polyfillLocation;
-        }
-    });
 
     engine.provide(function task() {
         var Task = function() {
@@ -1322,9 +839,24 @@ engine.importMain('./path/to/file.js'); // set engine.mainTask to import/execute
         };
     });
 
+    /*
     var config = engine.config;
     // var run = engine.run;
     var plugin = engine.plugin;
+
+    plugin('es6', {
+        locate: function() {
+            var polyfillLocation;
+
+            if (engine.isBrowser()) {
+                polyfillLocation = 'node_modules/babel-polyfill/dist/polyfill.js';
+            } else {
+                polyfillLocation = 'node_modules/babel-polyfill/lib/index.js';
+            }
+
+            return engine.dirname + '/' + polyfillLocation;
+        }
+    });
 
     // we wait for promise, & system before adding exceptionHandler
     plugin('exception-handler');
@@ -1346,4 +878,5 @@ engine.importMain('./path/to/file.js'); // set engine.mainTask to import/execute
     });
 
     plugin('module-test');
+    */
 })();
