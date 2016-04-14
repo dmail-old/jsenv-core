@@ -10,26 +10,27 @@ engine.importMain('./path/to/file.js'); // set engine.mainTask to import/execute
 
 (function() {
     var engine = {};
-    // engine.provide adds properties to the engine object and can be called anywhere
-    engine.provide = function(data) {
-        var properties;
 
-        if (typeof data === 'function') {
-            console.log('provide', data.name);
-            properties = data.call(engine);
-        } else {
-            properties = data;
-        }
+    function setup() {
+        // engine.provide adds properties to the engine object and can be called anywhere
+        function provide(data) {
+            var properties;
 
-        if (properties) {
-            for (var key in properties) { // eslint-disable-line
-                engine[key] = properties[key];
+            if (typeof data === 'function') {
+                console.log('provide', data.name);
+                properties = data.call(engine);
+            } else {
+                properties = data;
+            }
+
+            if (properties) {
+                for (var key in properties) { // eslint-disable-line
+                    engine[key] = properties[key];
+                }
             }
         }
-    };
 
-    [
-        function version() {
+        provide(function version() {
             function Version(string) {
                 var parts = String(string).split('.');
                 var major = parts[0];
@@ -73,10 +74,10 @@ engine.importMain('./path/to/file.js'); // set engine.mainTask to import/execute
                     return new Version(string);
                 }
             };
-        },
+        });
 
-        function platform() {
-           // platform is what runs the agent : windows, linux, mac, ..
+        provide(function platform() {
+            // platform is what runs the agent : windows, linux, mac, ..
             var platform = {
                 name: 'unknown',
                 version: '',
@@ -104,9 +105,9 @@ engine.importMain('./path/to/file.js'); // set engine.mainTask to import/execute
             return {
                 platform: platform
             };
-        },
+        });
 
-        function agent() {
+        provide(function agent() {
             // agent is what runs JavaScript : nodejs, iosjs, firefox, ...
             var type;
 
@@ -165,9 +166,9 @@ engine.importMain('./path/to/file.js'); // set engine.mainTask to import/execute
                     return this.agent.type === 'node';
                 }
             };
-        },
+        });
 
-        function globalProvider() {
+        provide(function globalProvider() {
             var globalValue;
 
             if (this.isBrowser()) {
@@ -181,9 +182,9 @@ engine.importMain('./path/to/file.js'); // set engine.mainTask to import/execute
             return {
                 global: globalValue
             };
-        },
+        });
 
-        function baseAndInternalURL() {
+        provide(function baseAndInternalURL() {
             var baseURL;
             var internalURL;
             var clean;
@@ -239,11 +240,11 @@ engine.importMain('./path/to/file.js'); // set engine.mainTask to import/execute
                 cleanPath: clean,
                 parentPath: parentPath
             };
-        },
+        });
 
         /*
         DEPRECATED (not used anymore)
-        function include() {
+        provide(function include() {
             var importMethod;
 
             if (engine.isBrowser()) {
@@ -275,12 +276,12 @@ engine.importMain('./path/to/file.js'); // set engine.mainTask to import/execute
             return {
                 import: importMethod
             };
-        },
+        });
         */
 
         /*
         DEPRECATED (will certainly be moved into a plugin)
-        function language() {
+        provide(function language() {
             // languague used by the agent
             var language = {
                 preferences: [],
@@ -313,10 +314,10 @@ engine.importMain('./path/to/file.js'); // set engine.mainTask to import/execute
             return {
                 language: language
             };
-        },
+        });
         */
 
-        function logger() {
+        provide(function logger() {
             return {
                 logLevel: 'debug', // 'error',
 
@@ -336,12 +337,10 @@ engine.importMain('./path/to/file.js'); // set engine.mainTask to import/execute
                     }
                 }
             };
-        }
-    ].forEach(function(method) {
-        engine.provide(method);
-    });
+        });
+    }
 
-    var setup = (function() {
+    function include(callback) {
         function hasSetImmediate() {
             return 'setImmediate' in engine.global;
         }
@@ -398,7 +397,7 @@ engine.importMain('./path/to/file.js'); // set engine.mainTask to import/execute
             fileToLoad.push('node_modules/systemjs/index.js');
         }
 
-        function includeAllBrowser(urls, callback) {
+        function includeAllBrowser(urls) {
             var i = 0;
             var j = urls.length;
             var url;
@@ -427,7 +426,7 @@ engine.importMain('./path/to/file.js'); // set engine.mainTask to import/execute
             }
         }
 
-        function includeAllNode(urls, callback) {
+        function includeAllNode(urls) {
             var i = 0;
             var j = urls.length;
             var url;
@@ -443,18 +442,18 @@ engine.importMain('./path/to/file.js'); // set engine.mainTask to import/execute
             callback();
         }
 
-        var includeAll = engine.isBrowser() ? includeAllBrowser : includeAllNode;
-
         fileToLoad = fileToLoad.map(function(filePath) {
             return engine.dirname + '/' + filePath;
         });
 
-        return function setup(callback) {
-            includeAll(fileToLoad, callback);
-        };
-    })();
+        if (engine.isBrowser()) {
+            includeAllBrowser(fileToLoad);
+        } else {
+            includeAllNode(fileToLoad);
+        }
+    }
 
-    var init = function() {
+    function init() {
         engine.provide(function locate() {
             return {
                 internalURI: new global.URI(this.internalURL),
@@ -810,44 +809,45 @@ engine.importMain('./path/to/file.js'); // set engine.mainTask to import/execute
                 }
             };
         });
-    };
 
-    setup(init);
+        /*
+        plugin('es6', {
+            locate: function() {
+                var polyfillLocation;
 
-    /*
-    plugin('es6', {
-        locate: function() {
-            var polyfillLocation;
+                if (engine.isBrowser()) {
+                    polyfillLocation = 'node_modules/babel-polyfill/dist/polyfill.js';
+                } else {
+                    polyfillLocation = 'node_modules/babel-polyfill/lib/index.js';
+                }
 
-            if (engine.isBrowser()) {
-                polyfillLocation = 'node_modules/babel-polyfill/dist/polyfill.js';
-            } else {
-                polyfillLocation = 'node_modules/babel-polyfill/lib/index.js';
+                return engine.dirname + '/' + polyfillLocation;
             }
+        });
 
-            return engine.dirname + '/' + polyfillLocation;
-        }
-    });
+        // we wait for promise, & system before adding exceptionHandler
+        plugin('exception-handler');
 
-    // we wait for promise, & system before adding exceptionHandler
-    plugin('exception-handler');
+        plugin('module-internal');
 
-    plugin('module-internal');
+        plugin('module-source');
 
-    plugin('module-source');
+        plugin('module-script-name');
 
-    plugin('module-script-name');
+        plugin('module-source-transpiled');
 
-    plugin('module-source-transpiled');
+        plugin('module-sourcemap');
 
-    plugin('module-sourcemap');
+        plugin('agent-config', {
+            locate: function() {
+                return engine.dirname + '/plugins/agent-' + engine.agent.type + '/index.js';
+            }
+        });
 
-    plugin('agent-config', {
-        locate: function() {
-            return engine.dirname + '/plugins/agent-' + engine.agent.type + '/index.js';
-        }
-    });
+        plugin('module-test');
+        */
+    }
 
-    plugin('module-test');
-    */
+    setup();
+    include(init);
 })();
