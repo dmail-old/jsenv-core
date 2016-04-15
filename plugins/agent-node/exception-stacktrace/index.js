@@ -1,5 +1,7 @@
-import engine from 'engine';
-import require from 'node/require';
+import jsenv from 'jsenv';
+
+import sourceMaps from '../../module-source-map/index.js';
+import require from '@node/require';
 
 import StackTrace from '../../../node_modules/@dmail/node-stacktrace/index.js';
 
@@ -12,7 +14,7 @@ function getSourceMapConsumer(location) {
     if (location in consumers) {
         consumer = consumers[location];
     } else {
-        var sourceMap = engine.sourceMaps.get(location);
+        var sourceMap = sourceMaps.get(location);
         if (sourceMap) {
             consumer = new SourceMapConsumer(sourceMap);
         }
@@ -125,7 +127,7 @@ engine.trace = function(error) {
 };
 */
 
-engine.exceptionHandler.throw = function(exceptionValue) {
+jsenv.exceptionHandler.throw = function(exceptionValue) {
     // we don't need this anymore thanks to Error.prepareStackTrace in @dmail/node-stacktrace
     // StackTrace.install(exceptionValue);
 

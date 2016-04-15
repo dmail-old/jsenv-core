@@ -1,14 +1,14 @@
 /* eslint-env browser, node */
 
-import engine from 'engine';
+// import engine from 'engine';
 
 /*
 // wait 1000ms before throwing any error
-engine.exceptionHandler.add(function(e){
+jsenv.exceptionHandler.add(function(e){
     return new Promise(function(res, rej){ setTimeout(function(){ rej(e); }, 1000); });
 });
 // do not throw error with code itsok
-engine.exceptionHandler.add(function(e){
+jsenv.exceptionHandler.add(function(e){
     return e && e instanceof Error && e.code === 'itsok' ? undefined : Promise.reject(e);
 });
 */
@@ -138,12 +138,11 @@ Exception.prototype = {
                 promise = new Promise(function(resolve) {
                     resolve(handler(exception.value, exception));
                 }).then(
-                    function(/* resolutionValue */) {
+                    function() {
                         return true;
                     },
                     function(rejectionValue) {
                         if (rejectionValue === exception.value) {
-                            engine.debug('call next exception handler');
                             return nextHandler();
                         }
                         // an error occured during exception handling, log it and consider exception as not recovered
@@ -192,10 +191,6 @@ Exception.prototype = {
         }
     },
 
-    throw(value) {
-        throw value;
-    },
-
     crash() {
         // disableHooks to prevent hook from catching this error
         // because the following creates an infinite loop (and is what we're doing)
@@ -219,99 +214,60 @@ Exception.prototype = {
     }
 };
 
-function catchError(error) {
-    return exceptionHandler.handleError(error);
-}
+exceptionHandler.install = function(jsenv) {
+    function catchError(error) {
+        return exceptionHandler.handleError(error);
+    }
 
-function unhandledRejection(value, promise) {
-    return exceptionHandler.handleRejection(value, promise);
-}
+    function unhandledRejection(value, promise) {
+        return exceptionHandler.handleRejection(value, promise);
+    }
 
-function rejectionHandled(promise) {
-    return exceptionHandler.markPromiseAsHandled(promise);
-}
+    function rejectionHandled(promise) {
+        return exceptionHandler.markPromiseAsHandled(promise);
+    }
 
-var enableHooks;
-var disableHooks;
-if (engine.isBrowser()) {
-    enableHooks = function() {
-        window.onunhandledrejection = function(e) {
-            unhandledRejection(e.reason, e.promise);
+    var enableHooks;
+    var disableHooks;
+    if (jsenv.isBrowser()) {
+        enableHooks = function() {
+            window.onunhandledrejection = function(e) {
+                unhandledRejection(e.reason, e.promise);
+            };
+            window.onrejectionhandled = function(e) {
+                rejectionHandled(e.promise);
+            };
+            window.onerror = function(errorMsg, url, lineNumber, column, error) {
+                catchError(error);
+            };
         };
-        window.onrejectionhandled = function(e) {
-            rejectionHandled(e.promise);
+        disableHooks = function() {
+            window.onunhandledrejection = undefined;
+            window.onrejectionhandled = undefined;
+            window.onerror = undefined;
         };
-        window.onerror = function(errorMsg, url, lineNumber, column, error) {
-            catchError(error);
+    } else if (jsenv.isNode()) {
+        enableHooks = function() {
+            process.on('unhandledRejection', unhandledRejection);
+            process.on('rejectionHandled', rejectionHandled);
+            process.on('uncaughtException', catchError);
         };
-    };
-    disableHooks = function() {
-        window.onunhandledrejection = undefined;
-        window.onrejectionhandled = undefined;
-        window.onerror = undefined;
-    };
-} else if (engine.isProcess()) {
-    enableHooks = function() {
-        process.on('unhandledRejection', unhandledRejection);
-        process.on('rejectionHandled', rejectionHandled);
-        process.on('uncaughtException', catchError);
-    };
-    disableHooks = function() {
-        process.removeListener('unhandledRejection', unhandledRejection);
-        process.removeListener('rejectionHandled', rejectionHandled);
-        process.removeListener('uncaughtException', catchError);
-    };
-}
+        disableHooks = function() {
+            process.removeListener('unhandledRejection', unhandledRejection);
+            process.removeListener('rejectionHandled', rejectionHandled);
+            process.removeListener('uncaughtException', catchError);
+        };
+    }
 
-exceptionHandler.enable = function() {
-    enableHooks();
+    exceptionHandler.enable = function() {
+        enableHooks();
+    };
+
+    exceptionHandler.disable = function() {
+        disableHooks();
+    };
+
+    jsenv.exceptionHandler = exceptionHandler;
 };
 
-exceptionHandler.disable = function() {
-    disableHooks();
-};
-
-engine.provide({
-    exceptionHandler: exceptionHandler
-});
-
-var oldStart = engine.start;
-engine.start = function() {
-    var startPromise = oldStart.call(this);
-
-    // the problem here is that we are still using native or user polyfilled Promise implementation
-    // which may not support unhandledRejection
-    // for this reason we have to catch the error explicitely
-    // the impact is that external code calling engine.start().catch() will never catch anything because
-    // error is handled by exceptionHandler
-
-    return startPromise.catch(function(error) {
-        // explicitely try to handle rejection in case the promise implementation does not support unhandledRejection
-        var exception = exceptionHandler.handleError(error);
-        exception.meta.main = true;
-
-        /*
-        return exception.recoveredPromise.then(function(recovered) {
-            if (recovered) {
-                return undefined;
-            }
-            // let promise be rejected
-            // if promise implementation does not support unhandledRejection nothing to do
-            // if not it will call again handleRejection, but when called on exception already settled the call is noop
-            return Promise.reject(exception);
-        });
-        */
-    });
-
-    // this allow for any promise implementation to work even when it does not support unhandledRejection
-    // however if user catch the startPromise and recover from it it's totally ignored by this code which assumes
-    // the user will not catch engine.start() which may happen
-    // engine.start().then(
-        // do stuff
-    // .catch(
-        // error from do stuff may happen but also from engine
-        // so we cannot explicitely handle error, WE MUST allow user to specify his own catch logic
-        // for now ignore this case and dont force user to spcifiy anything
-        // it's promise implementation fault we should force unhandledRejection behaviour as it's just mandatory
-        // for things to go well
-};
+export default exceptionHandler;

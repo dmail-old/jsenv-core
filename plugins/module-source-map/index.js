@@ -1,8 +1,8 @@
-import engine from 'engine';
+import jsenv from 'jsenv';
 
 import moduleScriptNames from '../module-script-name/index.js';
 
-engine.config('module-meta-sourcemap', function() {
+jsenv.config('module-meta-sourcemap', function() {
     // we could speed up sourcemap reading by storing load.metadata.sourceMap;
     // but anyway systemjs do load.metadata.sourceMap = undefined
     // so I just set this as a reminder that sourcemap could be available if set on load.metadata by the transpiler
@@ -39,7 +39,7 @@ function fetchSourceMapData(source, rootURL) {
         } else {
             // Support source map URLs relative to the source URL
             // engine.debug('the sourcemap url is', sourceMapURL);
-            sourceMapURL = engine.locateFrom(sourceMapURL, rootURL, true);
+            sourceMapURL = jsenv.locateFrom(sourceMapURL, rootURL, true);
 
             // try {
             sourceMapPromise = Promise.resolve(require(sourceMapURL));
@@ -89,9 +89,9 @@ function detectSourceMap(source, rootURL) {
                         var sourceMapLocation;
                         // nested sourcemap can be relative to their parent
                         if (sourceMapUrl) {
-                            sourceMapLocation = engine.locateFrom(source, sourceMapUrl);
+                            sourceMapLocation = jsenv.locateFrom(source, sourceMapUrl);
                         } else {
-                            sourceMapLocation = engine.locate(source);
+                            sourceMapLocation = jsenv.locate(source);
                         }
 
                         return detectSourceMap(content, sourceMapLocation);

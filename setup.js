@@ -1,3 +1,5 @@
+import proto from './lib/util/proto/index.js';
+
 function provideCorefeatures(features) {
     features.provide(function locate() {
         return {
@@ -56,6 +58,11 @@ function provideCorefeatures(features) {
                     this.fn = properties;
                     if (this.hasOwnProperty('name') === false) {
                         this.name = this.fn.name;
+                    }
+                } else if (typeof properties === 'string') {
+                    this.url = properties;
+                    if (this.hasOwnProperty('name') === false) {
+                        this.name = properties;
                     }
                 }
             },
@@ -136,7 +143,7 @@ function provideCorefeatures(features) {
             import: function() {
                 return this.locateHook().then(function(location) {
                     features.debug('importing', location);
-                    return features.import(location);
+                    return System.import(location);
                 });
             },
 
@@ -229,8 +236,9 @@ function provideCorefeatures(features) {
                 return this.head.insert(task, beforeTask);
             },
 
-            create: function(firstArg, secondArg) {
-                return new Task(firstArg, secondArg);
+            create: function() {
+                var task = proto.create.apply(Task, arguments);
+                return task;
             }
         };
 

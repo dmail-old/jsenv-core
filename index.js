@@ -5,10 +5,27 @@ after including this file you can do
 if setup was callback oriented we could even call the installRequirements phase once setup is called and not so early
 I will certainly go for this solution
 
-setup().then(function(engine) {
-    engine.config(function() {}); // function executed in serie before engine.mainTask
-    engine.run(function() {}); // function executed in serie after engine.mainTask
-    engine.importMain('./path/to/file.js'); // set engine.mainTask to import/execute this file then auto call engine.start
+setup().then(function(jsenv) {
+    jsenv.config(function() {}); // function executed in serie before jsenv.mainTask
+    jsenv.run(function() {}); // function executed in serie after jsenv.mainTask
+    jsenv.importMain('./path/to/file.js'); // set jsenv.mainTask to import/execute this file then auto call engine.start
+});
+
+concernant les plugins y'aura jsenv.exceptionHandler
+et import exceptionHandler from 'jsenv/exceptionHandler';
+potentiellement il auront le même effet mais la manière d'ajouter un exceptionHandler sera
+import jsenv from 'jsenv';
+jsenv.exceptionHandler.add(function() {});
+
+de plus y'aura une option sur setup pour passer une liste des plugins qu'on va utiliser ou pas
+genre setup(null) ne mettras aucun plugin
+setup({excludes: ['exception-handler']}) will prevent exceptionHandler plugin
+setup({includes: ['my custom-plugin']}) could work but the right way to do so is:
+
+setup().then(function(jsenv) {
+    jsenv.plugin('./my-custom-plugin');
+
+    return jsenv.importMain();
 });
 
 */
@@ -463,15 +480,17 @@ setup().then(function(engine) {
     }
 
     // create an object that will receive the features
-    var features = {};
+    var features = {
+        name: 'jsenv' // the future module name exporting the features
+    };
     // provide the minimal features available : platform, agent, global, baseAndInternalURl
     provideMinimalFeatures(features);
     // list requirements amongst setimmediate, promise, url, url-search-params, uri, system
     var requirements = listRequirements(features);
 
-    function installGlobalBootstrapMethod(globalName) {
+    function installGlobalBootstrapTemporaryMethod(globalName) {
         /*
-        why features is put on the global scope ?
+        why put a method on the global scope ?
         Considering that in the browser you will put a script tag, you need a pointer on features somewhere
         - we could use System.import('engine') but engine is a wrapper to System so it would be strange
         to access features with something higher level in terms of abstraction
@@ -484,7 +503,7 @@ setup().then(function(engine) {
         var hasPreviousGlobalValue = globalName in globalObject;
         var previousGlobalValue = globalObject[globalName];
 
-        globalObject[globalName] = function() {
+        globalObject[globalName] = function(options) {
             // restore global state when this function is called
             if (hasPreviousGlobalValue) {
                 globalObject[globalName] = previousGlobalValue;
@@ -493,7 +512,11 @@ setup().then(function(engine) {
             }
 
             return System.import('./setup.js').then(function(module) {
-                return module.default(features);
+                return module.default(features, options);
+            }).then(function() {
+                // make it also available as a module
+                features.registerCoreModule(features.name, features);
+                return features;
             });
         };
     }
@@ -528,6 +551,6 @@ setup().then(function(engine) {
 
         // install a global method called setup that will auto remove herself from the global scope when called
         // this function returns a promise for the features object once he is ready
-        installGlobalBootstrapMethod('setup');
+        installGlobalBootstrapTemporaryMethod('setup');
     });
 })();
