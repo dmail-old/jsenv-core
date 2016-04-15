@@ -4,71 +4,72 @@ var commandAPI = require('../lib/command-api/index.js');
 
 function startCommand(params) {
     require('../index.js');
-    var engine = global.engine;
 
-    engine.debug('start with params', params);
+    global.setup().then(function(engine) {
+        engine.debug('start with params', params);
 
-    function stripTrailingSep(pathname) {
-        if (pathname[pathname.length - 1] === '/') {
-            pathname = pathname.slice(0, -1);
-        }
-        return pathname;
-    }
-
-    function urlIsSiblingOrDescendantOf(url, otherUrl) {
-        url = new global.URL(url, otherUrl);
-        otherUrl = new global.URL(otherUrl);
-
-        if (url.protocol !== otherUrl.protocol) {
-            return false;
-        }
-        if (url.host !== otherUrl.host) {
-            return false;
-        }
-        if (url.port !== otherUrl.port) {
-            return false;
+        function stripTrailingSep(pathname) {
+            if (pathname[pathname.length - 1] === '/') {
+                pathname = pathname.slice(0, -1);
+            }
+            return pathname;
         }
 
-        var pathname = stripTrailingSep(url.pathname);
-        var potentialParentOrSibling = stripTrailingSep(otherUrl.pathname);
-        var potentialDirname = potentialParentOrSibling.slice(0, potentialParentOrSibling.lastIndexOf('/'));
+        function urlIsSiblingOrDescendantOf(url, otherUrl) {
+            url = new global.URL(url, otherUrl);
+            otherUrl = new global.URL(otherUrl);
 
-        return pathname.startsWith(potentialDirname);
-    }
+            if (url.protocol !== otherUrl.protocol) {
+                return false;
+            }
+            if (url.host !== otherUrl.host) {
+                return false;
+            }
+            if (url.port !== otherUrl.port) {
+                return false;
+            }
 
-    if (params.test) {
-        engine.config(function() {
-            engine.test(engine.mainLocation);
-        });
-    }
-    if (params.cover) {
-        engine.config(function() {
-            var options = {
-                urlIsPartOfCoverage: function(url) {
-                    // the url must be a sibling or a descendant of engine.mainLocation
-                    return urlIsSiblingOrDescendantOf(url, engine.mainLocation);
-                }
-            };
+            var pathname = stripTrailingSep(url.pathname);
+            var potentialParentOrSibling = stripTrailingSep(otherUrl.pathname);
+            var potentialDirname = potentialParentOrSibling.slice(0, potentialParentOrSibling.lastIndexOf('/'));
 
-            // most time we do code coverage test to see how a file is covering all it's dependencies
-            // so checking that the file is the mainLocation or a peer or inside is sufficient
-            return engine.coverage.install(options);
-        });
+            return pathname.startsWith(potentialDirname);
+        }
 
-        engine.run(function() {
-            var mainLocation = engine.mainLocation;
-            var options = {
-                directory: engine.locateFrom('error-coverage', mainLocation, true),
-                reportConsole: true
-            };
-
-            return engine.coverage.collect(engine.coverage.value).then(function(collector) {
-                return engine.coverage.report(collector, options);
+        if (params.test) {
+            engine.config(function() {
+                engine.test(engine.mainLocation);
             });
-        });
-    }
+        }
+        if (params.cover) {
+            engine.config(function() {
+                var options = {
+                    urlIsPartOfCoverage: function(url) {
+                        // the url must be a sibling or a descendant of engine.mainLocation
+                        return urlIsSiblingOrDescendantOf(url, engine.mainLocation);
+                    }
+                };
 
-    engine.importMain(params[0]);
+                // most time we do code coverage test to see how a file is covering all it's dependencies
+                // so checking that the file is the mainLocation or a peer or inside is sufficient
+                return engine.coverage.install(options);
+            });
+
+            engine.run(function() {
+                var mainLocation = engine.mainLocation;
+                var options = {
+                    directory: engine.locateFrom('error-coverage', mainLocation, true),
+                    reportConsole: true
+                };
+
+                return engine.coverage.collect(engine.coverage.value).then(function(collector) {
+                    return engine.coverage.report(collector, options);
+                });
+            });
+        }
+
+        engine.importMain(params[0]);
+    });
 }
 
 function versionCommand() {

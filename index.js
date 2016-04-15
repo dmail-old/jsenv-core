@@ -2,33 +2,38 @@
 
 /*
 after including this file you can do
+if setup was callback oriented we could even call the installRequirements phase once setup is called and not so early
+I will certainly go for this solution
 
-engine.config(function() {}); // function or file executed in serie before engine.mainTask
-engine.run(function() {}); // function or file executed in serie after engine.mainTask
-engine.importMain('./path/to/file.js'); // set engine.mainTask to import/execute this file then auto call engine.start
+setup().then(function(engine) {
+    engine.config(function() {}); // function executed in serie before engine.mainTask
+    engine.run(function() {}); // function executed in serie after engine.mainTask
+    engine.importMain('./path/to/file.js'); // set engine.mainTask to import/execute this file then auto call engine.start
+});
+
 */
 
 (function() {
-    var engine = {};
-
-    function setup() {
-        // engine.provide adds properties to the engine object and can be called anywhere
+    function provideMinimalFeatures(features) {
+        // features.provide adds properties to the features object and can be called anywhere
         function provide(data) {
             var properties;
 
             if (typeof data === 'function') {
                 console.log('provide', data.name);
-                properties = data.call(engine);
+                properties = data.call(features);
             } else {
                 properties = data;
             }
 
             if (properties) {
                 for (var key in properties) { // eslint-disable-line
-                    engine[key] = properties[key];
+                    features[key] = properties[key];
                 }
             }
         }
+
+        features.provide = provide;
 
         provide(function version() {
             function Version(string) {
@@ -87,7 +92,7 @@ engine.importMain('./path/to/file.js'); // set engine.mainTask to import/execute
                 },
 
                 setVersion: function(version) {
-                    this.version = engine.createVersion(version);
+                    this.version = features.createVersion(version);
                 },
 
                 match: function(platform) {
@@ -121,7 +126,7 @@ engine.importMain('./path/to/file.js'); // set engine.mainTask to import/execute
                 },
 
                 setVersion: function(version) {
-                    this.version = engine.createVersion(version);
+                    this.version = features.createVersion(version);
                 },
 
                 match: function(agent) {
@@ -176,8 +181,6 @@ engine.importMain('./path/to/file.js'); // set engine.mainTask to import/execute
             } else if (this.isNode()) {
                 globalValue = global;
             }
-
-            globalValue.engine = this;
 
             return {
                 global: globalValue
@@ -242,12 +245,34 @@ engine.importMain('./path/to/file.js'); // set engine.mainTask to import/execute
             };
         });
 
+        provide(function logger() {
+            return {
+                logLevel: 'debug', // 'error',
+
+                info: function() {
+                    if (this.logLevel === 'info') {
+                        console.info.apply(console, arguments);
+                    }
+                },
+
+                warn: function() {
+                    console.warn.apply(console, arguments);
+                },
+
+                debug: function() {
+                    if (this.logLevel === 'debug') {
+                        console.log.apply(console, arguments);
+                    }
+                }
+            };
+        });
+
         /*
         DEPRECATED (not used anymore)
         provide(function include() {
             var importMethod;
 
-            if (engine.isBrowser()) {
+            if (features.isBrowser()) {
                 importMethod = function(url) {
                     var script = document.createElement('script');
                     var promise = new Promise(function(resolve, reject) {
@@ -317,61 +342,41 @@ engine.importMain('./path/to/file.js'); // set engine.mainTask to import/execute
         });
         */
 
-        provide(function logger() {
-            return {
-                logLevel: 'debug', // 'error',
-
-                info: function() {
-                    if (this.logLevel === 'info') {
-                        console.info.apply(console, arguments);
-                    }
-                },
-
-                warn: function() {
-                    console.warn.apply(console, arguments);
-                },
-
-                debug: function() {
-                    if (this.logLevel === 'debug') {
-                        console.log.apply(console, arguments);
-                    }
-                }
-            };
-        });
+        return features;
     }
 
-    function include(callback) {
+    function listRequirements(features) {
         function hasSetImmediate() {
-            return 'setImmediate' in engine.global;
+            return 'setImmediate' in features.global;
         }
 
         function hasPromise() {
-            if (('Promise' in engine.global) === false) {
+            if (('Promise' in features.global) === false) {
                 return false;
             }
             if (Promise.isPolyfill) {
                 return true;
             }
             // agent must implement onunhandledrejection to consider promise implementation valid
-            if (engine.isBrowser()) {
-                if ('onunhandledrejection' in engine.global) {
+            if (features.isBrowser()) {
+                if ('onunhandledrejection' in features.global) {
                     return true;
                 }
                 return false;
-            } else if (engine.isNode()) {
+            } else if (features.isNode()) {
                 // node version > 0.12.0 got the unhandledRejection hook
                 // this way to detect feature is AWFUL but for now let's do this
-                return engine.agent.version.major > 0 || engine.agent.version.minor > 12;
+                return features.agent.version.major > 0 || features.agent.version.minor > 12;
             }
             return false;
         }
 
         function hasURL() {
-            return 'URL' in engine.global;
+            return 'URL' in features.global;
         }
 
         function hasUrlSearchParams() {
-            return 'URLSearchParams' in engine.global;
+            return 'URLSearchParams' in features.global;
         }
 
         var fileToLoad = [];
@@ -391,12 +396,20 @@ engine.importMain('./path/to/file.js'); // set engine.mainTask to import/execute
         // for instance urlSearchParams and some data are missing like dirname, etc
         fileToLoad.push('lib/uri/index.js');
 
-        if (engine.isBrowser()) {
+        if (features.isBrowser()) {
             fileToLoad.push('node_modules/systemjs/dist/system.js');
         } else {
             fileToLoad.push('node_modules/systemjs/index.js');
         }
 
+        fileToLoad = fileToLoad.map(function(filePath) {
+            return features.dirname + '/' + filePath;
+        });
+
+        return fileToLoad;
+    }
+
+    function installRequirements(features, requirements, callback) {
         function includeAllBrowser(urls) {
             var i = 0;
             var j = urls.length;
@@ -436,50 +449,61 @@ engine.importMain('./path/to/file.js'); // set engine.mainTask to import/execute
                     url = url.slice('file:///'.length);
                 }
 
-                engine.debug('include', url);
+                features.debug('include', url);
                 require(url);
             }
             callback();
         }
 
-        fileToLoad = fileToLoad.map(function(filePath) {
-            return engine.dirname + '/' + filePath;
-        });
-
-        if (engine.isBrowser()) {
-            includeAllBrowser(fileToLoad);
+        if (features.isBrowser()) {
+            includeAllBrowser(requirements);
         } else {
-            includeAllNode(fileToLoad);
+            includeAllNode(requirements);
         }
     }
 
-    function init() {
-        engine.provide(function locate() {
-            return {
-                internalURI: new global.URI(this.internalURL),
-                baseURI: new global.URI(this.baseURL),
+    // create an object that will receive the features
+    var features = {};
+    // provide the minimal features available : platform, agent, global, baseAndInternalURl
+    provideMinimalFeatures(features);
+    // list requirements amongst setimmediate, promise, url, url-search-params, uri, system
+    var requirements = listRequirements(features);
 
-                locateFrom: function(data, baseURI, stripFile) {
-                    var href = new global.URI(this.cleanPath(data), this.cleanPath(baseURI)).href;
+    function installGlobalBootstrapMethod(globalName) {
+        /*
+        why features is put on the global scope ?
+        Considering that in the browser you will put a script tag, you need a pointer on features somewhere
+        - we could use System.import('engine') but engine is a wrapper to System so it would be strange
+        to access features with something higher level in terms of abstraction
+        - we could count on an other global variable but I don't know any reliable global variable for this purpose
+        - because it's a "bad practice" to pollute the global scope we provide a renameGlobal() & restorePreviousGlobalValue() to cover
+        improbable conflictual scenario
+        */
 
-                    if (stripFile && href.indexOf('file:///') === 0) {
-                        href = href.slice('file:///'.length);
-                    }
+        var globalObject = features.global;
+        var hasPreviousGlobalValue = globalName in globalObject;
+        var previousGlobalValue = globalObject[globalName];
 
-                    return href;
-                },
+        globalObject[globalName] = function() {
+            // restore global state when this function is called
+            if (hasPreviousGlobalValue) {
+                globalObject[globalName] = previousGlobalValue;
+            } else {
+                delete globalObject[globalName];
+            }
 
-                locate: function(data, stripFile) {
-                    return this.locateFrom(data, this.baseURI, stripFile);
-                },
+            return System.import('./setup.js').then(function(module) {
+                return module.default(features);
+            });
+        };
+    }
 
-                locateInternal: function(data, stripFile) {
-                    return this.locateFrom(data, this.internalURI, stripFile);
-                }
-            };
-        });
+    installRequirements(features, requirements, function() {
+        System.transpiler = 'babel';
+        System.babelOptions = {};
+        System.paths.babel = features.dirname + '/node_modules/babel-core/browser.js';
 
-        engine.provide(function coreModules() {
+        features.provide(function coreModules() {
             function createModuleExportingDefault(defaultExportsValue) {
                 /* eslint-disable quote-props */
                 return System.newModule({
@@ -492,9 +516,7 @@ engine.importMain('./path/to/file.js'); // set engine.mainTask to import/execute
                 System.set(moduleName, createModuleExportingDefault(defaultExport));
             }
 
-            registerCoreModule('engine', engine);
-
-            if (engine.isNode()) {
+            if (features.isNode()) {
                 // @node/fs etc available thanks to https://github.com/systemjs/systemjs/blob/master/dist/system.src.js#L1695
                 registerCoreModule('@node/require', require);
             }
@@ -504,350 +526,8 @@ engine.importMain('./path/to/file.js'); // set engine.mainTask to import/execute
             };
         });
 
-        // setImmediate, Promise, URL, System, URI, locate are now available
-        // we must also provide es6 polyfills (Map, Set, Iterator, ...)
-        // so here we only provide task & plugin API to be able to do engine.config(), engine.run(), engine.importMain()
-        // and we add some default plugin like es6, Location, agent-config etc that user can later disable or add plugin before of after
-
-        System.transpiler = 'babel';
-        System.babelOptions = {};
-        System.paths.babel = engine.locateInternal('./node_modules/babel-core/browser.js');
-
-        engine.provide(function task() {
-            var Task = function() {
-                if (arguments.length === 1) {
-                    this.populate(arguments[0]);
-                } else if (arguments.length === 2) {
-                    this.name = arguments[0];
-                    this.populate(arguments[1]);
-                }
-            };
-
-            Task.prototype = {
-                dependencies: [], // should check that taks dependencies have been executed before executing this one
-                name: undefined,
-                skipped: false,
-                disabled: false,
-                ended: false,
-                next: null,
-
-                populate: function(properties) {
-                    if (typeof properties === 'object') {
-                        for (var key in properties) { // eslint-disable-line
-                            this[key] = properties[key];
-                        }
-                    } else if (typeof properties === 'function') {
-                        this.fn = properties;
-                        if (this.hasOwnProperty('name') === false) {
-                            this.name = this.fn.name;
-                        }
-                    }
-                },
-
-                skipIf: function(getSkipReason) {
-                    this.getSkipReason = getSkipReason;
-                    return this;
-                },
-
-                enable: function() {
-                    this.disabled = false;
-                },
-
-                disable: function() {
-                    this.disabled = true;
-                },
-
-                chain: function(task) {
-                    if (this.ended) {
-                        throw new Error(this.name + 'task is ended : cannot chain more task to it');
-                    }
-
-                    // engine.debug('do', task.name, 'after', this.name);
-
-                    var next = this.next;
-                    if (next) {
-                        next.chain(task);
-                    } else {
-                        this.next = task;
-                    }
-
-                    return this;
-                },
-
-                insert: function(task, beforeTask) {
-                    if (beforeTask) {
-                        var next = this.next;
-                        if (!next) {
-                            throw new Error('cannot insert ' + task.name + ' before ' + beforeTask.name);
-                        }
-
-                        if (next === beforeTask) {
-                            this.next = null;
-
-                            this.chain(task);
-                            task.chain(next);
-                            return this;
-                        }
-                        return next.insert(task, beforeTask);
-                    }
-
-                    return this.chain(task);
-                },
-
-                skip: function(reason) {
-                    this.skipped = true;
-                    reason = reason || 'no specific reason';
-                    engine.debug('skip task', this.name, ':', reason);
-                },
-
-                locate: function() {
-                    var location;
-                    if (this.url) {
-                        location = engine.locate(this.url);
-                    } else {
-                        location = engine.locate(this.name);
-                    }
-                    return location;
-                },
-
-                locateHook: function() {
-                    return Promise.resolve(this.locate()).then(function(location) {
-                        this.location = location;
-                        return location;
-                    }.bind(this));
-                },
-
-                import: function() {
-                    return this.locateHook().then(function(location) {
-                        engine.debug('importing', location);
-                        return engine.import(location);
-                    });
-                },
-
-                exec: function(value) {
-                    if (this.hasOwnProperty('fn') === false) {
-                        return this.import();
-                    }
-                    return this.fn(value);
-                },
-
-                before: function(value) {
-                    return value;
-                },
-
-                after: function(value) {
-                    return value;
-                },
-
-                start: function(value) {
-                    // engine.info(engine.type, engine.location, engine.baseURL);
-                    engine.task = this;
-                    engine.debug('start task', this.name);
-
-                    return Promise.resolve(value).then(
-                        this.before.bind(this)
-                    ).then(function(resolutionValue) {
-                        if (this.disabled) {
-                            this.skip('disabled');
-                        } else if (this.hasOwnProperty('getSkipReason')) {
-                            var skipReason = this.getSkipReason();
-                            if (skipReason) {
-                                this.skip(skipReason);
-                            }
-                        }
-
-                        if (this.skipped) {
-                            return resolutionValue;
-                        }
-                        return this.exec(resolutionValue);
-                    }.bind(this)).then(function(resolutionValue) {
-                        this.ended = true;
-                        return this.after(resolutionValue);
-                    }.bind(this)).then(function(resolutionValue) {
-                        if (this.next) {
-                            // will throw but it will be ignored
-                            return this.next.start(value);
-                        }
-                        return resolutionValue;
-                    }.bind(this));
-                }
-            };
-
-            var noop = function() {};
-            var headTask = new Task('head', noop);
-            var tailTask = new Task('tail', noop);
-
-            headTask.chain(tailTask);
-
-            var taskChain = {
-                head: headTask,
-                tail: tailTask,
-
-                get: function(taskName) {
-                    var task = this.head;
-
-                    while (task) {
-                        if (task.name === taskName) {
-                            break;
-                        } else {
-                            task = task.next;
-                        }
-                    }
-
-                    return task;
-                },
-
-                enable: function(taskName) {
-                    return this.get(taskName).enable();
-                },
-
-                disable: function(taskName) {
-                    return this.get(taskName).disabled();
-                },
-
-                add: function(task) {
-                    return this.head.chain(task);
-                },
-
-                insert: function(task, beforeTask) {
-                    return this.head.insert(task, beforeTask);
-                },
-
-                create: function(firstArg, secondArg) {
-                    return new Task(firstArg, secondArg);
-                }
-            };
-
-            return {
-                taskChain: taskChain
-            };
-        });
-
-        engine.provide(function mainTask() {
-            var mainTask = this.taskChain.create('main', function() {
-                var mainModulePromise;
-
-                if (engine.mainSource) {
-                    engine.debug('get mainModule from source string');
-                    mainModulePromise = System.module(engine.mainSource, {
-                        address: engine.mainLocation
-                    });
-                } else if (engine.mainModule) {
-                    engine.debug('get mainModule from source object');
-                    engine.mainModule = System.newModule(engine.mainModule);
-                    System.set(engine.mainLocation, engine.mainModule);
-                    mainModulePromise = Promise.resolve(engine.mainModule);
-                } else {
-                    engine.debug('get mainModule from source file', engine.mainLocation);
-                    mainModulePromise = System.import(engine.mainLocation);
-                }
-
-                return mainModulePromise.then(function(mainModule) {
-                    engine.debug('mainModule imported', mainModule);
-                    engine.mainModule = mainModule;
-                    return mainModule;
-                });
-            });
-
-            this.taskChain.insert(mainTask, this.taskChain.tail);
-
-            return {
-                mainTask: mainTask,
-
-                config: function() {
-                    var task = this.taskChain.create.apply(null, arguments);
-                    return this.taskChain.insert(task, mainTask);
-                },
-
-                run: function() {
-                    var task = this.taskChain.create.apply(null, arguments);
-                    return this.taskChain.add(task);
-                },
-
-                evalMain: function(source, sourceURL) {
-                    this.mainSource = source;
-                    this.mainLocation = sourceURL || './anonymous';
-                    return this.start();
-                },
-
-                exportMain: function(moduleExports) {
-                    // seems strange to pass an object because this object will not benefit
-                    // from any polyfill/transpilation etc
-                    this.mainModule = moduleExports;
-                    this.mainLocation = './anonymous';
-                    return this.start();
-                },
-
-                importMain: function(moduleLocation) {
-                    this.mainLocation = moduleLocation;
-                    return this.start();
-                },
-
-                start: function() {
-                    if (!this.mainLocation) {
-                        throw new Error('mainLocation must be set before calling engine.start()');
-                    }
-
-                    this.mainLocation = engine.locate(this.mainLocation);
-
-                    return this.taskChain.head.start().then(function() {
-                        return engine.mainModule;
-                    });
-                }
-            };
-        });
-
-        engine.provide(function plugin() {
-            return {
-                plugin: function(name, properties) {
-                    var task = engine.config(name);
-                    task.locate = function() {
-                        return engine.dirname + '/plugins/' + this.name + '/index.js';
-                    };
-                    task.populate(properties);
-                    return task;
-                }
-            };
-        });
-
-        /*
-        plugin('es6', {
-            locate: function() {
-                var polyfillLocation;
-
-                if (engine.isBrowser()) {
-                    polyfillLocation = 'node_modules/babel-polyfill/dist/polyfill.js';
-                } else {
-                    polyfillLocation = 'node_modules/babel-polyfill/lib/index.js';
-                }
-
-                return engine.dirname + '/' + polyfillLocation;
-            }
-        });
-
-        // we wait for promise, & system before adding exceptionHandler
-        plugin('exception-handler');
-
-        plugin('module-internal');
-
-        plugin('module-source');
-
-        plugin('module-script-name');
-
-        plugin('module-source-transpiled');
-
-        plugin('module-sourcemap');
-
-        plugin('agent-config', {
-            locate: function() {
-                return engine.dirname + '/plugins/agent-' + engine.agent.type + '/index.js';
-            }
-        });
-
-        plugin('module-test');
-        */
-    }
-
-    setup();
-    include(init);
+        // install a global method called setup that will auto remove herself from the global scope when called
+        // this function returns a promise for the features object once he is ready
+        installGlobalBootstrapMethod('setup');
+    });
 })();
