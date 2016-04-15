@@ -392,10 +392,6 @@ setup().then(function(jsenv) {
             return 'URL' in features.global;
         }
 
-        function hasUrlSearchParams() {
-            return 'URLSearchParams' in features.global;
-        }
-
         var fileToLoad = [];
         if (hasSetImmediate() === false) {
             fileToLoad.push('lib/set-immediate/index.js');
@@ -406,12 +402,6 @@ setup().then(function(jsenv) {
         if (hasURL() === false) {
             fileToLoad.push('lib/url/index.js');
         }
-        if (hasUrlSearchParams() === false) {
-            fileToLoad.push('lib/url-search-params/index.js');
-        }
-        // more universal way to manipulate urls because there is browser inconsistency
-        // for instance urlSearchParams and some data are missing like dirname, etc
-        fileToLoad.push('lib/uri/index.js');
 
         if (features.isBrowser()) {
             fileToLoad.push('node_modules/systemjs/dist/system.js');
@@ -511,11 +501,9 @@ setup().then(function(jsenv) {
                 delete globalObject[globalName];
             }
 
-            return System.import('./setup.js').then(function(module) {
-                return module.default(features, options);
+            return System.import('./lib/setup/index.js').then(function(module) {
+                return module.default(options);
             }).then(function() {
-                // make it also available as a module
-                features.registerCoreModule(features.name, features);
                 return features;
             });
         };
@@ -538,15 +526,23 @@ setup().then(function(jsenv) {
             function registerCoreModule(moduleName, defaultExport) {
                 System.set(moduleName, createModuleExportingDefault(defaultExport));
             }
-
-            if (features.isNode()) {
-                // @node/fs etc available thanks to https://github.com/systemjs/systemjs/blob/master/dist/system.src.js#L1695
-                registerCoreModule('@node/require', require);
-            }
-
             return {
                 registerCoreModule: registerCoreModule
             };
+        });
+
+        if (features.isNode()) {
+            // @node/fs etc available thanks to https://github.com/systemjs/systemjs/blob/master/dist/system.src.js#L1695
+            features.registerCoreModule('@node/require', require);
+        }
+
+        features.registerCoreModule(features.name, features);
+        System.set('jsenv/need', System.newModule({
+            'url-search-params': 'URLSearchParams' in features.global === false
+        }));
+
+        ['proto', 'URI'].forEach(function(utilName) {
+            System.paths['jsenv/' + utilName] = features.dirname + '/lib/util/' + utilName + '/index.js';
         });
 
         // install a global method called setup that will auto remove herself from the global scope when called
