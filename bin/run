@@ -38,9 +38,6 @@ function startCommand(params) {
             url: './plugins/agent-node/exception-stacktrace/index.js'
         });
 
-        // i have to add this in order to let previous config to run it's a bug
-        jsenv.config('nothing');
-
         function stripTrailingSep(pathname) {
             if (pathname[pathname.length - 1] === '/') {
                 pathname = pathname.slice(0, -1);
