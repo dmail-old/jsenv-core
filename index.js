@@ -284,6 +284,27 @@ setup().then(function(jsenv) {
             };
         });
 
+        provide(function installGlobalMethod() {
+            return {
+                installGlobalMethod: function(globalName, method) {
+                    var globalObject = this.global;
+                    var hasPreviousGlobalValue = globalName in globalObject;
+                    var previousGlobalValue = globalObject[globalName];
+
+                    globalObject[globalName] = method;
+
+                    // give a way to restore global state
+                    return function uninstall() {
+                        if (hasPreviousGlobalValue) {
+                            globalObject[globalName] = previousGlobalValue;
+                        } else {
+                            delete globalObject[globalName];
+                        }
+                    };
+                }
+            };
+        });
+
         /*
         DEPRECATED (not used anymore)
         provide(function include() {
@@ -423,13 +444,13 @@ setup().then(function(jsenv) {
             var url;
             var loadCount = 0;
 
-            window.includeLoaded = function() {
+            var uninstall = features.installGlobalMethod('includeLoaded', function() {
                 loadCount++;
                 if (loadCount === j) {
-                    delete window.includeLoaded;
+                    uninstall();
                     callback();
                 }
-            };
+            });
 
             for (;i < j; i++) {
                 url = urls[i];
@@ -475,39 +496,8 @@ setup().then(function(jsenv) {
     };
     // provide the minimal features available : platform, agent, global, baseAndInternalURl
     provideMinimalFeatures(features);
-    // list requirements amongst setimmediate, promise, url, url-search-params, uri, system
+    // list requirements amongst setimmediate, promise, url, url-search-params, system
     var requirements = listRequirements(features);
-
-    function installGlobalBootstrapTemporaryMethod(globalName) {
-        /*
-        why put a method on the global scope ?
-        Considering that in the browser you will put a script tag, you need a pointer on features somewhere
-        - we could use System.import('engine') but engine is a wrapper to System so it would be strange
-        to access features with something higher level in terms of abstraction
-        - we could count on an other global variable but I don't know any reliable global variable for this purpose
-        - because it's a "bad practice" to pollute the global scope we provide a renameGlobal() & restorePreviousGlobalValue() to cover
-        improbable conflictual scenario
-        */
-
-        var globalObject = features.global;
-        var hasPreviousGlobalValue = globalName in globalObject;
-        var previousGlobalValue = globalObject[globalName];
-
-        globalObject[globalName] = function(options) {
-            // restore global state when this function is called
-            if (hasPreviousGlobalValue) {
-                globalObject[globalName] = previousGlobalValue;
-            } else {
-                delete globalObject[globalName];
-            }
-
-            return System.import('./lib/setup/index.js').then(function(module) {
-                return module.default(options);
-            }).then(function() {
-                return features;
-            });
-        };
-    }
 
     installRequirements(features, requirements, function() {
         System.transpiler = 'babel';
@@ -541,12 +531,38 @@ setup().then(function(jsenv) {
             'url-search-params': 'URLSearchParams' in features.global === false
         }));
 
-        ['proto', 'URI'].forEach(function(utilName) {
+        [
+            'dependency-graph',
+            'iterable',
+            'options',
+            'proto',
+            'thenable',
+            'timeout',
+            'uri',
+            'url-search-params'
+        ].forEach(function(utilName) {
             System.paths['jsenv/' + utilName] = features.dirname + '/lib/util/' + utilName + '/index.js';
         });
 
         // install a global method called setup that will auto remove herself from the global scope when called
         // this function returns a promise for the features object once he is ready
-        installGlobalBootstrapTemporaryMethod('setup');
+        /*
+        why put a method on the global scope ?
+        Considering that in the browser you will put a script tag, you need a pointer on features somewhere
+        - we could use System.import('engine') but engine is a wrapper to System so it would be strange
+        to access features with something higher level in terms of abstraction
+        - we could count on an other global variable but I don't know any reliable global variable for this purpose
+        - because it's a "bad practice" to pollute the global scope we provide a renameGlobal() & restorePreviousGlobalValue() to cover
+        improbable conflictual scenario
+        */
+
+        var uninstall = features.installGlobalMethod('setup', function(options) {
+            uninstall();
+
+            features.options = options;
+            return System.import('./lib/setup/index.js').then(function() {
+                return features;
+            });
+        });
     });
 })();
