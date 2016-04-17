@@ -342,44 +342,6 @@ setup().then(function(jsenv) {
         });
         */
 
-        /*
-        DEPRECATED (will certainly be moved into a plugin)
-        provide(function language() {
-            // languague used by the agent
-            var language = {
-                preferences: [],
-
-                listPreferences: function() {
-                    return '';
-                },
-
-                bestLanguage: function(proposeds) {
-                    return Promise.resolve(this.listPreferences()).then(function(preferenceString) {
-                        var preferences = preferenceString.toLowerCase().split(',');
-                        var best;
-
-                        // get first language matching exactly
-                        best = proposeds.find(function(proposed) {
-                            return preferences.findIndex(function(preference) {
-                                return preference.startsWith(proposed);
-                            });
-                        });
-
-                        if (!best) {
-                            best = proposeds[0];
-                        }
-
-                        return best;
-                    });
-                }
-            };
-
-            return {
-                language: language
-            };
-        });
-        */
-
         return features;
     }
 
@@ -544,8 +506,6 @@ setup().then(function(jsenv) {
             System.paths['jsenv/' + utilName] = features.dirname + '/lib/util/' + utilName + '/index.js';
         });
 
-        // install a global method called setup that will auto remove herself from the global scope when called
-        // this function returns a promise for the features object once he is ready
         /*
         why put a method on the global scope ?
         Considering that in the browser you will put a script tag, you need a pointer on features somewhere
@@ -558,9 +518,20 @@ setup().then(function(jsenv) {
 
         var uninstall = features.installGlobalMethod('setup', function(options) {
             uninstall();
-
             features.options = options;
-            return System.import('./lib/setup/index.js').then(function() {
+
+            // for now juste polyfill eveyrthing using the babel polyfill
+            // ideally we could load only the needed polyfill using jsenv/need but
+            // that would be a bunch of work
+            var polyfillLocation;
+            if (features.isBrowser()) {
+                polyfillLocation = 'node_modules/babel-polyfill/dist/polyfill.js';
+            } else {
+                polyfillLocation = 'node_modules/babel-polyfill/lib/index.js';
+            }
+            return System.import(features.dirname + '/' + polyfillLocation).then(function() {
+                return System.import('./lib/setup/index.js');
+            }).then(function() {
                 return features;
             });
         });

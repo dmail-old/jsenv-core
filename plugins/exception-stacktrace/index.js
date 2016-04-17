@@ -138,3 +138,31 @@ jsenv.exceptionHandler.throw = function(exceptionValue) {
     console.error(exceptionValue);
     process.exit(1);
 };
+
+jsenv.config(function improveSyntaxError() {
+    var improveSyntaxError = function(error) {
+        if (error && error.name === 'SyntaxError' && error._babel) {
+            // error.loc contains {line: 0, column: 0}
+            var match = error.message.match(/([\s\S]+): Unterminated string constant \(([0-9]+)\:([0-9]+)/);
+            if (match) {
+                var improvedError = new SyntaxError();
+                var column = match[3];
+                column += 63; // because node-sourcemap/index.js:155 will do column-=63
+                var stack = '';
+                stack += 'SyntaxError: Unterminated string constant\n\t at ';
+                stack += match[1] + ':' + match[2] + ':' + column;
+                improvedError.stack = stack;
+                return improvedError;
+            }
+        }
+        return error;
+    };
+
+    var translate = System.translate;
+    System.translate = function(load) {
+        return translate.call(this, load).catch(function(error) {
+            error = improveSyntaxError(error);
+            return Promise.reject(error);
+        });
+    };
+}).skip('not ready yet');

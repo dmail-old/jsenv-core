@@ -8,36 +8,6 @@ function startCommand(params) {
     global.setup().then(function(jsenv) {
         jsenv.debug('start with params', params);
 
-        jsenv.config({
-            url: './plugins/exception-handler/index.js',
-            after: function(module) {
-                var exceptionHandler = module.default;
-
-                exceptionHandler.install(jsenv);
-                exceptionHandler.enable();
-            }
-        });
-
-        jsenv.config({
-            url: './plugins/module-script-name/index.js'
-        });
-
-        jsenv.config({
-            url: './plugins/module-source/index.js'
-        });
-
-        jsenv.config({
-            url: './plugins/module-source-transpiled/index.js'
-        });
-
-        jsenv.config({
-            url: './plugins/module-source-map/index.js'
-        });
-
-        jsenv.config({
-            url: './plugins/agent-node/exception-stacktrace/index.js'
-        });
-
         function stripTrailingSep(pathname) {
             if (pathname[pathname.length - 1] === '/') {
                 pathname = pathname.slice(0, -1);
@@ -65,6 +35,10 @@ function startCommand(params) {
 
             return pathname.startsWith(potentialDirname);
         }
+
+        jsenv.config(function configLogLevel() {
+            jsenv.logLevel = params.verbose ? 'debug' : 'error';
+        });
 
         if (params.test) {
             jsenv.config(function() {
@@ -118,6 +92,10 @@ var commandSignatures = {
     0: {
         type: 'string',
         params: {
+            versbose: {
+                type: 'boolean',
+                default: false
+            },
             cover: {
                 type: 'boolean',
                 default: false,
