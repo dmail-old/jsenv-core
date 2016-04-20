@@ -36,9 +36,11 @@ function startCommand(params) {
             return pathname.startsWith(potentialDirname);
         }
 
+        /*
         jsenv.config(function configLogLevel() {
             jsenv.logLevel = params.verbose ? 'debug' : 'error';
         });
+        */
 
         if (params.test) {
             jsenv.config(function() {

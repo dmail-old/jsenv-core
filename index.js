@@ -377,19 +377,28 @@ setup().then(function(jsenv) {
 
         var fileToLoad = [];
         if (hasSetImmediate() === false) {
-            fileToLoad.push('lib/set-immediate/index.js');
+            fileToLoad.push('lib/polyfill/set-immediate/index.js');
         }
         if (hasPromise() === false) {
-            fileToLoad.push('lib/promise/index.js');
+            fileToLoad.push('lib/polyfill/promise/index.js');
         }
         if (hasURL() === false) {
-            fileToLoad.push('lib/url/index.js');
+            fileToLoad.push('lib/polyfill/url/index.js');
         }
 
         if (features.isBrowser()) {
             fileToLoad.push('node_modules/systemjs/dist/system.js');
         } else {
             fileToLoad.push('node_modules/systemjs/index.js');
+        }
+
+        // for now juste polyfill eveyrthing using the babel polyfill
+        // ideally we could load only the needed polyfill using jsenv/need but
+        // that would be a bunch of work
+        if (features.isBrowser()) {
+            fileToLoad.push('node_modules/babel-polyfill/dist/polyfill.js');
+        } else {
+            fileToLoad.push('node_modules/babel-polyfill/lib/index.js');
         }
 
         fileToLoad = fileToLoad.map(function(filePath) {
@@ -488,11 +497,11 @@ setup().then(function(jsenv) {
             features.registerCoreModule('@node/require', require);
         }
 
-        features.registerCoreModule(features.name, features);
-
         features.need = {
             'url-search-params': 'URLSearchParams' in features.global === false
         };
+
+        features.registerCoreModule(features.name, features);
 
         [
             'dependency-graph',
@@ -520,18 +529,7 @@ setup().then(function(jsenv) {
             uninstall();
             features.options = options;
 
-            // for now juste polyfill eveyrthing using the babel polyfill
-            // ideally we could load only the needed polyfill using jsenv/need but
-            // that would be a bunch of work
-            var polyfillLocation;
-            if (features.isBrowser()) {
-                polyfillLocation = 'node_modules/babel-polyfill/dist/polyfill.js';
-            } else {
-                polyfillLocation = 'node_modules/babel-polyfill/lib/index.js';
-            }
-            return System.import(features.dirname + '/' + polyfillLocation).then(function() {
-                return System.import('./lib/setup/index.js');
-            }).then(function() {
+            return System.import('./lib/setup/index.js').then(function() {
                 return features;
             });
         });
