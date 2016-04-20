@@ -489,9 +489,10 @@ setup().then(function(jsenv) {
         }
 
         features.registerCoreModule(features.name, features);
-        System.set('jsenv/need', System.newModule({
+
+        features.need = {
             'url-search-params': 'URLSearchParams' in features.global === false
-        }));
+        };
 
         [
             'dependency-graph',
@@ -500,8 +501,7 @@ setup().then(function(jsenv) {
             'proto',
             'thenable',
             'timeout',
-            'uri',
-            'url-search-params'
+            'uri'
         ].forEach(function(utilName) {
             System.paths['jsenv/' + utilName] = features.dirname + '/lib/util/' + utilName + '/index.js';
         });
