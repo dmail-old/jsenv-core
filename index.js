@@ -305,43 +305,6 @@ setup().then(function(jsenv) {
             };
         });
 
-        /*
-        DEPRECATED (not used anymore)
-        provide(function include() {
-            var importMethod;
-
-            if (features.isBrowser()) {
-                importMethod = function(url) {
-                    var script = document.createElement('script');
-                    var promise = new Promise(function(resolve, reject) {
-                        script.onload = resolve;
-                        script.onerror = reject;
-                    });
-
-                    script.src = url;
-                    script.type = 'text/javascript';
-                    document.head.appendChild(script);
-
-                    return promise;
-                };
-            } else {
-                importMethod = function(url) {
-                    if (url.indexOf('file:///') === 0) {
-                        url = url.slice('file:///'.length);
-                    }
-
-                    return new Promise(function(resolve) {
-                        resolve(require(url));
-                    });
-                };
-            }
-
-            return {
-                import: importMethod
-            };
-        });
-        */
-
         return features;
     }
 
@@ -392,7 +355,7 @@ setup().then(function(jsenv) {
             fileToLoad.push('node_modules/systemjs/index.js');
         }
 
-        // for now juste polyfill eveyrthing using the babel polyfill
+        // for now just polyfill eveyrthing using the babel polyfill
         // ideally we could load only the needed polyfill using jsenv/need but
         // that would be a bunch of work
         if (features.isBrowser()) {
@@ -414,8 +377,9 @@ setup().then(function(jsenv) {
             var j = urls.length;
             var url;
             var loadCount = 0;
+            var scriptLoadedMethodName = 'includeLoaded';
 
-            var uninstall = features.installGlobalMethod('includeLoaded', function() {
+            var uninstall = features.installGlobalMethod(scriptLoadedMethodName, function() {
                 loadCount++;
                 if (loadCount === j) {
                     uninstall();
@@ -428,7 +392,7 @@ setup().then(function(jsenv) {
                 var scriptSource;
 
                 scriptSource = '<';
-                scriptSource += 'script type="text/javascript" onload="includeLoaded()" src="';
+                scriptSource += 'script type="text/javascript" onload="' + scriptLoadedMethodName + '()" src="';
                 scriptSource += url;
                 scriptSource += '">';
                 scriptSource += '<';
@@ -462,12 +426,12 @@ setup().then(function(jsenv) {
     }
 
     // create an object that will receive the features
-    var features = {
-        name: 'jsenv' // the future module name exporting the features
-    };
+    var features = {};
+    // set the name of a future module that will export features
+    features.name = 'jsenv';
     // provide the minimal features available : platform, agent, global, baseAndInternalURl
     provideMinimalFeatures(features);
-    // list requirements amongst setimmediate, promise, url, url-search-params, system
+    // list requirements amongst setimmediate, promise, url, url-search-params, es6 polyfills & SystemJS
     var requirements = listRequirements(features);
 
     installRequirements(features, requirements, function() {
@@ -512,17 +476,25 @@ setup().then(function(jsenv) {
             'timeout',
             'uri'
         ].forEach(function(utilName) {
-            System.paths['jsenv/' + utilName] = features.dirname + '/lib/util/' + utilName + '/index.js';
+            System.paths[features.name + '/' + utilName] = features.dirname + '/lib/util/' + utilName + '/index.js';
         });
 
         /*
         why put a method on the global scope ?
         Considering that in the browser you will put a script tag, you need a pointer on features somewhere
-        - we could use System.import('engine') but engine is a wrapper to System so it would be strange
+        - we could use System.import('jsenv') but this is a wrapper to System so it would be strange
         to access features with something higher level in terms of abstraction
         - we could count on an other global variable but I don't know any reliable global variable for this purpose
-        - because it's a "bad practice" to pollute the global scope we provide a renameGlobal() & restorePreviousGlobalValue() to cover
-        improbable conflictual scenario
+        - because it's a "bad practice" to pollute the global scope the provided function is immediatly removed from the global scope
+        */
+
+        /*
+        Currently we are having the approach of loading features before SystemJS but we could put SystemJS first
+        with the babel transpilation then add babel-polyfill and other polyfill.
+        A main issue would be the missing unhandledRejection on promise (so let's just force my polyfill before systemjs in that case)
+        else everything is ok
+
+        so we could not use global setup(), we could do System.import('jsenv').then(function(jsenv) {});
         */
 
         var uninstall = features.installGlobalMethod('setup', function(options) {
