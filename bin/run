@@ -43,34 +43,20 @@ function startCommand(params) {
         */
 
         if (params.test) {
-            jsenv.config(function() {
-                jsenv.test(jsenv.mainLocation);
+            jsenv.use('module-test', {
+                moduleName: jsenv.mainLocation
             });
         }
         if (params.cover) {
-            jsenv.config(function() {
-                var options = {
-                    urlIsPartOfCoverage: function(url) {
-                        // the url must be a sibling or a descendant of engine.mainLocation
-                        return urlIsSiblingOrDescendantOf(url, jsenv.mainLocation);
-                    }
-                };
-
-                // most time we do code coverage test to see how a file is covering all it's dependencies
-                // so checking that the file is the mainLocation or a peer or inside is sufficient
-                return jsenv.coverage.install(options);
-            });
-
-            jsenv.run(function() {
-                var mainLocation = jsenv.mainLocation;
-                var options = {
-                    directory: jsenv.locateFrom('error-coverage', mainLocation, true),
-                    reportConsole: true
-                };
-
-                return jsenv.coverage.collect(jsenv.coverage.value).then(function(collector) {
-                    return jsenv.coverage.report(collector, options);
-                });
+            // most time we do code coverage test to see how a file is covering all it's dependencies
+            // so checking that the file is the mainLocation or a peer or inside is sufficient
+            jsenv.use('module-coverage', {
+                urlIsPartOfCoverage: function(url) {
+                    // the url must be a sibling or a descendant of engine.mainLocation
+                    return urlIsSiblingOrDescendantOf(url, jsenv.mainLocation);
+                },
+                directory: jsenv.locateFrom('error-coverage', jsenv.mainLocation, true),
+                reportConsole: true
             });
         }
 

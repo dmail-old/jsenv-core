@@ -499,7 +499,7 @@ setup().then(function(jsenv) {
 
         var uninstall = features.installGlobalMethod('setup', function(options) {
             uninstall();
-            features.options = options;
+            features.options = options || {};
 
             return System.import('./lib/setup/index.js').then(function() {
                 return features;
