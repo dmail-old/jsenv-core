@@ -474,7 +474,8 @@ setup().then(function(jsenv) {
             'proto',
             'thenable',
             'timeout',
-            'uri'
+            'uri',
+            'action'
         ].forEach(function(utilName) {
             System.paths[features.name + '/' + utilName] = features.dirname + '/lib/util/' + utilName + '/index.js';
         });
