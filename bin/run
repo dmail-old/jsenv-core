@@ -6,7 +6,7 @@ function startCommand(params) {
     require('../index.js');
 
     global.setup().then(function(jsenv) {
-        jsenv.debug('start with params', params);
+        // jsenv.debug('start with params', params);
 
         function stripTrailingSep(pathname) {
             if (pathname[pathname.length - 1] === '/') {
