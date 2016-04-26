@@ -43,8 +43,9 @@ function startCommand(params) {
         */
 
         if (params.test) {
-            jsenv.use('module-test', {
-                moduleName: jsenv.mainLocation
+            jsenv.config(function configTest() {
+                var plugin = jsenv.plugin('module-test', jsenv.locateCorePlugin('module-test'));
+                plugin.options.location = jsenv.mainLocation;
             });
         }
         if (params.cover) {
@@ -61,10 +62,10 @@ function startCommand(params) {
         }
 
         var moduleName = params[0];
-        moduleName = './test/modules/module-error.js';
+        // moduleName = './test/modules/module-error.js';
 
-        return jsenv.importMain(moduleName).then(function(module) {
-            module.default();
+        return jsenv.importMain(moduleName).then(function() {
+            // module.default();
         });
     });
 }

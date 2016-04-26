@@ -338,44 +338,48 @@ setup().then(function(jsenv) {
             return 'URL' in features.global;
         }
 
-        var fileToLoad = [];
+        var requirements = [];
+
+        function need(name, path) {
+            requirements.push({
+                name: name,
+                url: features.dirname + '/' + path
+            });
+        }
+
         if (hasSetImmediate() === false) {
-            fileToLoad.push('lib/polyfill/set-immediate/index.js');
+            need('setImmediate', 'lib/polyfill/set-immediate/index.js');
         }
         if (hasPromise() === false) {
-            fileToLoad.push('lib/polyfill/promise/index.js');
+            need('Promise', 'lib/polyfill/promise/index.js');
         }
         if (hasURL() === false) {
-            fileToLoad.push('lib/polyfill/url/index.js');
+            need('URL', 'lib/polyfill/url/index.js');
         }
 
         if (features.isBrowser()) {
-            fileToLoad.push('node_modules/systemjs/dist/system.js');
+            need('System', 'node_modules/systemjs/dist/system.js');
         } else {
-            fileToLoad.push('node_modules/systemjs/index.js');
+            need('System', 'node_modules/systemjs/index.js');
         }
 
         // for now just polyfill eveyrthing using the babel polyfill
         // ideally we could load only the needed polyfill using jsenv/need but
         // that would be a bunch of work
         if (features.isBrowser()) {
-            fileToLoad.push('node_modules/babel-polyfill/dist/polyfill.js');
+            need('es6-polyfills', 'node_modules/babel-polyfill/dist/polyfill.js');
         } else {
-            fileToLoad.push('node_modules/babel-polyfill/lib/index.js');
+            need('es6-polyfills', 'node_modules/babel-polyfill/lib/index.js');
         }
 
-        fileToLoad = fileToLoad.map(function(filePath) {
-            return features.dirname + '/' + filePath;
-        });
-
-        return fileToLoad;
+        return requirements;
     }
 
     function installRequirements(features, requirements, callback) {
-        function includeAllBrowser(urls) {
+        function includeAllBrowser() {
             var i = 0;
-            var j = urls.length;
-            var url;
+            var j = requirements.length;
+            var requirement;
             var loadCount = 0;
             var scriptLoadedMethodName = 'includeLoaded';
 
@@ -388,12 +392,12 @@ setup().then(function(jsenv) {
             });
 
             for (;i < j; i++) {
-                url = urls[i];
+                requirement = requirements[i];
                 var scriptSource;
 
                 scriptSource = '<';
                 scriptSource += 'script type="text/javascript" onload="' + scriptLoadedMethodName + '()" src="';
-                scriptSource += url;
+                scriptSource += requirement.url;
                 scriptSource += '">';
                 scriptSource += '<';
                 scriptSource += '/script>';
@@ -402,17 +406,19 @@ setup().then(function(jsenv) {
             }
         }
 
-        function includeAllNode(urls) {
+        function includeAllNode() {
             var i = 0;
-            var j = urls.length;
+            var j = requirements.length;
+            var requirement;
             var url;
             for (;i < j; i++) {
-                url = urls[i];
+                requirement = requirements[i];
+                url = requirement.url;
                 if (url.indexOf('file:///') === 0) {
                     url = url.slice('file:///'.length);
                 }
 
-                features.debug('include', url);
+                features.debug('include', requirement.name);
                 require(url);
             }
             callback();
