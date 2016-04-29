@@ -41,23 +41,25 @@ function startCommand(params) {
             jsenv.logLevel = params.verbose ? 'debug' : 'error';
         });
         */
-
         if (params.test) {
-            jsenv.config(function configTest() {
-                var plugin = jsenv.plugin('module-test', jsenv.locateCorePlugin('module-test'));
-                plugin.options.location = jsenv.mainLocation;
+            jsenv.config(function testMainModule() {
+                jsenv.use('module-test', {
+                    location: jsenv.mainLocation
+                });
             });
         }
         if (params.cover) {
-            // most time we do code coverage test to see how a file is covering all it's dependencies
-            // so checking that the file is the mainLocation or a peer or inside is sufficient
-            jsenv.use('module-coverage', {
-                urlIsPartOfCoverage: function(url) {
-                    // the url must be a sibling or a descendant of engine.mainLocation
-                    return urlIsSiblingOrDescendantOf(url, jsenv.mainLocation);
-                },
-                directory: jsenv.locateFrom('error-coverage', jsenv.mainLocation, true),
-                reportConsole: true
+            jsenv.config(function coverMainModule() {
+                // most time we do code coverage test to see how a file is covering all it's dependencies
+                // so checking that the file is the mainLocation or a peer or inside is sufficient
+                jsenv.use('module-coverage', {
+                    urlIsPartOfCoverage: function(url) {
+                        // the url must be a sibling or a descendant of engine.mainLocation
+                        return urlIsSiblingOrDescendantOf(url, jsenv.mainLocation);
+                    },
+                    directory: jsenv.locateFrom('error-coverage', jsenv.mainLocation, true),
+                    reportConsole: true
+                });
             });
         }
 
