@@ -190,7 +190,7 @@ setup().then(function(jsenv) {
             };
         });
 
-        provide(function globalProvider() {
+        provide(function globalAccessor() {
             var globalValue;
 
             if (this.isBrowser()) {
@@ -305,81 +305,158 @@ setup().then(function(jsenv) {
             };
         });
 
+        provide(function support() {
+            var detectors = {};
+
+            return {
+                support: function(name) {
+                    return Boolean(detectors[name].call(this));
+                },
+
+                defineSupportDetector: function(name, detectMethod) {
+                    detectors[name] = detectMethod;
+                }
+            };
+        });
+
+        provide(function supportDetectors() {
+            var defineSupportDetector = features.defineSupportDetector.bind(features);
+
+            defineSupportDetector('set-immediate', function() {
+                return 'setImmediate' in this.global;
+            });
+
+            defineSupportDetector('promise', function() {
+                if (('Promise' in this.global) === false) {
+                    return false;
+                }
+                if (Promise.isPolyfill) {
+                    return true;
+                }
+                // agent must implement onunhandledrejection to consider promise implementation valid
+                if (this.isBrowser()) {
+                    if ('onunhandledrejection' in this.global) {
+                        return true;
+                    }
+                    return false;
+                }
+                if (this.isNode()) {
+                    // node version > 0.12.0 got the unhandledRejection hook
+                    // this way to detect feature is AWFUL but for now let's do this
+                    if (this.agent.version.major > 0 || this.agent.version.minor > 12) {
+                        return true;
+                    }
+                    return false;
+                }
+                return false;
+            });
+
+            defineSupportDetector('url', function() {
+                return 'URL' in this.global;
+            });
+
+            defineSupportDetector('url-search-params', function() {
+                return 'URLSearchParams' in this.global;
+            });
+
+            defineSupportDetector('es6', function() {
+                // too complex and ideally should be splitted into Iterator, Symbol etc...
+                return false;
+            });
+        });
+
+        provide(function coreNeeds() {
+            var needs = {};
+
+            ['set-immediate', 'promise', 'url', 'url-search-params', 'es6'].forEach(function(name) {
+                needs[name] = this.support(name) === false;
+            }, this);
+
+            return {
+                needs: needs
+            };
+        });
+
+        // DEPRECATED (not used anymore)
+        // provide(function include() {
+        //     var importMethod;
+
+        //     if (features.isBrowser()) {
+        //         importMethod = function(url) {
+        //             var script = document.createElement('script');
+        //             var promise = new Promise(function(resolve, reject) {
+        //                 script.onload = resolve;
+        //                 script.onerror = reject;
+        //             });
+
+        //             script.src = url;
+        //             script.type = 'text/javascript';
+        //             document.head.appendChild(script);
+
+        //             return promise;
+        //         };
+        //     } else {
+        //         importMethod = function(url) {
+        //             if (url.indexOf('file:///') === 0) {
+        //                 url = url.slice('file:///'.length);
+        //             }
+
+        //             return new Promise(function(resolve) {
+        //                 resolve(require(url));
+        //             });
+        //         };
+        //     }
+
+        //     return {
+        //         import: importMethod
+        //     };
+        // });
+
         return features;
     }
 
-    function listRequirements(features) {
-        function hasSetImmediate() {
-            return 'setImmediate' in features.global;
-        }
+    function listFiles(features) {
+        var files = [];
 
-        function hasPromise() {
-            if (('Promise' in features.global) === false) {
-                return false;
-            }
-            if (Promise.isPolyfill) {
-                return true;
-            }
-            // agent must implement onunhandledrejection to consider promise implementation valid
-            if (features.isBrowser()) {
-                if ('onunhandledrejection' in features.global) {
-                    return true;
-                }
-                return false;
-            } else if (features.isNode()) {
-                // node version > 0.12.0 got the unhandledRejection hook
-                // this way to detect feature is AWFUL but for now let's do this
-                return features.agent.version.major > 0 || features.agent.version.minor > 12;
-            }
-            return false;
-        }
-
-        function hasURL() {
-            return 'URL' in features.global;
-        }
-
-        var requirements = [];
-
-        function need(name, path) {
-            requirements.push({
+        function add(name, path) {
+            files.push({
                 name: name,
                 url: features.dirname + '/' + path
             });
         }
 
-        if (hasSetImmediate() === false) {
-            need('setImmediate', 'lib/polyfill/set-immediate/index.js');
+        if (features.support('set-immediate') === false) {
+            add('set-immediate-polyfill', 'lib/polyfill/set-immediate/index.js');
         }
-        if (hasPromise() === false) {
-            need('Promise', 'lib/polyfill/promise/index.js');
+        if (features.support('promise') === false) {
+            add('promise-polyfill', 'lib/polyfill/promise/index.js');
         }
-        if (hasURL() === false) {
-            need('URL', 'lib/polyfill/url/index.js');
+        if (features.support('url') === false) {
+            add('url-polyfill', 'lib/polyfill/url/index.js');
         }
 
         if (features.isBrowser()) {
-            need('System', 'node_modules/systemjs/dist/system.js');
+            add('systemjs', 'node_modules/systemjs/dist/system.js');
         } else {
-            need('System', 'node_modules/systemjs/index.js');
+            add('systemjs', 'node_modules/systemjs/index.js');
         }
 
-        // for now just polyfill eveyrthing using the babel polyfill
-        // ideally we could load only the needed polyfill using jsenv/need but
-        // that would be a bunch of work
-        if (features.isBrowser()) {
-            need('es6-polyfills', 'node_modules/babel-polyfill/dist/polyfill.js');
-        } else {
-            need('es6-polyfills', 'node_modules/babel-polyfill/lib/index.js');
+        if (features.support('es6') === false) {
+            if (features.isBrowser()) {
+                add('es6-polyfills', 'node_modules/babel-polyfill/dist/polyfill.js');
+            } else {
+                add('es6-polyfills', 'node_modules/babel-polyfill/lib/index.js');
+            }
         }
 
-        return requirements;
+        return files;
     }
 
-    function installRequirements(features, requirements, callback) {
+    function includeFiles(features, files, callback) {
         function includeAllBrowser() {
             var i = 0;
-            var j = requirements.length;
-            var requirement;
+            var j = files.length;
+            var file;
             var loadCount = 0;
             var scriptLoadedMethodName = 'includeLoaded';
 
@@ -392,12 +469,12 @@ setup().then(function(jsenv) {
             });
 
             for (;i < j; i++) {
-                requirement = requirements[i];
+                file = files[i];
                 var scriptSource;
 
                 scriptSource = '<';
                 scriptSource += 'script type="text/javascript" onload="' + scriptLoadedMethodName + '()" src="';
-                scriptSource += requirement.url;
+                scriptSource += file.url;
                 scriptSource += '">';
                 scriptSource += '<';
                 scriptSource += '/script>';
@@ -408,26 +485,26 @@ setup().then(function(jsenv) {
 
         function includeAllNode() {
             var i = 0;
-            var j = requirements.length;
-            var requirement;
+            var j = files.length;
+            var file;
             var url;
             for (;i < j; i++) {
-                requirement = requirements[i];
-                url = requirement.url;
+                file = files[i];
+                url = file.url;
                 if (url.indexOf('file:///') === 0) {
                     url = url.slice('file:///'.length);
                 }
 
-                features.debug('include', requirement.name);
+                features.debug('include', file.name);
                 require(url);
             }
             callback();
         }
 
         if (features.isBrowser()) {
-            includeAllBrowser(requirements);
+            includeAllBrowser(files);
         } else {
-            includeAllNode(requirements);
+            includeAllNode(files);
         }
     }
 
@@ -438,9 +515,9 @@ setup().then(function(jsenv) {
     // provide the minimal features available : platform, agent, global, baseAndInternalURl
     provideMinimalFeatures(features);
     // list requirements amongst setimmediate, promise, url, url-search-params, es6 polyfills & SystemJS
-    var requirements = listRequirements(features);
+    var files = listFiles(features);
 
-    installRequirements(features, requirements, function() {
+    includeFiles(features, files, function() {
         System.transpiler = 'babel';
         System.babelOptions = {};
         System.paths.babel = features.dirname + '/node_modules/babel-core/browser.js';
@@ -467,10 +544,6 @@ setup().then(function(jsenv) {
             features.registerCoreModule('@node/require', require);
         }
 
-        features.need = {
-            'url-search-params': 'URLSearchParams' in features.global === false
-        };
-
         features.registerCoreModule(features.name, features);
 
         [
@@ -481,7 +554,8 @@ setup().then(function(jsenv) {
             'thenable',
             'timeout',
             'uri',
-            'action'
+            'action',
+            'lazy-module'
         ].forEach(function(utilName) {
             System.paths[features.name + '/' + utilName] = features.dirname + '/lib/util/' + utilName + '/index.js';
         });
