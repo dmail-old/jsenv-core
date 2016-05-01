@@ -16,7 +16,7 @@
 		"system-run": "./bin/run"
 	},
 	"scripts": {
-		"test": "node ./bin/run test/modules/module-test.js -test",
+		"test": "node ./bin/run test/modules/module-test.js -test -cover",
 		"cover": "node playground/coverage/run.js",
 		"link-dev": "npm link ../options & npm link ../timeout & npm link ../thenable & npm link ../iterable"
 	},

@@ -31,13 +31,13 @@ setup().then(function(jsenv) {
 */
 
 (function() {
-    function provideMinimalFeatures(features) {
+    function buildMinimalFeatures(features) {
         // features.provide adds properties to the features object and can be called anywhere
-        function provide(data) {
+        function build(data) {
             var properties;
 
             if (typeof data === 'function') {
-                console.log('provide', data.name);
+                console.log('build', data.name);
                 properties = data.call(features);
             } else {
                 properties = data;
@@ -50,9 +50,9 @@ setup().then(function(jsenv) {
             }
         }
 
-        features.provide = provide;
+        features.build = build;
 
-        provide(function version() {
+        build(function version() {
             function Version(string) {
                 var parts = String(string).split('.');
                 var major = parts[0];
@@ -98,7 +98,7 @@ setup().then(function(jsenv) {
             };
         });
 
-        provide(function platform() {
+        build(function platform() {
             // platform is what runs the agent : windows, linux, mac, ..
             var platform = {
                 name: 'unknown',
@@ -129,7 +129,7 @@ setup().then(function(jsenv) {
             };
         });
 
-        provide(function agent() {
+        build(function agent() {
             // agent is what runs JavaScript : nodejs, iosjs, firefox, ...
             var type;
 
@@ -190,7 +190,7 @@ setup().then(function(jsenv) {
             };
         });
 
-        provide(function globalAccessor() {
+        build(function globalAccessor() {
             var globalValue;
 
             if (this.isBrowser()) {
@@ -204,10 +204,10 @@ setup().then(function(jsenv) {
             };
         });
 
-        provide(function baseAndInternalURL() {
+        build(function baseAndInternalURL() {
             var baseURL;
             var internalURL;
-            var clean;
+            var cleanPath;
             var parentPath;
 
             parentPath = function(path) {
@@ -215,7 +215,7 @@ setup().then(function(jsenv) {
             };
 
             if (this.isBrowser()) {
-                clean = function(path) {
+                cleanPath = function(path) {
                     return path;
                 };
 
@@ -232,7 +232,7 @@ setup().then(function(jsenv) {
                     return path.replace(/\\/g, '/');
                 };
 
-                clean = function(path) {
+                cleanPath = function(path) {
                     if (mustReplaceBackSlashBySlash) {
                         path = replaceBackSlashBySlash(String(path));
                     }
@@ -244,25 +244,25 @@ setup().then(function(jsenv) {
 
                 baseURL = (function() {
                     var cwd = process.cwd();
-                    var baseURL = clean(cwd);
+                    var baseURL = cleanPath(cwd);
                     if (baseURL[baseURL.length - 1] !== '/') {
                         baseURL += '/';
                     }
                     return baseURL;
                 })();
-                internalURL = clean(__filename);
+                internalURL = cleanPath(__filename);
             }
 
             return {
                 baseURL: baseURL, // from where am I running system-run
                 internalURL: internalURL, // where is this file
                 dirname: parentPath(internalURL), // dirname of this file
-                cleanPath: clean,
+                cleanPath: cleanPath,
                 parentPath: parentPath
             };
         });
 
-        provide(function logger() {
+        build(function logger() {
             return {
                 logLevel: 'debug', // 'error',
 
@@ -284,7 +284,7 @@ setup().then(function(jsenv) {
             };
         });
 
-        provide(function installGlobalMethod() {
+        build(function installGlobalMethod() {
             return {
                 installGlobalMethod: function(globalName, method) {
                     var globalObject = this.global;
@@ -305,7 +305,7 @@ setup().then(function(jsenv) {
             };
         });
 
-        provide(function support() {
+        build(function support() {
             var detectors = {};
 
             return {
@@ -319,7 +319,7 @@ setup().then(function(jsenv) {
             };
         });
 
-        provide(function supportDetectors() {
+        build(function supportDetectors() {
             var defineSupportDetector = features.defineSupportDetector.bind(features);
 
             defineSupportDetector('set-immediate', function() {
@@ -365,7 +365,7 @@ setup().then(function(jsenv) {
             });
         });
 
-        provide(function coreNeeds() {
+        build(function coreNeeds() {
             var needs = {};
 
             ['set-immediate', 'promise', 'url', 'url-search-params', 'es6'].forEach(function(name) {
@@ -378,7 +378,7 @@ setup().then(function(jsenv) {
         });
 
         // DEPRECATED (not used anymore)
-        // provide(function include() {
+        // build(function include() {
         //     var importMethod;
 
         //     if (features.isBrowser()) {
@@ -513,7 +513,7 @@ setup().then(function(jsenv) {
     // set the name of a future module that will export features
     features.name = 'jsenv';
     // provide the minimal features available : platform, agent, global, baseAndInternalURl
-    provideMinimalFeatures(features);
+    buildMinimalFeatures(features);
     // list requirements amongst setimmediate, promise, url, url-search-params, es6 polyfills & SystemJS
     var files = listFiles(features);
 

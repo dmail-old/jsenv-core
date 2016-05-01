@@ -1,5 +1,5 @@
 var test = true;
 
 export default function() {
-    console.log('log from a modulle', test);
+    console.log('log from a module', test);
 }
