@@ -31,26 +31,26 @@ setup().then(function(jsenv) {
 */
 
 (function() {
-    function buildMinimalFeatures(features) {
+    function buildEnv(env) {
         // features.provide adds properties to the features object and can be called anywhere
         function build(data) {
             var properties;
 
             if (typeof data === 'function') {
                 console.log('build', data.name);
-                properties = data.call(features);
+                properties = data.call(env);
             } else {
                 properties = data;
             }
 
             if (properties) {
                 for (var key in properties) { // eslint-disable-line
-                    features[key] = properties[key];
+                    env[key] = properties[key];
                 }
             }
         }
 
-        features.build = build;
+        env.build = build;
 
         build(function version() {
             function Version(string) {
@@ -109,7 +109,7 @@ setup().then(function(jsenv) {
                 },
 
                 setVersion: function(version) {
-                    this.version = features.createVersion(version);
+                    this.version = env.createVersion(version);
                 },
 
                 match: function(platform) {
@@ -143,7 +143,7 @@ setup().then(function(jsenv) {
                 },
 
                 setVersion: function(version) {
-                    this.version = features.createVersion(version);
+                    this.version = env.createVersion(version);
                 },
 
                 match: function(agent) {
@@ -320,7 +320,7 @@ setup().then(function(jsenv) {
         });
 
         build(function supportDetectors() {
-            var defineSupportDetector = features.defineSupportDetector.bind(features);
+            var defineSupportDetector = env.defineSupportDetector.bind(env);
 
             defineSupportDetector('set-immediate', function() {
                 return 'setImmediate' in this.global;
@@ -381,7 +381,7 @@ setup().then(function(jsenv) {
         // build(function include() {
         //     var importMethod;
 
-        //     if (features.isBrowser()) {
+        //     if (env.isBrowser()) {
         //         importMethod = function(url) {
         //             var script = document.createElement('script');
         //             var promise = new Promise(function(resolve, reject) {
@@ -412,37 +412,37 @@ setup().then(function(jsenv) {
         //     };
         // });
 
-        return features;
+        return env;
     }
 
-    function listFiles(features) {
+    function listFiles(env) {
         var files = [];
 
         function add(name, path) {
             files.push({
                 name: name,
-                url: features.dirname + '/' + path
+                url: env.dirname + '/' + path
             });
         }
 
-        if (features.support('set-immediate') === false) {
+        if (env.support('set-immediate') === false) {
             add('set-immediate-polyfill', 'lib/polyfill/set-immediate/index.js');
         }
-        if (features.support('promise') === false) {
+        if (env.support('promise') === false) {
             add('promise-polyfill', 'lib/polyfill/promise/index.js');
         }
-        if (features.support('url') === false) {
+        if (env.support('url') === false) {
             add('url-polyfill', 'lib/polyfill/url/index.js');
         }
 
-        if (features.isBrowser()) {
+        if (env.isBrowser()) {
             add('systemjs', 'node_modules/systemjs/dist/system.js');
         } else {
             add('systemjs', 'node_modules/systemjs/index.js');
         }
 
-        if (features.support('es6') === false) {
-            if (features.isBrowser()) {
+        if (env.support('es6') === false) {
+            if (env.isBrowser()) {
                 add('es6-polyfills', 'node_modules/babel-polyfill/dist/polyfill.js');
             } else {
                 add('es6-polyfills', 'node_modules/babel-polyfill/lib/index.js');
@@ -452,7 +452,7 @@ setup().then(function(jsenv) {
         return files;
     }
 
-    function includeFiles(features, files, callback) {
+    function includeFiles(env, files, callback) {
         function includeAllBrowser() {
             var i = 0;
             var j = files.length;
@@ -460,7 +460,7 @@ setup().then(function(jsenv) {
             var loadCount = 0;
             var scriptLoadedMethodName = 'includeLoaded';
 
-            var uninstall = features.installGlobalMethod(scriptLoadedMethodName, function() {
+            var uninstall = env.installGlobalMethod(scriptLoadedMethodName, function() {
                 loadCount++;
                 if (loadCount === j) {
                     uninstall();
@@ -495,34 +495,34 @@ setup().then(function(jsenv) {
                     url = url.slice('file:///'.length);
                 }
 
-                features.debug('include', file.name);
+                env.debug('include', file.name);
                 require(url);
             }
             callback();
         }
 
-        if (features.isBrowser()) {
+        if (env.isBrowser()) {
             includeAllBrowser(files);
         } else {
             includeAllNode(files);
         }
     }
 
-    // create an object that will receive the features
-    var features = {};
-    // set the name of a future module that will export features
-    features.name = 'jsenv';
-    // provide the minimal features available : platform, agent, global, baseAndInternalURl
-    buildMinimalFeatures(features);
+    // create an object that will receive the env
+    var env = {};
+    // set the name of a future module that will export env
+    env.name = 'jsenv';
+    // provide the minimal env available : platform, agent, global, baseAndInternalURl
+    buildEnv(env);
     // list requirements amongst setimmediate, promise, url, url-search-params, es6 polyfills & SystemJS
-    var files = listFiles(features);
+    var files = listFiles(env);
 
-    includeFiles(features, files, function() {
+    includeFiles(env, files, function() {
         System.transpiler = 'babel';
         System.babelOptions = {};
-        System.paths.babel = features.dirname + '/node_modules/babel-core/browser.js';
+        System.paths.babel = env.dirname + '/node_modules/babel-core/browser.js';
 
-        features.provide(function coreModules() {
+        env.provide(function coreModules() {
             function createModuleExportingDefault(defaultExportsValue) {
                 /* eslint-disable quote-props */
                 return System.newModule({
@@ -539,12 +539,12 @@ setup().then(function(jsenv) {
             };
         });
 
-        if (features.isNode()) {
+        if (env.isNode()) {
             // @node/fs etc available thanks to https://github.com/systemjs/systemjs/blob/master/dist/system.src.js#L1695
-            features.registerCoreModule('@node/require', require);
+            env.registerCoreModule('@node/require', require);
         }
 
-        features.registerCoreModule(features.name, features);
+        env.registerCoreModule(env.name, env);
 
         [
             'dependency-graph',
@@ -557,20 +557,20 @@ setup().then(function(jsenv) {
             'action',
             'lazy-module'
         ].forEach(function(utilName) {
-            System.paths[features.name + '/' + utilName] = features.dirname + '/lib/util/' + utilName + '/index.js';
+            System.paths[env.name + '/' + utilName] = env.dirname + '/lib/util/' + utilName + '/index.js';
         });
 
         /*
         why put a method on the global scope ?
-        Considering that in the browser you will put a script tag, you need a pointer on features somewhere
+        Considering that in the browser you will put a script tag, you need a pointer on env somewhere
         - we could use System.import('jsenv') but this is a wrapper to System so it would be strange
-        to access features with something higher level in terms of abstraction
+        to access env with something higher level in terms of abstraction
         - we could count on an other global variable but I don't know any reliable global variable for this purpose
         - because it's a "bad practice" to pollute the global scope the provided function is immediatly removed from the global scope
         */
 
         /*
-        Currently we are having the approach of loading features before SystemJS but we could put SystemJS first
+        Currently we are having the approach of loading env before SystemJS but we could put SystemJS first
         with the babel transpilation then add babel-polyfill and other polyfill.
         A main issue would be the missing unhandledRejection on promise (so let's just force my polyfill before systemjs in that case)
         else everything is ok
@@ -578,12 +578,12 @@ setup().then(function(jsenv) {
         so we could not use global setup(), we could do System.import('jsenv').then(function(jsenv) {});
         */
 
-        var uninstall = features.installGlobalMethod('setup', function(options) {
+        var uninstall = env.installGlobalMethod('setup', function(options) {
             uninstall();
-            features.options = options || {};
+            env.options = options || {};
 
             return System.import('./lib/setup/index.js').then(function() {
-                return features;
+                return env;
             });
         });
     });
