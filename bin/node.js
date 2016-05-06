@@ -41,22 +41,27 @@ module.exports = function run(filename, options) {
         */
         if (options.test) {
             jsenv.config('module-test', function() {
-                return {
-                    location: jsenv.mainLocation
-                };
+                return System.import('jsenv/plugin/module-test').then(function(exports) {
+                    return exports.default.test({
+                        location: jsenv.mainLocation
+                    });
+                });
             });
         }
         if (options.cover) {
             jsenv.config('module-coverage', function() {
-                // most time we do code coverage test to see how a file is covering all it's dependencies
-                // so checking that the file is the mainLocation or a peer or inside is sufficient
-                return {
-                    urlIsPartOfCoverage: function(url) {
-                        return jsenv.mainURI.includes(url);
-                    },
-                    directory: jsenv.locateFrom('error-coverage', jsenv.mainLocation, true),
-                    reportConsole: true
-                };
+                return System.import('jsenv/plugin/module-coverage').then(function(exports) {
+                    // most time we do code coverage test to see how a file is covering all it's dependencies
+                    // so checking that the file is the mainLocation or a peer or inside is sufficient
+
+                    return exports.default.cover({
+                        urlIsPartOfCoverage: function(url) {
+                            return jsenv.mainURI.includes(url);
+                        },
+                        directory: jsenv.locateFrom('error-coverage', jsenv.mainLocation, true),
+                        reportConsole: true
+                    });
+                });
             });
         }
 

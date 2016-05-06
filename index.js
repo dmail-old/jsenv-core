@@ -285,22 +285,57 @@ setup().then(function(jsenv) {
         });
 
         build(function installGlobalMethod() {
+            function createCancellableAssignment(object, name) {
+                var assignmentHandler = {
+                    hasPreviousValue: false,
+                    previousValue: undefined,
+                    assigned: false,
+                    owner: object,
+                    name: name,
+
+                    assign: function(value) {
+                        if (this.assigned) {
+                            throw new Error('value already assigned');
+                        }
+
+                        if (this.name in this.owner) {
+                            this.hasPreviousValue = true;
+                            this.previousValue = this.owner[this.name];
+                        } else {
+                            this.hasPreviousValue = false;
+                            this.previousValue = undefined;
+                        }
+
+                        this.owner[this.name] = value;
+                        this.assigned = true;
+                    },
+
+                    cancel: function() {
+                        if (this.assigned === false) {
+                            throw new Error('cancel() must be called on assigned value');
+                        }
+
+                        if (this.hasPreviousValue) {
+                            this.owner[this.name] = this.previousValue;
+                        } else {
+                            delete this.owner[this.name];
+                        }
+
+                        this.previousValue = undefined;
+                        this.hasPreviousValue = false;
+                        this.assigned = false;
+                    }
+                };
+
+                return assignmentHandler;
+            }
+
             return {
                 installGlobalMethod: function(globalName, method) {
-                    var globalObject = this.global;
-                    var hasPreviousGlobalValue = globalName in globalObject;
-                    var previousGlobalValue = globalObject[globalName];
-
-                    globalObject[globalName] = method;
-
-                    // give a way to restore global state
-                    return function uninstall() {
-                        if (hasPreviousGlobalValue) {
-                            globalObject[globalName] = previousGlobalValue;
-                        } else {
-                            delete globalObject[globalName];
-                        }
-                    };
+                    var handler = createCancellableAssignment(this.global, globalName);
+                    handler.assign(method);
+                    // give a way to restore previous global state thanks to globalValueHandler
+                    return handler;
                 }
             };
         });
@@ -460,10 +495,10 @@ setup().then(function(jsenv) {
             var loadCount = 0;
             var scriptLoadedMethodName = 'includeLoaded';
 
-            var uninstall = env.installGlobalMethod(scriptLoadedMethodName, function() {
+            var scriptLoadedGlobalMethodAssignment = env.installGlobalMethod(scriptLoadedMethodName, function() {
                 loadCount++;
                 if (loadCount === j) {
-                    uninstall();
+                    scriptLoadedGlobalMethodAssignment.cancel();
                     callback();
                 }
             });
@@ -512,6 +547,8 @@ setup().then(function(jsenv) {
     var env = {};
     // set the name of a future module that will export env
     env.name = 'jsenv';
+    // name of the global method used to create env object
+    env.globalMethodName = 'setup';
     // provide the minimal env available : platform, agent, global, baseAndInternalURl
     buildEnv(env);
     // list requirements amongst setimmediate, promise, url, url-search-params, es6 polyfills & SystemJS
@@ -522,7 +559,7 @@ setup().then(function(jsenv) {
         System.babelOptions = {};
         System.paths.babel = env.dirname + '/node_modules/babel-core/browser.js';
 
-        env.provide(function coreModules() {
+        env.build(function coreModules() {
             function createModuleExportingDefault(defaultExportsValue) {
                 /* eslint-disable quote-props */
                 return System.newModule({
@@ -578,11 +615,11 @@ setup().then(function(jsenv) {
         so we could not use global setup(), we could do System.import('jsenv').then(function(jsenv) {});
         */
 
-        var uninstall = env.installGlobalMethod('setup', function(options) {
-            uninstall();
+        var globaMethodAssignment = env.installGlobalMethod(env.globalMethodName, function(options) {
+            globaMethodAssignment.cancel();
             env.options = options || {};
 
-            return System.import('./lib/setup/index.js').then(function() {
+            return System.import('./lib/setup/setup.js').then(function() {
                 return env;
             });
         });

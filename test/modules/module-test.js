@@ -5,7 +5,7 @@ a();
 export const test = {
     modules: ['@node/assert'],
 
-    fn(assert) {
+    main(assert) {
         console.log(assert);
     }
 };
