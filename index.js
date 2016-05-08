@@ -556,6 +556,7 @@ setup().then(function(jsenv) {
 
     includeFiles(env, files, function() {
         System.transpiler = 'babel';
+        // System.trace = true;
         System.babelOptions = {};
         System.paths.babel = env.dirname + '/node_modules/babel-core/browser.js';
 
@@ -595,6 +596,8 @@ setup().then(function(jsenv) {
             'lazy-module'
         ].forEach(function(utilName) {
             System.paths[env.name + '/' + utilName] = env.dirname + '/lib/util/' + utilName + '/index.js';
+            // add a global name too for now
+            System.paths[utilName] = System.paths[env.name + '/' + utilName];
         });
 
         /*
@@ -619,7 +622,7 @@ setup().then(function(jsenv) {
             globaMethodAssignment.cancel();
             env.options = options || {};
 
-            return System.import('./lib/setup/setup.js').then(function() {
+            return System.import(env.dirname + '/lib/setup/setup.js').then(function() {
                 return env;
             });
         });

@@ -13,7 +13,7 @@
 		"open": "*"
 	},
 	"bin": {
-		"system-run": "./bin/run"
+		"jsenv": "./bin/run"
 	},
 	"scripts": {
 		"test": "node ./bin/run test/modules/module-test.js -test -cover",
