@@ -6,6 +6,6 @@ export const test = {
     modules: ['@node/assert'],
 
     main(assert) {
-        console.log(assert);
+        console.log('here', assert);
     }
 };
