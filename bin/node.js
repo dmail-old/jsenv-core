@@ -43,7 +43,7 @@ module.exports = function run(filename, options) {
             jsenv.config('module-test', function() {
                 return System.import('jsenv/plugin/module-test').then(function(exports) {
                     return exports.default.test({
-                        location: jsenv.mainLocation
+                        location: jsenv.mainModule.href
                     });
                 });
             });
@@ -56,9 +56,9 @@ module.exports = function run(filename, options) {
 
                     return exports.default.cover({
                         urlIsPartOfCoverage: function(url) {
-                            return jsenv.mainURI.includes(url);
+                            return jsenv.createURI(jsenv.mainModule.href).includes(url);
                         },
-                        directory: jsenv.locateFrom('error-coverage', jsenv.mainLocation, true),
+                        directory: jsenv.locateFrom('error-coverage', jsenv.mainModule.href, true),
                         reportConsole: true
                     });
                 });
