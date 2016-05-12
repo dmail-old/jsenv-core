@@ -354,12 +354,190 @@ setup().then(function(jsenv) {
             };
         });
 
+        build(function caseTransform() {
+            return {
+                hyphenToCamel: function(string) {
+                    return string.replace(/-([a-z])/g, function(g) {
+                        return g[1].toUpperCase();
+                    });
+                },
+
+                camelToHypen: function(string) {
+                    return string.replace(/([a-z][A-Z])/g, function(g) {
+                        return g[0] + '-' + g[1].toLowerCase();
+                    });
+                }
+            };
+        });
+
         build(function supportDetectors() {
             var defineSupportDetector = env.defineSupportDetector.bind(env);
 
-            defineSupportDetector('set-immediate', function() {
-                return 'setImmediate' in this.global;
-            });
+            function createPropertyDetector(property, object) {
+                property = env.hyphenToCamel(property);
+
+                return function() {
+                    return property in object;
+                };
+            }
+
+            function defineEveryObjectFeaturesDetector(objectFeatures) {
+                var i = objectFeatures.length;
+                while (i--) {
+                    var objectFeature = objectFeatures[i];
+                    var object = objectFeature.object;
+                    var name = object.name;
+                    if ('properties' in objectFeature) {
+                        defineEveryPropertyDetector(objectFeature.properties, object, name);
+                    }
+                    if ('prototypeProperties' in objectFeature) {
+                        defineEveryPropertyDetector(objectFeature.prototypeProperties, object.prototype, name);
+                    }
+                }
+            }
+
+            var objectFeatureSignature = [
+                {
+                    name: 'global',
+                    properties: [
+                        'array-buffer',
+                        'data-view',
+                        'iterator',
+                        'map',
+                        'promise',
+                        'set',
+                        'set-immediate',
+                        'symbol',
+                        'url',
+                        'url-search-params',
+                        'weak-map',
+                        'reflect'
+                    ]
+                },
+                {
+                    name: 'array',
+                    properties: [
+                        'from',
+                        'of',
+                        'isArray'
+                    ],
+                    prototypeProperties: [
+                        'fill',
+                        'find',
+                        'findIndex',
+                        'values',
+                        'keys',
+                        'entries',
+                        'every',
+                        'some'
+                    ]
+                },
+                {
+                    name: 'object',
+                    properties: [
+                        'assign',
+                        'create',
+                        'is'
+                    ]
+                },
+                {
+                    name: 'date',
+                    properties: [
+                        'now'
+                    ],
+                    prototypeProperties: [
+                        'toISOString',
+                        'toJSON',
+                        'toString'
+                    ]
+                },
+                {
+                    name: 'string',
+                    prototypeProperties: [
+                        'trim',
+                        'includes',
+                        'repeat',
+                        'ends-with',
+                        'starts-with'
+                    ]
+                },
+                {
+                    name: 'function',
+                    prototypeProperties: [
+                        'bind'
+                    ]
+                }
+            ];
+
+            function defineEveryPropertyDetector(properties, object, name) {
+                var i = properties.length;
+                while (i--) {
+                    var property = properties[i];
+                    var detectorName;
+                    if (name) {
+                        detectorName = name + '-' + property;
+                    } else {
+                        detectorName = property;
+                    }
+                    defineSupportDetector(detectorName, createPropertyDetector(property, object));
+                }
+            }
+
+            function createPropertyFeatures(properties) {
+                var i = properties.length;
+                var features = [];
+                while (i--) {
+                    features.push({
+                        type: 'property',
+                        name: properties[i]
+                    });
+                }
+                return features;
+            }
+
+            function createPrototypeFeatures(prototypeProperties) {
+                var i = prototypeProperties.length;
+                var features = [];
+                while (i--) {
+                    features.push({
+                        type: 'prototypeProperty',
+                        name: prototypeProperties[i]
+                    });
+                }
+                return features;
+            }
+
+            function transformSignatureIntoFeatures(objectSignatures) {
+                var objectFeatures = [];
+                var i = objectSignatures.length;
+                while (i--) {
+                    var objectSignature = objectSignatures[i];
+
+                    var features = [];
+                    if ('properties' in objectSignature) {
+                        features.push.apply(
+                            features,
+                            createPropertyFeatures(objectSignature.properties)
+                        );
+                    }
+                    if ('prototypeProperties' in objectSignature) {
+                        features.push.apply(
+                            features,
+                            createPrototoypeFeatures(objectSignature.prototypeProperties)
+                        );
+                    }
+
+                    var objectFeature = {
+                        name: objectSignature.name,
+                        object: objectSignature.object,
+                        features: features
+                    };
+
+                    objectFeatures.push(objectFeature);
+                }
+            }
+
+            defineEveryObjectFeaturesDetector(objectFeatures);
 
             defineSupportDetector('promise', function() {
                 if (('Promise' in this.global) === false) {
@@ -386,17 +564,32 @@ setup().then(function(jsenv) {
                 return false;
             });
 
-            defineSupportDetector('url', function() {
-                return 'URL' in this.global;
-            });
+            // es6 support is composed of many check because we will load concatened polyfill
+            var es6Requirements = [];
 
-            defineSupportDetector('url-search-params', function() {
-                return 'URLSearchParams' in this.global;
-            });
+            // es6 support is complex to check but let's consider
+            var es6Requirements = [
+                'iterator',
+                'map',
+                'promise',
+                'set',
+                'symbol',
+                'weak-map',
+                'reflect'
+            ];
+            es6Requirements.push.apply(es6Requirements, ArrayPrototypePropertyNames);
+            es6Requirements.push.apply(es6Requirements, FunctionPropertyNames);
+            es6Requirements.push.apply(es6Requirements, StringPrototypePropertyNames);
+            es6Requirements.push.apply(es6Requirements, ObjectPropertyNames);
 
             defineSupportDetector('es6', function() {
-                // too complex and ideally should be splitted into Iterator, Symbol etc...
-                return false;
+                var i = es6Requirements.length;
+                while (i--) {
+                    if (this.support(es6Requirements[i]) === false) {
+                        return false;
+                    }
+                }
+                return true;
             });
         });
 
