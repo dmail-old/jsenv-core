@@ -53,8 +53,9 @@ var commandSignatures = {
         fn: versionCommand
     },
     usage: {
+        default: true,
         fn: function() {
-            console.log('system-run <path>');
+            console.log('usage jsenv <path>');
         }
     }
 };
