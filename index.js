@@ -696,6 +696,21 @@ setup().then(function(jsenv) {
         // System.trace = true;
         System.babelOptions = {};
         System.paths.babel = env.dirname + '/node_modules/babel-core/browser.js';
+        // .json auto handled as json
+        System.meta['*.json'] = {format: 'json'};
+        var oldImport = System.import;
+        System.import = function() {
+            return oldImport.apply(this, arguments).catch(function(error) {
+                if (error && error instanceof Error) {
+                    var originalError = error;
+                    while ('originalErr' in originalError) {
+                        originalError = originalError.originalErr;
+                    }
+                    return Promise.reject(originalError);
+                }
+                return error;
+            });
+        };
 
         env.build(function coreModules() {
             function createModuleExportingDefault(defaultExportsValue) {

@@ -7,7 +7,7 @@
 	"dependencies": {
 		"babel-core": "^5.8.22",
 		"babel-polyfill": "6.0.16",
-		"systemjs": "git+https://github.com/dmail/systemjs",
+		"systemjs": "0.19.27",
 		"source-map": "0.4.4",
 		"@dmail/node-stacktrace": "git+https://github.com/dmail/node-stacktrace",
 		"open": "*"
