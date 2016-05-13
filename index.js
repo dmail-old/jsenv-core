@@ -381,94 +381,6 @@ setup().then(function(jsenv) {
                 };
             }
 
-            function defineEveryObjectFeaturesDetector(objectFeatures) {
-                var i = objectFeatures.length;
-                while (i--) {
-                    var objectFeature = objectFeatures[i];
-                    var object = objectFeature.object;
-                    var name = object.name;
-                    if ('properties' in objectFeature) {
-                        defineEveryPropertyDetector(objectFeature.properties, object, name);
-                    }
-                    if ('prototypeProperties' in objectFeature) {
-                        defineEveryPropertyDetector(objectFeature.prototypeProperties, object.prototype, name);
-                    }
-                }
-            }
-
-            var objectFeatureSignature = [
-                {
-                    name: 'global',
-                    properties: [
-                        'array-buffer',
-                        'data-view',
-                        'iterator',
-                        'map',
-                        'promise',
-                        'set',
-                        'set-immediate',
-                        'symbol',
-                        'url',
-                        'url-search-params',
-                        'weak-map',
-                        'reflect'
-                    ]
-                },
-                {
-                    name: 'array',
-                    properties: [
-                        'from',
-                        'of',
-                        'isArray'
-                    ],
-                    prototypeProperties: [
-                        'fill',
-                        'find',
-                        'findIndex',
-                        'values',
-                        'keys',
-                        'entries',
-                        'every',
-                        'some'
-                    ]
-                },
-                {
-                    name: 'object',
-                    properties: [
-                        'assign',
-                        'create',
-                        'is'
-                    ]
-                },
-                {
-                    name: 'date',
-                    properties: [
-                        'now'
-                    ],
-                    prototypeProperties: [
-                        'toISOString',
-                        'toJSON',
-                        'toString'
-                    ]
-                },
-                {
-                    name: 'string',
-                    prototypeProperties: [
-                        'trim',
-                        'includes',
-                        'repeat',
-                        'ends-with',
-                        'starts-with'
-                    ]
-                },
-                {
-                    name: 'function',
-                    prototypeProperties: [
-                        'bind'
-                    ]
-                }
-            ];
-
             function defineEveryPropertyDetector(properties, object, name) {
                 var i = properties.length;
                 while (i--) {
@@ -483,62 +395,74 @@ setup().then(function(jsenv) {
                 }
             }
 
-            function createPropertyFeatures(properties) {
-                var i = properties.length;
-                var features = [];
-                while (i--) {
-                    features.push({
-                        type: 'property',
-                        name: properties[i]
-                    });
-                }
-                return features;
-            }
+            // global
+            defineEveryPropertyDetector([
+                'array-buffer',
+                'data-view',
+                'iterator',
+                'map',
+                'promise',
+                'set',
+                'set-immediate',
+                'symbol',
+                'url',
+                'url-search-params',
+                'weak-map',
+                'reflect'
+            ], this.global);
 
-            function createPrototypeFeatures(prototypeProperties) {
-                var i = prototypeProperties.length;
-                var features = [];
-                while (i--) {
-                    features.push({
-                        type: 'prototypeProperty',
-                        name: prototypeProperties[i]
-                    });
-                }
-                return features;
-            }
+            // array
+            defineEveryPropertyDetector([
+                'from',
+                'of',
+                'is-array'
+            ], Array, 'array');
+            defineEveryPropertyDetector([
+                'fill',
+                'find',
+                'find-index',
+                'values',
+                'keys',
+                'entries',
+                'every',
+                'some'
+            ], Array.prototype, 'array');
 
-            function transformSignatureIntoFeatures(objectSignatures) {
-                var objectFeatures = [];
-                var i = objectSignatures.length;
-                while (i--) {
-                    var objectSignature = objectSignatures[i];
+            // object
+            defineEveryPropertyDetector([
+                'assign',
+                'create',
+                'is'
+            ], Object, 'object');
 
-                    var features = [];
-                    if ('properties' in objectSignature) {
-                        features.push.apply(
-                            features,
-                            createPropertyFeatures(objectSignature.properties)
-                        );
-                    }
-                    if ('prototypeProperties' in objectSignature) {
-                        features.push.apply(
-                            features,
-                            createPrototoypeFeatures(objectSignature.prototypeProperties)
-                        );
-                    }
+            // string
+            defineEveryPropertyDetector([
+                'trim',
+                'includes',
+                'repeat',
+                'ends-with',
+                'starts-with'
+            ], String.prototype, 'string');
 
-                    var objectFeature = {
-                        name: objectSignature.name,
-                        object: objectSignature.object,
-                        features: features
+            // function
+            defineEveryPropertyDetector([
+                'bind'
+            ], Function.prototype, 'function');
+
+            // other detectors
+            (function() {
+                function createIteratorDetector(object) {
+                    return function() {
+                        return Symbol in this.global && Symbol.iterator in object;
                     };
-
-                    objectFeatures.push(objectFeature);
                 }
-            }
 
-            defineEveryObjectFeaturesDetector(objectFeatures);
+                defineSupportDetector('string-iterator', createIteratorDetector(String.prototype));
+                defineSupportDetector('array-iterator', createIteratorDetector(Array.prototype));
+                defineSupportDetector('number-iterator', createIteratorDetector(Number.prototype));
+            })();
 
+            // property detector overrides
             defineSupportDetector('promise', function() {
                 if (('Promise' in this.global) === false) {
                     return false;
@@ -565,27 +489,47 @@ setup().then(function(jsenv) {
             });
 
             // es6 support is composed of many check because we will load concatened polyfill
-            var es6Requirements = [];
-
-            // es6 support is complex to check but let's consider
             var es6Requirements = [
+                // global requirements
                 'iterator',
                 'map',
                 'promise',
                 'set',
                 'symbol',
                 'weak-map',
-                'reflect'
+                'reflect',
+                // array requirements
+                'array-from',
+                'array-of',
+                'array-is-array',
+                'array-fill',
+                'array-find',
+                'array-find-index',
+                'array-values',
+                'array-keys',
+                'array-entries',
+                'array-every',
+                'array-some',
+                'array-iterator',
+                // string requirements
+                'string-trim',
+                'string-includes',
+                'string-repeat',
+                'string-ends-with',
+                'string-starts-with',
+                'string-iterator',
+                // object requirements
+                'object-assign',
+                'object-create',
+                'object-is'
             ];
-            es6Requirements.push.apply(es6Requirements, ArrayPrototypePropertyNames);
-            es6Requirements.push.apply(es6Requirements, FunctionPropertyNames);
-            es6Requirements.push.apply(es6Requirements, StringPrototypePropertyNames);
-            es6Requirements.push.apply(es6Requirements, ObjectPropertyNames);
 
             defineSupportDetector('es6', function() {
                 var i = es6Requirements.length;
                 while (i--) {
-                    if (this.support(es6Requirements[i]) === false) {
+                    var es6Requirement = es6Requirements[i];
+                    if (this.support(es6Requirement) === false) {
+                        this.debug('es6 not supported : missing', es6Requirement);
                         return false;
                     }
                 }
