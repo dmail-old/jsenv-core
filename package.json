@@ -9,7 +9,6 @@
 		"babel-polyfill": "6.0.16",
 		"systemjs": "0.19.27",
 		"source-map": "0.4.4",
-		"codecov.io": "https://github.com/dmail-fork/codecov.io.git",
 		"@dmail/node-stacktrace": "git+https://github.com/dmail/node-stacktrace",
 		"open": "*"
 	},
@@ -18,6 +17,7 @@
 	},
 	"scripts": {
 		"install-dev": "node ./bin/install-dev",
+		"link-dev": "npm link ../node-stacktrace && npm link ../promise && npm link ../set-immediate && npm link ../url && npm link ../url-search-params && npm link ../rest && npm link ../service-http",
 		"test": "node ./bin/run test/modules/module-test.js -test",
 		"cover": "node ./bin/run test/modules/module-test.js -test -cover",
 		"cover-console": "node ./bin/run test/modules/module-test.js -test -cover -cover-console",
