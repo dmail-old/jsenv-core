@@ -1,4 +1,4 @@
-# system-platform
+# system-platform [![codecov](https://codecov.io/gh/dmail/system-run/branch/master/graph/badge.svg?token=0aUNAZxv2B)](https://codecov.io/gh/dmail/system-run)
 
 Run JavaScript accross platforms using systemjs
 

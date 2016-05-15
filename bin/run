@@ -26,10 +26,26 @@ var commandSignatures = {
                 type: 'boolean',
                 default: false,
                 params: {
-                    output: {
-                        type: 'array',
-                        enum: ['console', 'json'],
-                        default: ['console']
+                    console: {
+                        type: 'boolean',
+                        default: true
+                    },
+                    json: {
+                        type: 'boolean',
+                        default: false
+                    },
+                    html: {
+                        type: 'boolean',
+                        default: false
+                    },
+                    codecov: {
+                        type: 'boolean',
+                        default: false,
+                        params: {
+                            token: {
+                                type: 'string'
+                            }
+                        }
                     }
                 }
             },
