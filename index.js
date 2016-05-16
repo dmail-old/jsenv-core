@@ -481,6 +481,10 @@ setup().then(function(jsenv) {
                     // node version > 0.12.0 got the unhandledRejection hook
                     // this way to detect feature is AWFUL but for now let's do this
                     if (this.agent.version.major > 0 || this.agent.version.minor > 12) {
+                        // apprently node 6.1.0 unhandledRejection is not great too, to be tested
+                        if (this.agent.version.major === 6 && this.agent.version.minor === 1) {
+                            return false;
+                        }
                         return true;
                     }
                     return false;
