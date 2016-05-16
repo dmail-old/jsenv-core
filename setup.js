@@ -1,10 +1,14 @@
 import jsenv from 'jsenv';
+
 import URI from 'jsenv/uri';
 // import proto from 'jsenv/proto';
 import Action from 'jsenv/action';
 import LazyModule from 'jsenv/lazy-module';
 // import Iterable from 'jsenv/iterable';
 // import Thenable from 'jsenv/thenable';
+import importMetas from 'jsenv/module-import-meta';
+
+jsenv.importMetas = importMetas;
 
 jsenv.build(function locate() {
     return {
@@ -89,25 +93,6 @@ jsenv.build(function main() {
     };
 });
 
-jsenv.build(function corePluginPaths() {
-    [
-        'exception-handler',
-        'agent-more',
-        'module-script-name',
-        'module-source',
-        'module-source-transpiled',
-        'module-source-map',
-        'exception-stacktrace',
-        'module-coverage',
-        'module-test',
-        'platform-more',
-        'language',
-        'restart'
-    ].forEach(function(pluginName) {
-        System.paths['jsenv/plugin/' + pluginName] = jsenv.dirname + '/lib/plugins/' + pluginName + '/index.js';
-    });
-});
-
 jsenv.config('core-plugins', function() {
     [
         'exception-handler',
@@ -118,7 +103,7 @@ jsenv.config('core-plugins', function() {
         'restart'
     ].forEach(function(pluginName) {
         this.run(pluginName, function() {
-            return System.import('jsenv/plugin/' + pluginName);
+            return System.import('jsenv/' + pluginName);
         });
     }, this);
 

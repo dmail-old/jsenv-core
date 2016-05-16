@@ -9,15 +9,15 @@
 		"babel-polyfill": "6.0.16",
 		"systemjs": "0.19.27",
 		"source-map": "0.4.4",
-		"@dmail/node-stacktrace": "git+https://github.com/dmail/node-stacktrace",
-		"open": "*"
+		"open": "*",
+		"@dmail/node-stacktrace": "git+https://github.com/dmail/node-stacktrace"
 	},
 	"bin": {
 		"jsenv": "./bin/run"
 	},
 	"scripts": {
 		"install-dev": "node ./bin/install-dev",
-		"link-dev": "npm link ../node-stacktrace && npm link ../promise && npm link ../set-immediate && npm link ../url && npm link ../url-search-params && npm link ../rest && npm link ../service-http",
+		"link-dev": "npm link ../node-stacktrace",
 		"test": "node ./bin/run test/modules/module-test.js -test",
 		"cover": "node ./bin/run test/modules/module-test.js -test -cover",
 		"cover-console": "node ./bin/run test/modules/module-test.js -test -cover -cover-console",

@@ -737,6 +737,23 @@ setup().then(function(jsenv) {
         env.registerCoreModule(env.name, env);
 
         [
+            'agent-more',
+            'exception-handler',
+            'exception-stacktrace',
+            'language',
+            'module-coverage',
+            'module-import-meta',
+            'module-test',
+            'platform-more',
+            'rest',
+            'restart',
+            'service-http',
+            'stream'
+        ].forEach(function(libName) {
+            System.paths[env.name + '/' + libName] = env.dirname + '/lib/' + libName + '/index.js';
+        });
+
+        [
             'dependency-graph',
             'iterable',
             'options',
@@ -774,7 +791,7 @@ setup().then(function(jsenv) {
             globaMethodAssignment.cancel();
             env.options = options || {};
 
-            return System.import(env.dirname + '/lib/setup/setup.js').then(function() {
+            return System.import(env.dirname + '/setup.js').then(function() {
                 return env;
             });
         });

@@ -6,7 +6,7 @@ module.exports = function run(filename, options) {
 
         if (options.test) {
             jsenv.config('module-test', function() {
-                return System.import('jsenv/plugin/module-test').then(function(exports) {
+                return System.import('jsenv/module-test').then(function(exports) {
                     return exports.default.test({
                         location: jsenv.mainModule.href
                     });
@@ -15,7 +15,7 @@ module.exports = function run(filename, options) {
         }
         if (options.cover) {
             jsenv.config('module-coverage', function() {
-                return System.import('jsenv/plugin/module-coverage').then(function(exports) {
+                return System.import('jsenv/module-coverage').then(function(exports) {
                     // most time we do code coverage test to see how a file is covering all it's dependencies
                     // so checking that the file is the mainLocation or a peer or inside is sufficient
 
