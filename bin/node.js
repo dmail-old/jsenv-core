@@ -25,7 +25,7 @@ module.exports = function run(filename, options) {
                     mainNodeURI.suffix = '';
                     mainNodeURI.filename += '-coverage';
 
-                    console.log('writing report at', mainNodeURI.href);
+                    console.log('report directory :', mainNodeURI.href);
 
                     var token = options['cover-codecov-token'] || process.env.CODECOV_TOKEN;
 
