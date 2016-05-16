@@ -9,6 +9,9 @@
 		"babel-polyfill": "6.0.16",
 		"systemjs": "0.19.27",
 		"source-map": "0.4.4",
+		"istanbul": "0.4.2",
+		"remap-istanbul": "0.5.1",
+		"os-locale": "1.4.0",
 		"open": "*",
 		"@dmail/node-stacktrace": "git+https://github.com/dmail/node-stacktrace"
 	},
