@@ -795,7 +795,10 @@ setup().then(function(jsenv) {
             globaMethodAssignment.cancel();
             env.options = options || {};
 
-            return System.import(env.dirname + '/setup.js').then(function() {
+            return System.import(env.dirname + '/lib/module-import-meta/index.js').then(function(exports) {
+                env.importMetas = exports.default;
+                return System.import(env.dirname + '/setup.js');
+            }).then(function() {
                 return env;
             });
         });

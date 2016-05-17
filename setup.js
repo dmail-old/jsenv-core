@@ -6,9 +6,6 @@ import Action from 'jsenv/action';
 import LazyModule from 'jsenv/lazy-module';
 // import Iterable from 'jsenv/iterable';
 // import Thenable from 'jsenv/thenable';
-import importMetas from 'jsenv/module-import-meta';
-
-jsenv.importMetas = importMetas;
 
 jsenv.build(function locate() {
     return {
