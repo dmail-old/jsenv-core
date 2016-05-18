@@ -744,6 +744,7 @@ setup().then(function(jsenv) {
             'agent-more',
             'exception-handler',
             'exception-stacktrace',
+            'i18n',
             'language',
             'module-coverage',
             'module-import-meta',
@@ -758,15 +759,16 @@ setup().then(function(jsenv) {
         });
 
         [
+            'action',
+            'array-sorted',
             'dependency-graph',
             'iterable',
+            'lazy-module',
             'options',
             'proto',
             'thenable',
             'timeout',
-            'uri',
-            'action',
-            'lazy-module'
+            'uri'
         ].forEach(function(utilName) {
             System.paths[env.name + '/' + utilName] = env.dirname + '/lib/util/' + utilName + '/index.js';
             // add a global name too for now

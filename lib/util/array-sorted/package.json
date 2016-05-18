@@ -1,0 +1,19 @@
+{
+	"name": "@dmail/array-sorted",
+	"version": "0.0.1",
+	"license": "UNLICENSED",
+	"repository": {
+	    "type": "git",
+	    "url": "https://github.com/dmail/array-sorted"
+	},
+	"dependencies": {
+
+	},
+	"devDependencies": {
+
+	},
+	"scripts": {
+		"test": "system-test",
+		"link-dev": "npm link ../system-test"
+	}
+}
