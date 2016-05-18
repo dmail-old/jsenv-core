@@ -1,4 +1,4 @@
-# system-platform [![codecov](https://codecov.io/gh/dmail/system-run/branch/master/graph/badge.svg?token=0aUNAZxv2B)](https://codecov.io/gh/dmail/system-run) [![build](https://travis-ci.com/dmail/system-run.svg?token=xrJsqdmzZ8gX9jGU8FSY)](https://travis-ci.com/dmail/system-run)
+# jsenv [![codecov](https://codecov.io/gh/dmail/jsenv/branch/master/graph/badge.svg?token=0aUNAZxv2B)](https://codecov.io/gh/dmail/jsenv) [![build](https://travis-ci.com/dmail/jsenv.svg?token=xrJsqdmzZ8gX9jGU8FSY)](https://travis-ci.com/dmail/jsenv)
 
 Run JavaScript accross platforms using systemjs
 
