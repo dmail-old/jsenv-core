@@ -1,15 +1,14 @@
 # i18n
 
-i18n for JavaScript module
+JavaScript i18n
 
 ## Example
 
 ```javascript
-
-import I18N from 'dmail/i18n';
+import I18N from 'jsenv/i18n';
 
 let i18n = I18N.create({
-	"greetings", {
+	"greetings": {
 		"en": "Hello",
 		"fr": "Bonjour"
 	},
@@ -22,5 +21,20 @@ i18n.translate("greetings-scope", {name: 'damien'}); // Hello damien
 
 i18n.options.preferences = ['fr', 'en'];
 i18n.translate("greetings"); // Bonjour
-
 ```
+
+## Description
+
+This module allow to conditionnaly generate string depending global and local options.
+Internationalization is just a use case.
+
+## Transformers
+
+```javascript
+
+i18n.registerTransformer('')
+
+});
+```
+
+## Traits
