@@ -763,7 +763,7 @@ setup().then(function(jsenv) {
         [
             'agent-more',
             'exception-handler',
-            'exception-stacktrace',
+            'sourcemap-error-stack',
             'i18n',
             'language',
             'module-coverage',

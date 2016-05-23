@@ -93,7 +93,7 @@ jsenv.build(function main() {
 jsenv.config('core-plugins', function() {
     [
         'exception-handler',
-        'exception-stacktrace',
+        'sourcemap-error-stack',
         'agent-more',
         'platform-more',
         'language',
