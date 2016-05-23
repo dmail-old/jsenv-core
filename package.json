@@ -12,15 +12,14 @@
 		"istanbul": "0.4.2",
 		"remap-istanbul": "0.5.1",
 		"os-locale": "1.4.0",
-		"open": "*",
-		"@dmail/node-stacktrace": "git+https://github.com/dmail/node-stacktrace"
+		"open": "*"
 	},
 	"bin": {
 		"jsenv": "./bin/run"
 	},
 	"scripts": {
 		"install-dev": "node ./bin/install-dev",
-		"link-dev": "npm link ../node-stacktrace",
+		"link-dev": "",
 		"test": "node ./bin/run test/modules/module-test.js -test",
 		"cover": "node ./bin/run test/modules/module-test.js -test -cover",
 		"cover-console": "node ./bin/run test/modules/module-test.js -test -cover -cover-console",

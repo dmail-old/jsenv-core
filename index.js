@@ -753,7 +753,8 @@ setup().then(function(jsenv) {
             'rest',
             'restart',
             'service-http',
-            'stream'
+            'stream',
+            'v8-stacktrace'
         ].forEach(function(libName) {
             System.paths[env.name + '/' + libName] = env.dirname + '/lib/' + libName + '/index.js';
         });

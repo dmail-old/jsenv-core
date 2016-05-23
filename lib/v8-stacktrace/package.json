@@ -1,0 +1,19 @@
+{
+  "name": "@dmail/node-stacktrace",
+  "version": "0.0.9",
+  "description": "Help to manipulate error stack trace",
+  "license": "UNLICENSED",
+  "scripts": {
+    "test": "node ./test/index.js",
+    "cover": "istanbul cover ./test/index.js",
+    "ci": "npm run cover && codecov < ./coverage/coverage.json"
+  },
+  "devDependencies": {
+    "istanbul": "^0.3.15",
+    "codecov.io": "^0.1.2"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/dmail/node-stacktrace"
+  }
+}
