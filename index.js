@@ -284,55 +284,61 @@ setup().then(function(jsenv) {
             };
         });
 
+        build(function cancellableAssignment() {
+            return {
+                createCancellableAssignment: function(object, name) {
+                    var assignmentHandler = {
+                        assigned: false,
+                        owner: object,
+                        name: name,
+
+                        save: function() {
+                            if (this.name in this.owner) {
+                                this.hasPreviousValue = true;
+                                this.previousValue = this.owner[this.name];
+                            } else {
+                                this.hasPreviousValue = false;
+                                this.previousValue = undefined;
+                            }
+                        },
+
+                        assign: function(value) {
+                            if (this.assigned) {
+                                throw new Error('value already assigned');
+                            }
+
+                            this.owner[this.name] = value;
+                            this.assigned = true;
+                        },
+
+                        cancel: function() {
+                            if (this.assigned === false) {
+                                throw new Error('cancel() must be called on assigned value');
+                            }
+
+                            if (this.hasPreviousValue) {
+                                this.owner[this.name] = this.previousValue;
+                            } else {
+                                delete this.owner[this.name];
+                            }
+
+                            // this.previousValue = undefined;
+                            // this.hasPreviousValue = false;
+                            this.assigned = false;
+                        }
+                    };
+
+                    assignmentHandler.save();
+
+                    return assignmentHandler;
+                }
+            };
+        });
+
         build(function installGlobalMethod() {
-            function createCancellableAssignment(object, name) {
-                var assignmentHandler = {
-                    hasPreviousValue: false,
-                    previousValue: undefined,
-                    assigned: false,
-                    owner: object,
-                    name: name,
-
-                    assign: function(value) {
-                        if (this.assigned) {
-                            throw new Error('value already assigned');
-                        }
-
-                        if (this.name in this.owner) {
-                            this.hasPreviousValue = true;
-                            this.previousValue = this.owner[this.name];
-                        } else {
-                            this.hasPreviousValue = false;
-                            this.previousValue = undefined;
-                        }
-
-                        this.owner[this.name] = value;
-                        this.assigned = true;
-                    },
-
-                    cancel: function() {
-                        if (this.assigned === false) {
-                            throw new Error('cancel() must be called on assigned value');
-                        }
-
-                        if (this.hasPreviousValue) {
-                            this.owner[this.name] = this.previousValue;
-                        } else {
-                            delete this.owner[this.name];
-                        }
-
-                        this.previousValue = undefined;
-                        this.hasPreviousValue = false;
-                        this.assigned = false;
-                    }
-                };
-
-                return assignmentHandler;
-            }
-
             return {
                 installGlobalMethod: function(globalName, method) {
-                    var handler = createCancellableAssignment(this.global, globalName);
+                    var handler = this.createCancellableAssignment(this.global, globalName);
                     handler.assign(method);
                     // give a way to restore previous global state thanks to globalValueHandler
                     return handler;
@@ -754,7 +760,7 @@ setup().then(function(jsenv) {
             'restart',
             'service-http',
             'stream',
-            'v8-stacktrace'
+            'stacktrace'
         ].forEach(function(libName) {
             System.paths[env.name + '/' + libName] = env.dirname + '/lib/' + libName + '/index.js';
         });
