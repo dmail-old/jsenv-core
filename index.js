@@ -708,6 +708,20 @@ setup().then(function(jsenv) {
         System.paths.babel = env.dirname + '/node_modules/babel-core/browser.js';
         // .json auto handled as json
         System.meta['*.json'] = {format: 'json'};
+
+        System.config({
+            map: {
+                'source-map': env.dirname + '/node_modules/source-map'
+            },
+            packages: {
+                "source-map": {
+                    main: 'source-map.js',
+                    format: 'cjs',
+                    defaultExtension: 'js'
+                }
+            }
+        });
+
         var oldImport = System.import;
         System.import = function() {
             return oldImport.apply(this, arguments).catch(function(error) {
