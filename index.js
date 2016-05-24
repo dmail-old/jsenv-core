@@ -449,6 +449,9 @@ jsenv.create().setup().then(function(envB) {
                 defineSupportDetector('array-iterator', createIteratorDetector(Array.prototype));
                 defineSupportDetector('number-iterator', createIteratorDetector(Number.prototype));
             })();
+            defineSupportDetector('descriptor', function() {
+                return 'defineProperty' in Object;
+            });
 
             // property detector overrides
             defineSupportDetector('promise', function() {
@@ -683,9 +686,27 @@ jsenv.create().setup().then(function(envB) {
 
                     customEnv.options = options || {};
                     customEnv.System = customEnv.createSystem();
-                    // keep a global System object for now but all code must now do jsenv.System instead of global.System
-                    // this way we keep the ability to create many env in the same running context (<- overkill feature + may cause bugs)
-                    customEnv.global.System = customEnv.System;
+
+                    // keep a global System object because many people will use global.System
+                    // but warn about the fact that doing this is discouraged because
+                    // it bind your code to global.System which prevent your code from beign runned multiple times
+                    // in the same process with different env
+                    if (this.support('descriptor')) {
+                        var accessed = false;
+
+                        Object.defineProperty(this.global, 'System', {
+                            get: function() {
+                                if (accessed === false) {
+                                    customEnv.warn('using global.System is discouraged, use jsenv.System instead');
+                                    accessed = true;
+                                }
+                                return customEnv.System;
+                            }
+                        });
+                    } else {
+                        customEnv.global.System = customEnv.System;
+                    }
+
                     customEnv.configSystem();
 
                     return customEnv;
