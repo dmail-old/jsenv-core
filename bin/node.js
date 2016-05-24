@@ -1,7 +1,7 @@
 module.exports = function run(filename, options) {
     require('../index.js');
 
-    return global.setup().then(function(jsenv) {
+    return global.jsenv.create().setup().then(function(jsenv) {
         // jsenv.debug('start with params', options);
 
         if (options.test) {

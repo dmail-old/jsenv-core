@@ -1,33 +1,15 @@
 /* eslint-env browser, node */
 
 /*
-after including this file you can do
-if setup was callback oriented we could even call the installRequirements phase once setup is called and not so early
-I will certainly go for this solution
+after including this file you can create your own env, (most time only one is enough)
 
-setup().then(function(jsenv) {
-    jsenv.config(function() {}); // function executed in serie before jsenv.mainTask
-    jsenv.run(function() {}); // function executed in serie after jsenv.mainTask
-    jsenv.importMain('./path/to/file.js'); // set jsenv.mainTask to import/execute this file then auto call engine.start
+jsenv.create().setup().then(function(envA) {
+    return envA.importMain('fileA.js');
 });
 
-concernant les plugins y'aura jsenv.exceptionHandler
-et import exceptionHandler from 'jsenv/exceptionHandler';
-potentiellement il auront le même effet mais la manière d'ajouter un exceptionHandler sera
-import jsenv from 'jsenv';
-jsenv.exceptionHandler.add(function() {});
-
-de plus y'aura une option sur setup pour passer une liste des plugins qu'on va utiliser ou pas
-genre setup(null) ne mettras aucun plugin
-setup({excludes: ['exception-handler']}) will prevent exceptionHandler plugin
-setup({includes: ['my custom-plugin']}) could work but the right way to do so is:
-
-setup().then(function(jsenv) {
-    jsenv.plugin('./my-custom-plugin');
-
-    return jsenv.importMain();
+jsenv.create().setup().then(function(envB) {
+    return envB.importMain('fileB.js');
 });
-
 */
 
 (function() {
@@ -335,16 +317,16 @@ setup().then(function(jsenv) {
             };
         });
 
-        build(function installGlobalMethod() {
-            return {
-                installGlobalMethod: function(globalName, method) {
-                    var handler = this.createCancellableAssignment(this.global, globalName);
-                    handler.assign(method);
-                    // give a way to restore previous global state thanks to globalValueHandler
-                    return handler;
-                }
-            };
-        });
+        // build(function installGlobalMethod() {
+        //     return {
+        //         installGlobalMethod: function(globalName, method) {
+        //             var handler = this.createCancellableAssignment(this.global, globalName);
+        //             handler.assign(method);
+        //             // give a way to restore previous global state thanks to globalValueHandler
+        //             return handler;
+        //         }
+        //     };
+        // });
 
         build(function support() {
             var detectors = {};
@@ -559,6 +541,158 @@ setup().then(function(jsenv) {
             };
         });
 
+        build(function coreModules() {
+            function createModuleExportingDefault(defaultExportsValue) {
+                /* eslint-disable quote-props */
+                return this.System.newModule({
+                    "default": defaultExportsValue
+                });
+                /* eslint-enable quote-props */
+            }
+
+            function registerCoreModule(moduleName, defaultExport) {
+                this.System.set(moduleName, this.createModuleExportingDefault(defaultExport));
+            }
+
+            return {
+                createModuleExportingDefault: createModuleExportingDefault,
+                registerCoreModule: registerCoreModule
+            };
+        });
+
+        build(function createSystem() {
+            return {
+                import: function(a, b) {
+                    return this.System.import(a, b);
+                },
+
+                createSystem: function() {
+                    // dont touch the global System, use a local one
+                    var System = Object.create(this.SystemPrototype);
+                    System.constructor();
+
+                    System.transpiler = 'babel';
+                    // System.trace = true;
+                    System.babelOptions = {};
+                    System.paths.babel = this.dirname + '/node_modules/babel-core/browser.js';
+                    // .json auto handled as json
+                    System.meta['*.json'] = {format: 'json'};
+
+                    System.config({
+                        map: {
+                            'source-map': this.dirname + '/node_modules/source-map'
+                        },
+                        packages: {
+                            "source-map": {
+                                main: 'source-map.js',
+                                format: 'cjs',
+                                defaultExtension: 'js'
+                            }
+                        }
+                    });
+
+                    var oldImport = System.import;
+                    System.import = function() {
+                        return oldImport.apply(this, arguments).catch(function(error) {
+                            if (error && error instanceof Error) {
+                                var originalError = error;
+                                while ('originalErr' in originalError) {
+                                    originalError = originalError.originalErr;
+                                }
+                                return Promise.reject(originalError);
+                            }
+                            return error;
+                        });
+                    };
+
+                    return System;
+                },
+
+                configSystem: function() {
+                    if (this.isNode()) {
+                        // @node/fs etc available thanks to https://github.com/systemjs/systemjs/blob/master/dist/system.src.js#L1695
+                        this.registerCoreModule('@node/require', require);
+                    }
+
+                    this.registerCoreModule(this.moduleName, this);
+
+                    [
+                        'agent-more',
+                        'exception-handler',
+                        'sourcemap-error-stack',
+                        'i18n',
+                        'language',
+                        'module-coverage',
+                        'module-import-meta',
+                        'module-test',
+                        'platform-more',
+                        'rest',
+                        'restart',
+                        'service-http',
+                        'stream',
+                        'stacktrace'
+                    ].forEach(function(libName) {
+                        System.paths[this.moduleName + '/' + libName] = this.dirname + '/lib/' + libName + '/index.js';
+                    }, this);
+
+                    [
+                        'action',
+                        'array-sorted',
+                        'dependency-graph',
+                        'iterable',
+                        'lazy-module',
+                        'options',
+                        'proto',
+                        'thenable',
+                        'timeout',
+                        'uri'
+                    ].forEach(function(utilName) {
+                        var utilPath = this.dirname + '/lib/util/' + utilName + '/index.js';
+                        System.paths[this.moduleName + '/' + utilName] = utilPath;
+                        // add a global name too for now
+                        System.paths[utilName] = utilPath;
+                    }, this);
+                }
+            };
+        });
+
+        build(function setup() {
+            return {
+                setup: function() {
+                    return this.import(this.dirname + '/lib/module-import-meta/index.js').then(function(exports) {
+                        this.importMetas = exports.default;
+                        return this.import(this.dirname + '/setup.js');
+                    }.bind(this)).then(function() {
+                        return this;
+                    }.bind(this));
+                }
+            };
+        });
+
+        build(function create() {
+            return {
+                create: function(options) {
+                    if (this.globalAssignment.assigned) {
+                        // do not remove immediatly to let a chance to create multiple env if needed
+                        setImmediate(function() {
+                            this.globalAssignment.cancel();
+                        }.bind(this));
+                    }
+
+                    var customEnv = Object.create(this);
+
+                    customEnv.options = options || {};
+                    customEnv.System = customEnv.createSystem();
+                    // keep a global System object for now but all code must now do jsenv.System instead of global.System
+                    // this way we keep the ability to create many env in the same running context (<- overkill feature + may cause bugs)
+                    customEnv.global.System = customEnv.System;
+                    customEnv.configSystem();
+
+                    return customEnv;
+                }
+            };
+        });
+
         // DEPRECATED (not used anymore)
         // build(function include() {
         //     var importMethod;
@@ -690,140 +824,45 @@ setup().then(function(jsenv) {
         }
     }
 
-    // create an object that will receive the env
-    var env = {};
-    // set the name of a future module that will export env
-    env.name = 'jsenv';
-    // name of the global method used to create env object
-    env.globalMethodName = 'setup';
-    // provide the minimal env available : platform, agent, global, baseAndInternalURl
-    buildEnv(env);
+    function createEnv() {
+        // create an object that will receive the env
+        var env = {};
+        // set the name of a future module that will export env
+        env.moduleName = 'jsenv';
+        // name of the global method used to create env object
+        env.globalName = env.moduleName;
+        // provide the minimal env available : platform, agent, global, baseAndInternalURl
+        buildEnv(env);
+        return env;
+    }
+
+    var env = createEnv();
+    /*
+    why put a variable on the global scope ?
+    Considering that in the browser you will put a script tag, you need a pointer on env somewhere
+    - we could use System.import('jsenv') but this is a wrapper to System so it would be strange
+    to access env with something higher level in terms of abstraction
+    - we could count on an other global variable but I don't know any reliable global variable for this purpose
+    - because it's a "bad practice" to pollute the global scope the provided global is immediatly removed from the global scope
+    */
+
+    /*
+    Currently we are having the approach of loading env before SystemJS but we could put SystemJS first
+    with the babel transpilation then add babel-polyfill and other polyfill.
+    A main issue would be the missing unhandledRejection on promise (so let's just force my polyfill before systemjs in that case)
+    else everything is ok
+
+    so we could not use global setup(), we could do System.import('jsenv').then(function(jsenv) {});
+    moreover now we want the ability to create multiple env it's not possible
+    */
+
+    env.globalAssignment = env.createCancellableAssignment(env.global, env.globalName);
+    env.globalAssignment.assign(env);
+
     // list requirements amongst setimmediate, promise, url, url-search-params, es6 polyfills & SystemJS
     var files = listFiles(env);
-
     includeFiles(env, files, function() {
-        System.transpiler = 'babel';
-        // System.trace = true;
-        System.babelOptions = {};
-        System.paths.babel = env.dirname + '/node_modules/babel-core/browser.js';
-        // .json auto handled as json
-        System.meta['*.json'] = {format: 'json'};
-
-        System.config({
-            map: {
-                'source-map': env.dirname + '/node_modules/source-map'
-            },
-            packages: {
-                "source-map": {
-                    main: 'source-map.js',
-                    format: 'cjs',
-                    defaultExtension: 'js'
-                }
-            }
-        });
-
-        var oldImport = System.import;
-        System.import = function() {
-            return oldImport.apply(this, arguments).catch(function(error) {
-                if (error && error instanceof Error) {
-                    var originalError = error;
-                    while ('originalErr' in originalError) {
-                        originalError = originalError.originalErr;
-                    }
-                    return Promise.reject(originalError);
-                }
-                return error;
-            });
-        };
-
-        env.build(function coreModules() {
-            function createModuleExportingDefault(defaultExportsValue) {
-                /* eslint-disable quote-props */
-                return System.newModule({
-                    "default": defaultExportsValue
-                });
-                /* eslint-enable quote-props */
-            }
-
-            function registerCoreModule(moduleName, defaultExport) {
-                System.set(moduleName, createModuleExportingDefault(defaultExport));
-            }
-            return {
-                registerCoreModule: registerCoreModule
-            };
-        });
-
-        if (env.isNode()) {
-            // @node/fs etc available thanks to https://github.com/systemjs/systemjs/blob/master/dist/system.src.js#L1695
-            env.registerCoreModule('@node/require', require);
-        }
-
-        env.registerCoreModule(env.name, env);
-
-        [
-            'agent-more',
-            'exception-handler',
-            'sourcemap-error-stack',
-            'i18n',
-            'language',
-            'module-coverage',
-            'module-import-meta',
-            'module-test',
-            'platform-more',
-            'rest',
-            'restart',
-            'service-http',
-            'stream',
-            'stacktrace'
-        ].forEach(function(libName) {
-            System.paths[env.name + '/' + libName] = env.dirname + '/lib/' + libName + '/index.js';
-        });
-
-        [
-            'action',
-            'array-sorted',
-            'dependency-graph',
-            'iterable',
-            'lazy-module',
-            'options',
-            'proto',
-            'thenable',
-            'timeout',
-            'uri'
-        ].forEach(function(utilName) {
-            System.paths[env.name + '/' + utilName] = env.dirname + '/lib/util/' + utilName + '/index.js';
-            // add a global name too for now
-            System.paths[utilName] = System.paths[env.name + '/' + utilName];
-        });
-
-        /*
-        why put a method on the global scope ?
-        Considering that in the browser you will put a script tag, you need a pointer on env somewhere
-        - we could use System.import('jsenv') but this is a wrapper to System so it would be strange
-        to access env with something higher level in terms of abstraction
-        - we could count on an other global variable but I don't know any reliable global variable for this purpose
-        - because it's a "bad practice" to pollute the global scope the provided function is immediatly removed from the global scope
-        */
-
-        /*
-        Currently we are having the approach of loading env before SystemJS but we could put SystemJS first
-        with the babel transpilation then add babel-polyfill and other polyfill.
-        A main issue would be the missing unhandledRejection on promise (so let's just force my polyfill before systemjs in that case)
-        else everything is ok
-
-        so we could not use global setup(), we could do System.import('jsenv').then(function(jsenv) {});
-        */
-
-        var globaMethodAssignment = env.installGlobalMethod(env.globalMethodName, function(options) {
-            globaMethodAssignment.cancel();
-            env.options = options || {};
-
-            return System.import(env.dirname + '/lib/module-import-meta/index.js').then(function(exports) {
-                env.importMetas = exports.default;
-                return System.import(env.dirname + '/setup.js');
-            }).then(function() {
-                return env;
-            });
-        });
+        env.SystemPrototype = env.global.System;
+        delete env.global.System; // remove System from the global scope
     });
 })();
