@@ -14,7 +14,12 @@ jsenv.create().setup().then(function(envB) {
 
 (function() {
     function buildEnv(env) {
-        // features.provide adds properties to the features object and can be called anywhere
+        function assign(object, properties) {
+            for (var key in properties) { // eslint-disable-line
+                object[key] = properties[key];
+            }
+        }
+
         function build(data) {
             var properties;
 
@@ -26,13 +31,13 @@ jsenv.create().setup().then(function(envB) {
             }
 
             if (properties) {
-                for (var key in properties) { // eslint-disable-line
-                    env[key] = properties[key];
-                }
+                assign(env, properties);
             }
         }
 
+        env.assign = assign;
         env.build = build;
+        env.options = {};
 
         build(function version() {
             function Version(string) {
@@ -246,10 +251,8 @@ jsenv.create().setup().then(function(envB) {
 
         build(function logger() {
             return {
-                logLevel: 'debug', // 'error',
-
                 info: function() {
-                    if (this.logLevel === 'info') {
+                    if (this.options.logLevel === 'info') {
                         console.info.apply(console, arguments);
                     }
                 },
@@ -259,7 +262,7 @@ jsenv.create().setup().then(function(envB) {
                 },
 
                 debug: function() {
-                    if (this.logLevel === 'debug') {
+                    if (this.options.logLevel === 'debug') {
                         console.log.apply(console, arguments);
                     }
                 }
@@ -684,7 +687,13 @@ jsenv.create().setup().then(function(envB) {
 
                     var customEnv = Object.create(this);
 
-                    customEnv.options = options || {};
+                    var customOptions = {};
+                    this.assign(customOptions, this.options);
+                    if (options) {
+                        this.assign(customOptions, options);
+                    }
+
+                    customEnv.options = customOptions;
                     customEnv.System = customEnv.createSystem();
 
                     // keep a global System object because many people will use global.System
@@ -695,6 +704,7 @@ jsenv.create().setup().then(function(envB) {
                         var accessed = false;
 
                         Object.defineProperty(this.global, 'System', {
+                            configurable: true,
                             get: function() {
                                 if (accessed === false) {
                                     customEnv.warn('using global.System is discouraged, use jsenv.System instead');
@@ -710,6 +720,10 @@ jsenv.create().setup().then(function(envB) {
                     customEnv.configSystem();
 
                     return customEnv;
+                },
+
+                generate: function(options) {
+                    return this.create(options).setup();
                 }
             };
         });
