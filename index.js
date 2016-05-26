@@ -638,7 +638,8 @@ jsenv.create().setup().then(function(envB) {
                         'stream',
                         'stacktrace'
                     ].forEach(function(libName) {
-                        System.paths[this.moduleName + '/' + libName] = this.dirname + '/lib/' + libName + '/index.js';
+                        var libPath = this.dirname + '/lib/' + libName + '/index.js';
+                        this.System.paths[this.moduleName + '/' + libName] = libPath;
                     }, this);
 
                     [
@@ -654,9 +655,9 @@ jsenv.create().setup().then(function(envB) {
                         'uri'
                     ].forEach(function(utilName) {
                         var utilPath = this.dirname + '/lib/util/' + utilName + '/index.js';
-                        System.paths[this.moduleName + '/' + utilName] = utilPath;
+                        this.System.paths[this.moduleName + '/' + utilName] = utilPath;
                         // add a global name too for now
-                        System.paths[utilName] = utilPath;
+                        this.System.paths[utilName] = utilPath;
                     }, this);
                 }
             };
@@ -666,20 +667,20 @@ jsenv.create().setup().then(function(envB) {
             return {
                 setup: function() {
                     return this.import(this.dirname + '/lib/module-source/index.js').then(function(exports) {
-                        let Source = exports.default;
-                        let sources = new Map();
-                        let System = this.System;
+                        this.System.trace = true;
+                        var Source = exports.default;
+                        // var sources = new Map();
+                        var System = this.System;
 
-                        let translate = System.translate;
+                        var translate = System.translate;
                         System.translate = function(load) {
                             return translate.call(this, load).then(function(transpiledSource) {
-                                let source = Source.create(load);
-                                sources.set(load.name, source);
+                                var source = Source.create(load, transpiledSource);
+                                // sources.set(load.address, source);
+                                load.metadata.source = source;
                                 return transpiledSource;
                             });
                         };
-
-                        this.sources = sources;
 
                         // to review :
                         // we should warn when two different things try to add a source for a given module
@@ -730,7 +731,11 @@ jsenv.create().setup().then(function(envB) {
                             configurable: true,
                             get: function() {
                                 if (accessed === false) {
-                                    customEnv.warn('using global.System is discouraged, use jsenv.System instead');
+                                    customEnv.warn(
+                                        'global.System used at ',
+                                        new Error().stack,
+                                        ', use jsenv.System instead'
+                                    );
                                     accessed = true;
                                 }
                                 return customEnv.System;
