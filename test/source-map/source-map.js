@@ -1,5 +1,14 @@
 import jsenv from 'jsenv';
 
+let System = jsenv.System;
+
+System.module('export default true', {
+    address: 'anonymous'
+}).then(function(exports) {
+    console.log(exports.default);
+});
+
+/*
 var env = Object.getPrototypeOf(jsenv);
 
 env.generate({logLevel: 'info'}).then(function(envA) {
@@ -12,3 +21,4 @@ env.generate({logLevel: 'info'}).then(function(envA) {
         console.log(exports.default);
     });
 });
+*/

@@ -629,7 +629,7 @@ jsenv.create().setup().then(function(envB) {
                         'i18n',
                         'language',
                         'module-coverage',
-                        'module-import-meta',
+                        'module-source',
                         'module-test',
                         'platform-more',
                         'rest',
@@ -665,8 +665,31 @@ jsenv.create().setup().then(function(envB) {
         build(function setup() {
             return {
                 setup: function() {
-                    return this.import(this.dirname + '/lib/module-import-meta/index.js').then(function(exports) {
-                        this.importMetas = exports.default;
+                    return this.import(this.dirname + '/lib/module-source/index.js').then(function(exports) {
+                        let Source = exports.default;
+                        let sources = new Map();
+                        let System = this.System;
+
+                        let translate = System.translate;
+                        System.translate = function(load) {
+                            return translate.call(this, load).then(function(transpiledSource) {
+                                let source = Source.create(load);
+                                sources.set(load.name, source);
+                                return transpiledSource;
+                            });
+                        };
+
+                        this.sources = sources;
+
+                        // to review :
+                        // we should warn when two different things try to add a source for a given module
+                        // for instance if moduleSource.set('test.js', 'source') is called while there is already
+                        // a source for test.js we must throw because it's never supposed to happen
+                        // it's not a big error but it means there is two something to improve and maybe something wrong
+                        // we should store source found in sourcemap in module-source, maybe not according to above
+                        // but if the source is supposed to exists then check that it does exists (keep in mind nested sourcemap)
+                        // finally stackTrace.firstCallSite.loadFile will try to load a file that may be accessible in moduleSources so check it
+
                         return this.import(this.dirname + '/setup.js');
                     }.bind(this)).then(function() {
                         return this;
