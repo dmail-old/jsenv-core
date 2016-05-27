@@ -675,9 +675,22 @@ jsenv.create().setup().then(function(envB) {
                         var translate = System.translate;
                         System.translate = function(load) {
                             return translate.call(this, load).then(function(transpiledSource) {
-                                var source = Source.create(load, transpiledSource);
-                                // sources.set(load.address, source);
-                                load.metadata.source = source;
+                                let loadMetadata = load.metadata;
+                                let loadFormat = loadMetadata.format;
+                                if (loadFormat !== 'json') {
+                                    var source = Source.create(load.address);
+                                    source.setContent(transpiledSource);
+                                    // sources.set(load.address, source);
+                                    load.metadata.source = source;
+
+                                    // we could speed up sourcemap by reading it from load.metadata.sourceMap;
+                                    // but systemjs set it to undefined after transpilation (load.metadata.sourceMap = undefined)
+                                    // saying it's now useless because the transpiled embeds it in base64
+                                    // https://github.com/systemjs/systemjs/blob/master/dist/system.src.js#L3578
+                                    // I keep this commented as a reminder that sourcemap could be available using load.metadata
+                                    // I may open an issue on github about this, fore as it's only a perf issue I think it will never happen
+                                    // function readSourceMapFromModuleMeta() { }
+                                }
                                 return transpiledSource;
                             });
                         };
