@@ -625,11 +625,11 @@ jsenv.create().setup().then(function(envB) {
                     [
                         'agent-more',
                         'exception-handler',
+                        'file-source',
                         'sourcemap-error-stack',
                         'i18n',
                         'language',
                         'module-coverage',
-                        'module-source',
                         'module-test',
                         'platform-more',
                         'rest',
@@ -667,44 +667,51 @@ jsenv.create().setup().then(function(envB) {
         build(function setup() {
             return {
                 setup: function() {
-                    return this.import(this.dirname + '/lib/module-source/index.js').then(function(exports) {
-                        this.System.trace = true;
-                        var Source = exports.default;
-                        // var sources = new Map();
-                        var System = this.System;
+                    return Promise.resolve().then(function() {
+                        // this is just a way to make things faster because we already go the transpiledSource without having to query the filesystem
+                        // for now I'll just disable this because it's only for perf reason
 
-                        var translate = System.translate;
-                        System.translate = function(load) {
-                            return translate.call(this, load).then(function(transpiledSource) {
-                                var loadMetadata = load.metadata;
-                                var loadFormat = loadMetadata.format;
-                                if (loadFormat !== 'json') {
-                                    var source = Source.create(load.address);
-                                    source.setContent(transpiledSource);
-                                    // sources.set(load.address, source);
-                                    load.metadata.source = source;
+                        if (this.options.storeTranslatedSource) {
+                            return this.import(this.dirname + '/lib/file-source/index.js').then(function(exports) {
+                                // this.System.trace = true;
+                                var FileSource = exports.default;
+                                // var sources = new Map();
+                                var System = this.System;
 
-                                    // we could speed up sourcemap by reading it from load.metadata.sourceMap;
-                                    // but systemjs set it to undefined after transpilation (load.metadata.sourceMap = undefined)
-                                    // saying it's now useless because the transpiled embeds it in base64
-                                    // https://github.com/systemjs/systemjs/blob/master/dist/system.src.js#L3578
-                                    // I keep this commented as a reminder that sourcemap could be available using load.metadata
-                                    // I may open an issue on github about this, fore as it's only a perf issue I think it will never happen
-                                    // function readSourceMapFromModuleMeta() { }
-                                }
-                                return transpiledSource;
-                            });
-                        };
+                                var translate = System.translate;
+                                System.translate = function(load) {
+                                    return translate.call(this, load).then(function(transpiledSource) {
+                                        var loadMetadata = load.metadata;
+                                        var loadFormat = loadMetadata.format;
+                                        if (loadFormat !== 'json') {
+                                            var source = FileSource.create(load.address);
+                                            source.setContent(transpiledSource);
+                                            // sources.set(load.address, source);
+                                            load.metadata.source = source;
 
-                        // to review :
-                        // we should warn when two different things try to add a source for a given module
-                        // for instance if moduleSource.set('test.js', 'source') is called while there is already
-                        // a source for test.js we must throw because it's never supposed to happen
-                        // it's not a big error but it means there is two something to improve and maybe something wrong
-                        // we should store source found in sourcemap in module-source, maybe not according to above
-                        // but if the source is supposed to exists then check that it does exists (keep in mind nested sourcemap)
-                        // finally stackTrace.firstCallSite.loadFile will try to load a file that may be accessible in moduleSources so check it
+                                            // we could speed up sourcemap by reading it from load.metadata.sourceMap;
+                                            // but systemjs set it to undefined after transpilation (load.metadata.sourceMap = undefined)
+                                            // saying it's now useless because the transpiled embeds it in base64
+                                            // https://github.com/systemjs/systemjs/blob/master/dist/system.src.js#L3578
+                                            // I keep this commented as a reminder that sourcemap could be available using load.metadata
+                                            // I may open an issue on github about this, fore as it's only a perf issue I think it will never happen
+                                            // function readSourceMapFromModuleMeta() { }
+                                        }
+                                        return transpiledSource;
+                                    });
+                                };
 
+                                // to review :
+                                // we should warn when two different things try to add a source for a given module
+                                // for instance if moduleSource.set('test.js', 'source') is called while there is already
+                                // a source for test.js we must throw because it's never supposed to happen
+                                // it's not a big error but it means there is two something to improve and maybe something wrong
+                                // we should store source found in sourcemap in module-source, maybe not according to above
+                                // but if the source is supposed to exists then check that it does exists (keep in mind nested sourcemap)
+                                // finally stackTrace.firstCallSite.loadFile will try to load a file that may be accessible in moduleSources so check it
+                            }.bind(this));
+                        }
+                    }.bind(this)).then(function() {
                         return this.import(this.dirname + '/setup.js');
                     }.bind(this)).then(function() {
                         return this;
