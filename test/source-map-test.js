@@ -3,12 +3,14 @@ import jsenv from 'jsenv';
 let System = jsenv.System;
 
 System.module('export default true', {address: 'anonymous'}).then(function() {
-    let load = System.loads.undefined;
-    // expect load.metadata.source.url to be 'anonymous!transpiled'
-    // expect load.fetchParent() to return a source named 'anonymous' with data === 'export default true'
+    return jsenv.import('jsenv/file-source').then(function(exports) {
+        return exports.default;
+    }).then(function(FileSource) {
+        let source = FileSource.create(jsenv.locate('anonymous'));
 
-    load.metadata.source.import().then(function(source) {
-        console.log(source);
+        return source.import().then(function() {
+            console.log('HERE', source);
+        });
     });
 });
 
