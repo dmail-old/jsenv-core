@@ -7,7 +7,9 @@ System.module('export default true', {address: 'anonymous'}).then(function() {
     // expect load.metadata.source.url to be 'anonymous!transpiled'
     // expect load.fetchParent() to return a source named 'anonymous' with data === 'export default true'
 
-    console.log(load.metadata.source.sourceMap);
+    load.metadata.source.import().then(function(source) {
+        console.log(source);
+    });
 });
 
 /*

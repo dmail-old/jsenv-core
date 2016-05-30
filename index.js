@@ -646,6 +646,7 @@ jsenv.create().setup().then(function(envB) {
                         'action',
                         'array-sorted',
                         'dependency-graph',
+                        'fetch-as-text',
                         'iterable',
                         'lazy-module',
                         'options',
@@ -675,8 +676,8 @@ jsenv.create().setup().then(function(envB) {
                         var translate = System.translate;
                         System.translate = function(load) {
                             return translate.call(this, load).then(function(transpiledSource) {
-                                let loadMetadata = load.metadata;
-                                let loadFormat = loadMetadata.format;
+                                var loadMetadata = load.metadata;
+                                var loadFormat = loadMetadata.format;
                                 if (loadFormat !== 'json') {
                                     var source = Source.create(load.address);
                                     source.setContent(transpiledSource);
