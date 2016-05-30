@@ -673,11 +673,15 @@ jsenv.create().setup().then(function(envB) {
                         // I have to enable this for anonymous module anyway
 
                         return this.import('jsenv/file-source').then(function(exports) {
-                            return exports.default;
+                            return exports.default.extend({
+                                cache: {}
+                            });
                         }).then(function(FileSource) {
                             // this.System.trace = true;
                             // var sources = new Map();
                             var System = this.System;
+
+                            this.FileSource = FileSource;
 
                             var translate = System.translate;
                             System.translate = function(load) {
