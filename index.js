@@ -726,6 +726,8 @@ jsenv.create().setup().then(function(envB) {
 
         build(function create() {
             return {
+                uid: 0,
+
                 create: function(options) {
                     if (this.globalAssignment.assigned) {
                         // do not remove immediatly to let a chance to create multiple env if needed
@@ -735,6 +737,8 @@ jsenv.create().setup().then(function(envB) {
                     }
 
                     var customEnv = Object.create(this);
+
+                    customEnv.id = '<env #' + (++this.uid) + '>';
 
                     var customOptions = {};
                     this.assign(customOptions, this.options);

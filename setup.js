@@ -94,6 +94,7 @@ jsenv.config('exception-handler', function() {
     return jsenv.import('jsenv/exception-handler').then(function(exports) {
         return exports.default;
     }).then(function(ExceptionHandler) {
+        // console.log('installing exceptionhandling on', jsenv.id);
         return ExceptionHandler.install(jsenv);
     });
 });
