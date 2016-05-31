@@ -90,10 +90,18 @@ jsenv.build(function main() {
     };
 });
 
+jsenv.config('exception-handler', function() {
+    return jsenv.import('jsenv/exception-handler').then(function(exports) {
+        return exports.default;
+    }).then(function(ExceptionHandler) {
+        return ExceptionHandler.install(jsenv);
+    });
+});
+
 jsenv.config('core-plugins', function() {
     [
-        'exception-handler',
-        'sourcemap-error-stack',
+        // 'exception-handler',
+        // 'sourcemap-error-stack',
         'agent-more',
         'platform-more',
         'language',
