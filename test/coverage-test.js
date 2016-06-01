@@ -23,13 +23,15 @@ env.generate({logLevel: 'info'}).then(function(myEnv) {
     });
 
     return myEnv.evalMain(source, sourceAddress).then(function() {
-        assert(sourceAddress in myEnv.coverage.value);
+        // assert(sourceAddress in myEnv.coverage.value);
+
+        var mainFileSource = myEnv.FileSource.create(myEnv.locate(sourceAddress) + '!instrumented');
 
         // faut s'assurer que j'arrive bien à choper l'original source, ce qui actuellement n'est pas vrai puisque le sourcemap est tout pété
         // ok il semblerai que le fix dans module-coverage règle ce problème, on peut donc ensuite vérifier que j'arrive bien à choper l'originalSource
 
-        console.log(myEnv.FileSource.create(myEnv.locate(sourceAddress) + '!instrumented'));
-
-        console.log(myEnv.coverage.value);
+        return mainFileSource.getOriginalSource().then(function(originalSource) {
+            console.log('original', originalSource);
+        });
     });
 });
