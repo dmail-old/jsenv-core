@@ -946,7 +946,7 @@ jsenv.create().setup().then(function(envB) {
                         }).then(function(FileSource) {
                             this.FileSource = FileSource;
                             this.storeSource = function(url, source) {
-                                FileSource.create(url).setContent(source);
+                                return FileSource.create(url).setContent(source);
                             };
 
                             var System = this.System;
