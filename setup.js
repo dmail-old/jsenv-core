@@ -71,6 +71,7 @@ jsenv.build(function main() {
         },
 
         importMain(moduleLocation) {
+            console.log('importing', moduleLocation);
             mainModule.location = moduleLocation;
             return this.start();
         },
@@ -90,28 +91,19 @@ jsenv.build(function main() {
     };
 });
 
-jsenv.config('exception-handler', function() {
-    return jsenv.import('jsenv/exception-handler').then(function(exports) {
-        return exports.default;
-    }).then(function(ExceptionHandler) {
-        // console.log('installing exceptionhandling on', jsenv.id);
-        return ExceptionHandler.install(jsenv);
-    });
-});
-
 jsenv.config('core-plugins', function() {
-    [
-        // 'exception-handler',
-        // 'sourcemap-error-stack',
-        'agent-more',
-        'platform-more',
-        'language',
-        'restart'
-    ].forEach(function(pluginName) {
-        this.run(pluginName, function() {
-            return System.import('jsenv/' + pluginName);
-        });
-    }, this);
+    // [
+    //     'exception-handler',
+    //     'sourcemap-error-stack',
+    //     'agent-more',
+    //     'platform-more',
+    //     'language',
+    //     'restart'
+    // ].forEach(function(pluginName) {
+    //     this.run(pluginName, function() {
+    //         return System.import('jsenv/' + pluginName);
+    //     });
+    // }, this);
 
     // do not do this if not on node
     // jsenv.mainAction.get('exception-stacktrace').agent = {type: 'node'};

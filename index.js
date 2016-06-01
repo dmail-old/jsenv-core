@@ -319,8 +319,8 @@ jsenv.create().setup().then(function(envB) {
                     throw value;
                 },
 
-                createException: function(value) {
-                    var exception = Exception.create(value);
+                createException: function(value, origin) {
+                    var exception = new Exception(value, origin);
                     return exception;
                 },
 
@@ -403,18 +403,15 @@ jsenv.create().setup().then(function(envB) {
                                     // we have to ignore exception thrown while we are throwing, we could detect if the exception differs
                                     // which can happens if when doing throw new Error(); an other error occurs
                                     // -> may happen for instance if accessing error.stack throw an other error
-                                    console.log('disable exception handling for', this.env.id);
                                     this.disable();
                                     // there is still on uncaughtException on global env, which will catch the exception and because of this will
                                     // retry to recover the exception, it's not a problem except that only parent should be allowed to recover the exception
                                     // child must not have a chance to recatch the same exception again, for now just disable the hooks
-                                    console.log('throw on', this.env.id);
                                     this.throw(exception.value);
-
                                     // enabledHooks in case throwing error did not terminate js execution
                                     // in the browser or if external code is listening for process.on('uncaughException');
-                                    // this.enable();
-                                }.bind(this));
+                                    this.enable();
+                                }.bind(this), 0);
                             }
                         }.bind(this));
                     }
@@ -437,8 +434,7 @@ jsenv.create().setup().then(function(envB) {
 
                     var exception;
 
-                    exception = this.createException(rejectedValue);
-                    exception.promise = promise;
+                    exception = this.createException(rejectedValue, promise);
 
                     return this.handleException(exception);
                 },
@@ -531,6 +527,7 @@ jsenv.create().setup().then(function(envB) {
             };
 
             exceptionHandler.enable();
+            exceptionHandler.env = env;
 
             return {
                 exceptionHandler: exceptionHandler
@@ -928,6 +925,8 @@ jsenv.create().setup().then(function(envB) {
                         // add a global name too for now
                         this.System.paths[utilName] = utilPath;
                     }, this);
+
+                    console.log('configured env system');
                 }
             };
         });
@@ -994,7 +993,7 @@ jsenv.create().setup().then(function(envB) {
 
         build(function create() {
             return {
-                uid: 0,
+                lastId: 0,
 
                 create: function(options) {
                     if (this.globalAssignment.assigned) {
@@ -1006,7 +1005,10 @@ jsenv.create().setup().then(function(envB) {
 
                     var customEnv = Object.create(this);
 
-                    customEnv.id = '<env #' + (++this.uid) + '>';
+                    this.lastId++;
+                    customEnv.id = '<env #' + this.lastId + '>';
+
+                    console.log('creating', customEnv.id);
 
                     var customOptions = {};
                     this.assign(customOptions, this.options);
