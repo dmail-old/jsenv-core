@@ -13,7 +13,7 @@ env.generate({logLevel: 'info'}).then(function(myEnv) {
 
         return mainFileSource.getOriginalSource().then(function(originalSource) {
             assert.equal(originalSource, source);
-            console.log('done');
+            console.log('test passed');
         });
     });
 });

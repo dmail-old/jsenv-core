@@ -944,11 +944,13 @@ jsenv.create().setup().then(function(envB) {
                                 cache: {}
                             });
                         }).then(function(FileSource) {
-                            // this.System.trace = true;
-                            // var sources = new Map();
-                            var System = this.System;
-
                             this.FileSource = FileSource;
+                            this.storeSource = function(url, source) {
+                                FileSource.create(url).setContent(source);
+                            };
+
+                            var System = this.System;
+                            var self = this;
 
                             var translate = System.translate;
                             System.translate = function(load) {
@@ -956,11 +958,7 @@ jsenv.create().setup().then(function(envB) {
                                     var loadMetadata = load.metadata;
                                     var loadFormat = loadMetadata.format;
                                     if (loadFormat !== 'json') {
-                                        var source = FileSource.create(load.address);
-                                        source.setContent(transpiledSource);
-                                        // sources.set(load.address, source);
-                                        // load.metadata.source = source;
-
+                                        self.storeSource(load.address, transpiledSource);
                                         // we could speed up sourcemap by reading it from load.metadata.sourceMap;
                                         // but systemjs set it to undefined after transpilation (load.metadata.sourceMap = undefined)
                                         // saying it's now useless because the transpiled embeds it in base64
