@@ -1,12 +1,10 @@
 import jsenv from 'jsenv';
 
-var env = Object.getPrototypeOf(jsenv);
+jsenv.generate({logLevel: 'info'}).then(function(env) {
+    env.config('a-config', function() {
+        console.log('adding an exceptionHandler to', env.id);
 
-env.generate({logLevel: 'info'}).then(function(myEnv) {
-    myEnv.config('a-config', function() {
-        console.log('adding an exceptionHandler to', myEnv.id);
-
-        myEnv.exceptionHandler.add(function(error, exception) {
+        env.exceptionHandler.add(function(error, exception) {
             console.log('handling exception on', this.env.id);
             return true;
         });
@@ -19,7 +17,7 @@ env.generate({logLevel: 'info'}).then(function(myEnv) {
         }
     `;
 
-    return myEnv.evalMain(mainSource, 'anonymous').then(function(exports) {
+    return env.evalMain(mainSource, 'anonymous').then(function(exports) {
         exports.default();
     });
 });

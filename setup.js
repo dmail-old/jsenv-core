@@ -1,13 +1,13 @@
-import jsenv from 'jsenv';
+import env from 'env';
 
-import URI from 'jsenv/uri';
+import URI from 'env/uri';
 // import proto from 'jsenv/proto';
-import Action from 'jsenv/action';
-import LazyModule from 'jsenv/lazy-module';
+import Action from 'env/action';
+import LazyModule from 'env/lazy-module';
 // import Iterable from 'jsenv/iterable';
 // import Thenable from 'jsenv/thenable';
 
-jsenv.build(function locate() {
+env.build(function locate() {
     return {
         createURI(a, b) {
             return URI.create(a, b);
@@ -36,13 +36,13 @@ jsenv.build(function locate() {
     };
 });
 
-jsenv.build(function main() {
+env.build(function main() {
     var mainModule = LazyModule.create({
-        parentLocation: jsenv.baseURI.href
+        parentLocation: env.baseURI.href
     });
     var mainAction = Action.create({
         name: 'main',
-        uri: jsenv.baseURI,
+        uri: env.baseURI,
         module: mainModule,
         main() {
             return this.module.import();
@@ -91,7 +91,11 @@ jsenv.build(function main() {
     };
 });
 
-jsenv.config('core-plugins', function() {
+// env.config('sourcemap-error-stack', function() {
+//     return System.import('env/sourcemap-error-stack');
+// });
+
+env.config('core-plugins', function() {
     // [
     //     'exception-handler',
     //     'sourcemap-error-stack',
@@ -101,7 +105,7 @@ jsenv.config('core-plugins', function() {
     //     'restart'
     // ].forEach(function(pluginName) {
     //     this.run(pluginName, function() {
-    //         return System.import('jsenv/' + pluginName);
+    //
     //     });
     // }, this);
 

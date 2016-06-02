@@ -1,25 +1,25 @@
 module.exports = function run(filename, options) {
     require('../index.js');
 
-    return global.jsenv.generate().then(function(jsenv) {
+    return global.jsenv.generate().then(function(env) {
         // jsenv.debug('start with params', options);
 
         if (options.test) {
-            jsenv.config('module-test', function() {
-                return System.import('jsenv/module-test').then(function(exports) {
+            env.config('module-test', function() {
+                return System.import('env/module-test').then(function(exports) {
                     return exports.default.test({
-                        location: jsenv.mainModule.href
+                        location: env.mainModule.href
                     });
                 });
             });
         }
         if (options.cover) {
-            jsenv.config('module-coverage', function() {
-                return System.import('jsenv/module-coverage').then(function(exports) {
+            env.config('module-coverage', function() {
+                return System.import('env/module-coverage').then(function(exports) {
                     // most time we do code coverage test to see how a file is covering all it's dependencies
                     // so checking that the file is the mainLocation or a peer or inside is sufficient
 
-                    var mainURI = jsenv.createURI(jsenv.mainModule.href);
+                    var mainURI = env.createURI(env.mainModule.href);
                     var mainNodeURI = mainURI.clone();
                     mainNodeURI.protocol = ''; // remove the file:/// protocol on node
                     mainNodeURI.suffix = '';
@@ -47,7 +47,7 @@ module.exports = function run(filename, options) {
             });
         }
 
-        return jsenv.importMain(filename).then(function() {
+        return env.importMain(filename).then(function() {
             // module.default();
         });
     });

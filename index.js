@@ -13,7 +13,7 @@ jsenv.create().setup().then(function(envB) {
 */
 
 (function() {
-    function buildEnv(env) {
+    function buildJSEnv(jsenv) {
         function assign(object, properties) {
             for (var key in properties) { // eslint-disable-line
                 object[key] = properties[key];
@@ -25,19 +25,19 @@ jsenv.create().setup().then(function(envB) {
 
             if (typeof data === 'function') {
                 console.log('build', data.name);
-                properties = data.call(env);
+                properties = data.call(jsenv);
             } else {
                 properties = data;
             }
 
             if (properties) {
-                assign(env, properties);
+                assign(jsenv, properties);
             }
         }
 
-        env.assign = assign;
-        env.build = build;
-        env.options = {};
+        jsenv.assign = assign;
+        jsenv.build = build;
+        jsenv.options = {};
 
         build(function version() {
             function Version(string) {
@@ -96,7 +96,7 @@ jsenv.create().setup().then(function(envB) {
                 },
 
                 setVersion: function(version) {
-                    this.version = env.createVersion(version);
+                    this.version = jsenv.createVersion(version);
                 },
 
                 match: function(platform) {
@@ -130,7 +130,7 @@ jsenv.create().setup().then(function(envB) {
                 },
 
                 setVersion: function(version) {
-                    this.version = env.createVersion(version);
+                    this.version = jsenv.createVersion(version);
                 },
 
                 match: function(agent) {
@@ -488,7 +488,7 @@ jsenv.create().setup().then(function(envB) {
 
             var enableHooks;
             var disableHooks;
-            if (env.isBrowser()) {
+            if (jsenv.isBrowser()) {
                 enableHooks = function() {
                     window.onunhandledrejection = function(e) {
                         unhandledRejection(e.reason, e.promise);
@@ -505,7 +505,7 @@ jsenv.create().setup().then(function(envB) {
                     window.onrejectionhandled = undefined;
                     window.onerror = undefined;
                 };
-            } else if (env.isNode()) {
+            } else if (jsenv.isNode()) {
                 enableHooks = function() {
                     process.on('unhandledRejection', unhandledRejection);
                     process.on('rejectionHandled', rejectionHandled);
@@ -527,7 +527,7 @@ jsenv.create().setup().then(function(envB) {
             };
 
             exceptionHandler.enable();
-            exceptionHandler.env = env;
+            exceptionHandler.jsenv = jsenv;
 
             return {
                 exceptionHandler: exceptionHandler
@@ -627,10 +627,10 @@ jsenv.create().setup().then(function(envB) {
         });
 
         build(function supportDetectors() {
-            var defineSupportDetector = env.defineSupportDetector.bind(env);
+            var defineSupportDetector = jsenv.defineSupportDetector.bind(jsenv);
 
             function createPropertyDetector(property, object) {
-                property = env.hyphenToCamel(property);
+                property = jsenv.hyphenToCamel(property);
 
                 return function() {
                     return property in object;
@@ -885,6 +885,7 @@ jsenv.create().setup().then(function(envB) {
                         this.registerCoreModule('@node/require', require);
                     }
 
+                    this.registerCoreModule(this.rootModuleName, jsenv);
                     this.registerCoreModule(this.moduleName, this);
 
                     [
@@ -939,7 +940,7 @@ jsenv.create().setup().then(function(envB) {
                         // for now I'll just disable this because it's only for perf reason
                         // I have to enable this for anonymous module anyway
 
-                        return this.import('jsenv/file-source').then(function(exports) {
+                        return this.import('env/file-source').then(function(exports) {
                             return exports.default.extend({
                                 cache: {}
                             });
@@ -1001,12 +1002,12 @@ jsenv.create().setup().then(function(envB) {
                         }.bind(this));
                     }
 
-                    var customEnv = Object.create(this);
+                    var env = Object.create(this);
 
                     this.lastId++;
-                    customEnv.id = '<env #' + this.lastId + '>';
+                    env.id = '<env #' + this.lastId + '>';
 
-                    console.log('creating', customEnv.id);
+                    console.log('creating', env.id);
 
                     var customOptions = {};
                     this.assign(customOptions, this.options);
@@ -1014,8 +1015,8 @@ jsenv.create().setup().then(function(envB) {
                         this.assign(customOptions, options);
                     }
 
-                    customEnv.options = customOptions;
-                    customEnv.System = customEnv.createSystem();
+                    env.options = customOptions;
+                    env.System = env.createSystem();
 
                     // keep a global System object because many people will use global.System
                     // but warn about the fact that doing this is discouraged because
@@ -1028,23 +1029,23 @@ jsenv.create().setup().then(function(envB) {
                             configurable: true,
                             get: function() {
                                 if (accessed === false) {
-                                    customEnv.warn(
+                                    env.warn(
                                         'global.System used at ',
                                         new Error().stack.split('\n')[1],
                                         ', use jsenv.System instead'
                                     );
                                     accessed = true;
                                 }
-                                return customEnv.System;
+                                return env.System;
                             }
                         });
                     } else {
-                        customEnv.global.System = customEnv.System;
+                        env.global.System = env.System;
                     }
 
-                    customEnv.configSystem();
+                    env.configSystem();
 
-                    return customEnv;
+                    return env;
                 },
 
                 generate: function(options) {
@@ -1088,37 +1089,37 @@ jsenv.create().setup().then(function(envB) {
         //     };
         // });
 
-        return env;
+        return jsenv;
     }
 
-    function listFiles(env) {
+    function listFiles(jsenv) {
         var files = [];
 
         function add(name, path) {
             files.push({
                 name: name,
-                url: env.dirname + '/' + path
+                url: jsenv.dirname + '/' + path
             });
         }
 
-        if (env.support('set-immediate') === false) {
+        if (jsenv.support('set-immediate') === false) {
             add('set-immediate-polyfill', 'lib/polyfill/set-immediate/index.js');
         }
-        if (env.support('promise') === false) {
+        if (jsenv.support('promise') === false) {
             add('promise-polyfill', 'lib/polyfill/promise/index.js');
         }
-        if (env.support('url') === false) {
+        if (jsenv.support('url') === false) {
             add('url-polyfill', 'lib/polyfill/url/index.js');
         }
 
-        if (env.isBrowser()) {
+        if (jsenv.isBrowser()) {
             add('systemjs', 'node_modules/systemjs/dist/system.js');
         } else {
             add('systemjs', 'node_modules/systemjs/index.js');
         }
 
-        if (env.support('es6') === false) {
-            if (env.isBrowser()) {
+        if (jsenv.support('es6') === false) {
+            if (jsenv.isBrowser()) {
                 add('es6-polyfills', 'node_modules/babel-polyfill/dist/polyfill.js');
             } else {
                 add('es6-polyfills', 'node_modules/babel-polyfill/lib/index.js');
@@ -1128,7 +1129,7 @@ jsenv.create().setup().then(function(envB) {
         return files;
     }
 
-    function includeFiles(env, files, callback) {
+    function includeFiles(jsenv, files, callback) {
         function includeAllBrowser() {
             var i = 0;
             var j = files.length;
@@ -1136,7 +1137,7 @@ jsenv.create().setup().then(function(envB) {
             var loadCount = 0;
             var scriptLoadedMethodName = 'includeLoaded';
 
-            var scriptLoadedGlobalMethodAssignment = env.installGlobalMethod(scriptLoadedMethodName, function() {
+            var scriptLoadedGlobalMethodAssignment = jsenv.installGlobalMethod(scriptLoadedMethodName, function() {
                 loadCount++;
                 if (loadCount === j) {
                     scriptLoadedGlobalMethodAssignment.cancel();
@@ -1171,32 +1172,33 @@ jsenv.create().setup().then(function(envB) {
                     url = url.slice('file:///'.length);
                 }
 
-                env.debug('include', file.name);
+                jsenv.debug('include', file.name);
                 require(url);
             }
             callback();
         }
 
-        if (env.isBrowser()) {
+        if (jsenv.isBrowser()) {
             includeAllBrowser(files);
         } else {
             includeAllNode(files);
         }
     }
 
-    function createEnv() {
+    function createJSEnv() {
         // create an object that will receive the env
-        var env = {};
+        var jsenv = {};
         // set the name of a future module that will export env
-        env.moduleName = 'jsenv';
+        jsenv.rootModuleName = 'jsenv';
+        jsenv.moduleName = 'env';
         // name of the global method used to create env object
-        env.globalName = env.moduleName;
+        jsenv.globalName = jsenv.rootModuleName;
         // provide the minimal env available : platform, agent, global, baseAndInternalURl
-        buildEnv(env);
-        return env;
+        buildJSEnv(jsenv);
+        return jsenv;
     }
 
-    var env = createEnv();
+    var jsenv = createJSEnv();
     /*
     why put a variable on the global scope ?
     Considering that in the browser you will put a script tag, you need a pointer on env somewhere
@@ -1216,13 +1218,13 @@ jsenv.create().setup().then(function(envB) {
     moreover now we want the ability to create multiple env it's not possible
     */
 
-    env.globalAssignment = env.createCancellableAssignment(env.global, env.globalName);
-    env.globalAssignment.assign(env);
+    jsenv.globalAssignment = jsenv.createCancellableAssignment(jsenv.global, jsenv.globalName);
+    jsenv.globalAssignment.assign(jsenv);
 
     // list requirements amongst setimmediate, promise, url, url-search-params, es6 polyfills & SystemJS
-    var files = listFiles(env);
-    includeFiles(env, files, function() {
-        env.SystemPrototype = env.global.System;
-        delete env.global.System; // remove System from the global scope
+    var files = listFiles(jsenv);
+    includeFiles(jsenv, files, function() {
+        jsenv.SystemPrototype = jsenv.global.System;
+        delete jsenv.global.System; // remove System from the global scope
     });
 })();
