@@ -4,7 +4,7 @@ module.exports = function run(filename, options) {
     return global.jsenv.generate().then(function(env) {
         // jsenv.debug('start with params', options);
 
-        if (options.test) {
+        if (options.test && false) {
             env.config('module-test', function() {
                 return System.import('env/module-test').then(function(exports) {
                     return exports.default.test({

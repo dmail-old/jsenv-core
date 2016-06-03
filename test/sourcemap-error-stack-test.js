@@ -1,3 +1,5 @@
+// seems to work BUT callsite.ready() seems to be called twice
+
 import jsenv from 'jsenv';
 
 var source = `
@@ -14,11 +16,8 @@ Promise.resolve().then(function() {
         //     return true;
         // });
 
-        console.log(jsenv.FileSource.redirections);
-        console.log(Object.keys(jsenv.FileSource.cache));
-
         return env.evalMain(source, sourceAddress).then(function(exports) {
-            // exports.default();
+            exports.default();
         });
     });
 });

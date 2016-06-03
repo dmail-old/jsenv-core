@@ -2,14 +2,6 @@
 
 /*
 after including this file you can create your own env, (most time only one is enough)
-
-jsenv.create().setup().then(function(envA) {
-    return envA.importMain('fileA.js');
-});
-
-jsenv.create().setup().then(function(envB) {
-    return envB.importMain('fileB.js');
-});
 */
 
 (function() {
@@ -927,7 +919,7 @@ jsenv.create().setup().then(function(envB) {
                         this.System.paths[utilName] = utilPath;
                     }, this);
 
-                    jsenv.debug('configured env system');
+                    // jsenv.debug('configured env system');
                 }
             };
         });
@@ -936,20 +928,11 @@ jsenv.create().setup().then(function(envB) {
             return {
                 lastId: 0,
 
-                create: function(options) {
-                    if (this.globalAssignment.assigned) {
-                        // do not remove immediatly to let a chance to create multiple env if needed
-                        setImmediate(function() {
-                            this.globalAssignment.cancel();
-                        }.bind(this));
-                    }
+                constructor: function(options) {
+                    jsenv.lastId++;
+                    this.id = '<env #' + this.lastId + '>';
 
-                    var env = Object.create(this);
-
-                    this.lastId++;
-                    env.id = '<env #' + this.lastId + '>';
-
-                    jsenv.debug('creating', env.id);
+                    this.debug('creating', this.id);
 
                     var customOptions = {};
                     this.assign(customOptions, this.options);
@@ -957,8 +940,8 @@ jsenv.create().setup().then(function(envB) {
                         this.assign(customOptions, options);
                     }
 
-                    env.options = customOptions;
-                    env.System = env.createSystem();
+                    this.options = customOptions;
+                    this.System = this.createSystem();
 
                     // keep a global System object because many people will use global.System
                     // but warn about the fact that doing this is discouraged because
@@ -966,6 +949,7 @@ jsenv.create().setup().then(function(envB) {
                     // in the same process with different env
                     if (this.support('descriptor')) {
                         var accessed = false;
+                        var self = this;
 
                         Object.defineProperty(this.global, 'System', {
                             configurable: true,
@@ -978,42 +962,33 @@ jsenv.create().setup().then(function(envB) {
                                     // );
                                     accessed = true;
                                 }
-                                return env.System;
+                                return self.System;
                             }
                         });
                     } else {
-                        env.global.System = env.System;
+                        this.global.System = this.System;
                     }
+
+                    this.configSystem();
+                },
+
+                create: function(options) {
+                    if (this.globalAssignment.assigned) {
+                        // do not remove immediatly to let a chance to create multiple env if needed
+                        setImmediate(function() {
+                            this.globalAssignment.cancel();
+                        }.bind(this));
+                    }
+
+                    var env = Object.create(jsenv);
+
+                    env.constructor(options);
 
                     return env;
                 },
 
                 setup: function() {
-                    this.configSystem();
-
-                    var setupPromise;
-
-                    setupPromise = this.import('env/file-source').then(function(exports) {
-                        return exports.default;
-                        // return exports.default.extend({
-                        //     cache: {}
-                        // });
-                    }).then(function(FileSource) {
-                        // this.FileSource = FileSource;
-                        jsenv.FileSource = FileSource;
-
-                        this.storeSource = function(url, source) {
-                            var fileSource = this.FileSource.create(url);
-
-                            fileSource.setContent(source);
-
-                            // console.log('store source', url, fileSource.url);
-
-                            return fileSource;
-                        };
-                    }.bind(this));
-
-                    return setupPromise.then(function() {
+                    return Promise.resolve().then(function() {
                         // this is just a way to make things faster because we already go the transpiledSource without having to query the filesystem
                         // for now I'll just disable this because it's only for perf reason
                         // I have to enable this for anonymous module anyway
@@ -1052,11 +1027,45 @@ jsenv.create().setup().then(function(envB) {
                     }.bind(this));
                 },
 
-                generate: function(options) {
-                    var env = this.create(options);
+                install: function() {
+                    var installPromise;
 
-                    return env.setup().then(function() {
-                        return env;
+                    if (jsenv.installPromise) {
+                        installPromise = jsenv.installPromise;
+                    } else {
+                        installPromise = jsenv.import('env/file-source').then(function(exports) {
+                            return exports.default;
+                            // return exports.default.extend({
+                            //     cache: {}
+                            // });
+                        }).then(function(FileSource) {
+                            // this.FileSource = FileSource;
+                            jsenv.FileSource = FileSource;
+
+                            jsenv.storeSource = function(url, source) {
+                                var fileSource = jsenv.FileSource.create(url);
+
+                                fileSource.setContent(source);
+
+                                // console.log('store source', url, fileSource.url);
+
+                                return fileSource;
+                            };
+                        });
+
+                        jsenv.installPromise = installPromise;
+                    }
+
+                    return installPromise;
+                },
+
+                generate: function(options) {
+                    return jsenv.install().then(function() {
+                        var env = jsenv.create(options);
+
+                        return env.setup().then(function() {
+                            return env;
+                        });
                     });
                 }
             };
@@ -1196,11 +1205,11 @@ jsenv.create().setup().then(function(envB) {
     function createJSEnv() {
         // create an object that will receive the env
         var jsenv = {};
+        // name of the global method used to create env object
+        jsenv.globalName = 'jsenv';
         // set the name of a future module that will export env
         jsenv.rootModuleName = 'jsenv';
         jsenv.moduleName = 'env';
-        // name of the global method used to create env object
-        jsenv.globalName = jsenv.rootModuleName;
         // provide the minimal env available : platform, agent, global, baseAndInternalURl
         buildJSEnv(jsenv);
         return jsenv;
@@ -1234,5 +1243,6 @@ jsenv.create().setup().then(function(envB) {
     includeFiles(jsenv, files, function() {
         jsenv.SystemPrototype = jsenv.global.System;
         delete jsenv.global.System; // remove System from the global scope
+        jsenv.constructor();
     });
 })();
