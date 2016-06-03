@@ -1,27 +1,27 @@
 import jsenv from 'jsenv';
 
-jsenv.generate({logLevel: 'info'}).then(function(env) {
-    env.config('a-config', function() {
-        console.log('adding an exceptionHandler to', env.id);
+var source = `
+export default function() {
+    throw new Error("here");
+}
+`;
+var sourceAddress = 'anonymous';
 
-        env.exceptionHandler.add(function(error, exception) {
-            console.log('handling exception on', this.env.id);
-            return true;
+Promise.resolve().then(function() {
+    return jsenv.generate({logLevel: 'info'}).then(function(env) {
+        // jsenv.exceptionHandler.add(function(error) {
+        //     console.log('handling exception', error);
+        //     return true;
+        // });
+
+        console.log(jsenv.FileSource.redirections);
+        console.log(Object.keys(jsenv.FileSource.cache));
+
+        return env.evalMain(source, sourceAddress).then(function(exports) {
+            // exports.default();
         });
-        // console.log(myEnv.exceptionHandler, jsenv.exceptionHandler);
-    });
-
-    var mainSource = `
-        export default function() {
-            throw new Error("here");
-        }
-    `;
-
-    return env.evalMain(mainSource, 'anonymous').then(function(exports) {
-        exports.default();
     });
 });
-
 
 // jsenv.exceptionHandler.add(function(error) {
 //     console.log('an error occured', error, error.stack);

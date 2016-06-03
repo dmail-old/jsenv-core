@@ -24,7 +24,7 @@ jsenv.create().setup().then(function(envB) {
             var properties;
 
             if (typeof data === 'function') {
-                console.log('build', data.name);
+                // console.log('build', data.name);
                 properties = data.call(jsenv);
             } else {
                 properties = data;
@@ -927,7 +927,7 @@ jsenv.create().setup().then(function(envB) {
                         this.System.paths[utilName] = utilPath;
                     }, this);
 
-                    console.log('configured env system');
+                    jsenv.debug('configured env system');
                 }
             };
         });
@@ -949,7 +949,7 @@ jsenv.create().setup().then(function(envB) {
                     this.lastId++;
                     env.id = '<env #' + this.lastId + '>';
 
-                    console.log('creating', env.id);
+                    jsenv.debug('creating', env.id);
 
                     var customOptions = {};
                     this.assign(customOptions, this.options);
@@ -971,11 +971,11 @@ jsenv.create().setup().then(function(envB) {
                             configurable: true,
                             get: function() {
                                 if (accessed === false) {
-                                    env.warn(
-                                        'global.System used at ',
-                                        new Error().stack.split('\n')[1],
-                                        ', use jsenv.System instead'
-                                    );
+                                    // env.warn(
+                                    //     'global.System used at ',
+                                    //     new Error().stack.split('\n')[1],
+                                    //     ', use jsenv.System instead'
+                                    // );
                                     accessed = true;
                                 }
                                 return env.System;
@@ -999,11 +999,17 @@ jsenv.create().setup().then(function(envB) {
                         //     cache: {}
                         // });
                     }).then(function(FileSource) {
-                        this.FileSource = FileSource;
+                        // this.FileSource = FileSource;
                         jsenv.FileSource = FileSource;
 
                         this.storeSource = function(url, source) {
-                            return this.FileSource.create(url).setContent(source);
+                            var fileSource = this.FileSource.create(url);
+
+                            fileSource.setContent(source);
+
+                            // console.log('store source', url, fileSource.url);
+
+                            return fileSource;
                         };
                     }.bind(this));
 

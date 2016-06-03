@@ -1,28 +1,28 @@
 import jsenv from 'jsenv';
+import env from 'env';
 
 import assert from '@node/assert';
+
+var source = 'export default true';
+var sourceAddress = 'anonymous';
 
 Promise.resolve().then(function() {
     // transpilation
     return jsenv.generate({logLevel: 'info'}).then(function(env) {
-        var source = 'export default true';
-        var sourceAddress = 'anonymous';
-
-        return env.evalMain(source, sourceAddress).then(function() {
-            let mainFileSource = env.FileSource.create(env.locate(sourceAddress));
-
-            return mainFileSource.prepare().then(function() {
-                assert.equal(mainFileSource.getOriginalSource(), source);
-                console.log('test passed');
-            });
+        return env.evalMain(source, sourceAddress);
+    }).then(function() {
+        return env.FileSource.create(env.locate(sourceAddress));
+    }).then(function(mainFileSource) {
+        return mainFileSource.prepare().then(function() {
+            return mainFileSource;
         });
+    }).then(function(mainFileSource) {
+        assert.equal(mainFileSource.getOriginalSource(), source);
+        console.log('getOriginalSource() ok with transpiled anonymous modules');
     });
 }).then(function() {
     // transpilation + instrumentation
     return jsenv.generate({logLevel: 'info'}).then(function(env) {
-        var source = 'export default true';
-        var sourceAddress = 'anonymous';
-
         env.config(function() {
             return env.import('env/module-coverage').then(function(exports) {
                 var coverage = exports.default.create({
@@ -37,15 +37,16 @@ Promise.resolve().then(function() {
             });
         });
 
-        return env.evalMain(source, sourceAddress).then(function() {
-            // assert(sourceAddress in myEnv.coverage.value);
-
-            var mainFileSource = env.FileSource.create(env.locate(sourceAddress));
-
-            return mainFileSource.prepare().then(function() {
-                assert.equal(mainFileSource.getOriginalSource(), source);
-                console.log('test passed');
-            });
+        return env.evalMain(source, sourceAddress);
+    }).then(function() {
+        // assert(sourceAddress in myEnv.coverage.value);
+        return env.FileSource.create(env.locate(sourceAddress));
+    }).then(function(mainFileSource) {
+        return mainFileSource.prepare().then(function() {
+            return mainFileSource;
         });
+    }).then(function(mainFileSource) {
+        assert.equal(mainFileSource.getOriginalSource(), source);
+        console.log('getOriginalSource() ok with transpiled & instrumented anonymous module');
     });
 });
