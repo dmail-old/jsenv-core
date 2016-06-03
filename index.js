@@ -932,64 +932,6 @@ jsenv.create().setup().then(function(envB) {
             };
         });
 
-        build(function setup() {
-            return {
-                setup: function() {
-                    return Promise.resolve().then(function() {
-                        // this is just a way to make things faster because we already go the transpiledSource without having to query the filesystem
-                        // for now I'll just disable this because it's only for perf reason
-                        // I have to enable this for anonymous module anyway
-
-                        return this.import('env/file-source').then(function(exports) {
-                            return exports.default.extend({
-                                cache: {}
-                            });
-                        }).then(function(FileSource) {
-                            this.FileSource = FileSource;
-                            this.storeSource = function(url, source) {
-                                return FileSource.create(url).setContent(source);
-                            };
-
-                            var System = this.System;
-                            var self = this;
-
-                            var translate = System.translate;
-                            System.translate = function(load) {
-                                return translate.call(this, load).then(function(transpiledSource) {
-                                    var loadMetadata = load.metadata;
-                                    var loadFormat = loadMetadata.format;
-                                    if (loadFormat !== 'json') {
-                                        self.storeSource(load.address, transpiledSource);
-                                        // we could speed up sourcemap by reading it from load.metadata.sourceMap;
-                                        // but systemjs set it to undefined after transpilation (load.metadata.sourceMap = undefined)
-                                        // saying it's now useless because the transpiled embeds it in base64
-                                        // https://github.com/systemjs/systemjs/blob/master/dist/system.src.js#L3578
-                                        // I keep this commented as a reminder that sourcemap could be available using load.metadata
-                                        // I may open an issue on github about this, fore as it's only a perf issue I think it will never happen
-                                        // function readSourceMapFromModuleMeta() { }
-                                    }
-                                    return transpiledSource;
-                                });
-                            };
-
-                            // to review :
-                            // we should warn when two different things try to add a source for a given module
-                            // for instance if moduleSource.set('test.js', 'source') is called while there is already
-                            // a source for test.js we must throw because it's never supposed to happen
-                            // it's not a big error but it means there is two something to improve and maybe something wrong
-                            // we should store source found in sourcemap in module-source, maybe not according to above
-                            // but if the source is supposed to exists then check that it does exists (keep in mind nested sourcemap)
-                            // finally stackTrace.firstCallSite.loadFile will try to load a file that may be accessible in moduleSources so check it
-                        }.bind(this));
-                    }.bind(this)).then(function() {
-                        return this.import(this.dirname + '/setup.js');
-                    }.bind(this)).then(function() {
-                        return this;
-                    }.bind(this));
-                }
-            };
-        });
-
         build(function create() {
             return {
                 lastId: 0,
@@ -1043,13 +985,73 @@ jsenv.create().setup().then(function(envB) {
                         env.global.System = env.System;
                     }
 
-                    env.configSystem();
-
                     return env;
                 },
 
+                setup: function() {
+                    this.configSystem();
+
+                    var setupPromise;
+
+                    setupPromise = this.import('env/file-source').then(function(exports) {
+                        return exports.default;
+                        // return exports.default.extend({
+                        //     cache: {}
+                        // });
+                    }).then(function(FileSource) {
+                        this.FileSource = FileSource;
+                        jsenv.FileSource = FileSource;
+
+                        this.storeSource = function(url, source) {
+                            return this.FileSource.create(url).setContent(source);
+                        };
+                    }.bind(this));
+
+                    return setupPromise.then(function() {
+                        // this is just a way to make things faster because we already go the transpiledSource without having to query the filesystem
+                        // for now I'll just disable this because it's only for perf reason
+                        // I have to enable this for anonymous module anyway
+                        var System = this.System;
+                        var self = this;
+
+                        var translate = System.translate;
+                        System.translate = function(load) {
+                            return translate.call(this, load).then(function(transpiledSource) {
+                                var loadMetadata = load.metadata;
+                                var loadFormat = loadMetadata.format;
+                                if (loadFormat !== 'json') {
+                                    self.storeSource(load.address, transpiledSource);
+                                    // we could speed up sourcemap by reading it from load.metadata.sourceMap;
+                                    // but systemjs set it to undefined after transpilation (load.metadata.sourceMap = undefined)
+                                    // saying it's now useless because the transpiled embeds it in base64
+                                    // https://github.com/systemjs/systemjs/blob/master/dist/system.src.js#L3578
+                                    // I keep this commented as a reminder that sourcemap could be available using load.metadata
+                                    // I may open an issue on github about this, fore as it's only a perf issue I think it will never happen
+                                    // function readSourceMapFromModuleMeta() { }
+                                }
+                                return transpiledSource;
+                            });
+                        };
+
+                        // to review :
+                        // we should warn when two different things try to add a source for a given module
+                        // for instance if moduleSource.set('test.js', 'source') is called while there is already
+                        // a source for test.js we must throw because it's never supposed to happen
+                        // it's not a big error but it means there is two something to improve and maybe something wrong
+                        // we should store source found in sourcemap in module-source, maybe not according to above
+                        // but if the source is supposed to exists then check that it does exists (keep in mind nested sourcemap)
+                        // finally stackTrace.firstCallSite.loadFile will try to load a file that may be accessible in moduleSources so check it
+                    }.bind(this)).then(function() {
+                        return this.import(this.dirname + '/setup.js');
+                    }.bind(this));
+                },
+
                 generate: function(options) {
-                    return this.create(options).setup();
+                    var env = this.create(options);
+
+                    return env.setup().then(function() {
+                        return env;
+                    });
                 }
             };
         });
