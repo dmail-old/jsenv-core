@@ -14,7 +14,14 @@ Promise.resolve().then(function() {
     // console.log(env.FileSource.redirections);
     // console.log(Object.keys(env.FileSource.cache));
 }).then(function() {
-    return jsenv.generate({logLevel: 'info'}).then(function(env) {
+    var source = 'export default true';
+    var sourceAddress = 'anonymous';
+    var sourceURL = env.locate(sourceAddress);
 
+    return jsenv.generate({logLevel: 'info'}).then(function(env) {
+        return env.evalMain(source, sourceAddress);
+    }).then(function() {
+        assert(sourceURL in env.FileSource.cache);
+        console.log('anonymous module source is correctly cached');
     });
 });

@@ -997,6 +997,9 @@ after including this file you can create your own env, (most time only one is en
 
                         var translate = System.translate;
                         System.translate = function(load) {
+                            // console.log('translate', load.source);
+                            self.storeSource(load.address, load.source);
+
                             return translate.call(this, load).then(function(transpiledSource) {
                                 var loadMetadata = load.metadata;
                                 var loadFormat = loadMetadata.format;
@@ -1043,13 +1046,7 @@ after including this file you can create your own env, (most time only one is en
                             jsenv.FileSource = FileSource;
 
                             jsenv.storeSource = function(url, source) {
-                                var fileSource = jsenv.FileSource.create(url);
-
-                                fileSource.setContent(source);
-
-                                // console.log('store source', url, fileSource.url);
-
-                                return fileSource;
+                                return jsenv.FileSource.storeSource(url, source);
                             };
                         });
 

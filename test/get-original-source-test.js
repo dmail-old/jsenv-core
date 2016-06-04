@@ -43,7 +43,6 @@ Promise.resolve().then(function() {
         // assert(sourceAddress in myEnv.coverage.value);
         return env.FileSource.create(sourceURL);
     }).then(function(mainFileSource) {
-        console.log('mainsource url', mainFileSource.url, Boolean(mainFileSource.generated.generated));
         return mainFileSource.prepare().then(function() {
             return mainFileSource;
         });
