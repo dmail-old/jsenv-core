@@ -2,6 +2,9 @@ import jsenv from 'jsenv';
 
 // import assert from '@node/assert';
 
+// donc pour coverage il faut voir le coverage object qu'on obtient
+// puis vérifier que remap marche bien
+
 jsenv.generate({logLevel: 'info'}).then(function(env) {
     var source = 'export default true';
     var sourceAddress = 'anonymous';
