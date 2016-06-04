@@ -10,7 +10,7 @@ jsenv.generate({logLevel: 'info'}).then(function(env) {
     var sourceAddress = 'anonymous';
 
     env.config(function() {
-        return env.import('jsenv/module-coverage').then(function(exports) {
+        return env.import('env/module-coverage').then(function(exports) {
             var coverage = exports.default.create({
                 urlIsPartOfCoverage(url) {
                     return url.includes('anonymous');
@@ -24,6 +24,8 @@ jsenv.generate({logLevel: 'info'}).then(function(env) {
     });
 
     return env.evalMain(source, sourceAddress).then(function() {
-        console.log(env.coverage.value);
+        return env.coverage.remap(env.coverage.value);
+    }).then(function(coverage) {
+        console.log('coverage', coverage);
     });
 });

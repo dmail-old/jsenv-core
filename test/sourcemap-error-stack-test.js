@@ -13,6 +13,7 @@ var sourceAddress = 'anonymous';
 // var selfUrl = env.mainAction.module.href;
 
 Promise.resolve().then(function() {
+    // anonymous module
     return jsenv.generate({logLevel: 'info'}).then(function(env) {
         return env.evalMain(source, sourceAddress).then(function(exports) {
             exports.default();
@@ -24,7 +25,24 @@ Promise.resolve().then(function() {
         }).then(function(error) {
             assert.equal(error.fileName, env.locate('anonymous'));
             assert.equal(error.lineNumber, 3);
-            console.log('error.fileName & error.lineNumber ok with transpiled anonymous module');
+            assert.equal(error.lineSource, source.split('\n')[2]);
+            console.log('error.fileName, lineNumber & lineSource ok with transpiled anonymous module');
+        });
+    });
+}).then(function() {
+    // imported module
+    return jsenv.generate({logLevel: 'info'}).then(function(env) {
+        return env.importMain('./modules/module-error.js').then(function(exports) {
+            return exports.default();
+        }).catch(function(error) {
+            return error.prepare().then(function() {
+                return error;
+            });
+        }).then(function(error) {
+            assert.equal(error.fileName, jsenv.locate('./modules/module-error.js'));
+            assert.equal(error.lineNumber, 4);
+            assert(error.lineSource.indexOf('This is the original code') > -1);
+            console.log('error.fileName, lineNumber & lineSource ok with imported module');
         });
     });
 });
