@@ -91,9 +91,9 @@ env.build(function main() {
     };
 });
 
-env.config('sourcemap-error-stack', function() {
-    return System.import('env/sourcemap-error-stack');
-});
+// env.config('sourcemap-error-stack', function() {
+//     return System.import('env/sourcemap-error-stack');
+// });
 
 env.config('core-plugins', function() {
     // [

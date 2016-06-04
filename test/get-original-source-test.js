@@ -5,13 +5,14 @@ import assert from '@node/assert';
 
 var source = 'export default true';
 var sourceAddress = 'anonymous';
+var sourceURL = env.locate(sourceAddress);
 
 Promise.resolve().then(function() {
     // transpilation
     return jsenv.generate({logLevel: 'info'}).then(function(env) {
         return env.evalMain(source, sourceAddress);
     }).then(function() {
-        return env.FileSource.create(env.locate(sourceAddress));
+        return env.FileSource.create(sourceURL);
     }).then(function(mainFileSource) {
         return mainFileSource.prepare().then(function() {
             return mainFileSource;
@@ -40,8 +41,9 @@ Promise.resolve().then(function() {
         return env.evalMain(source, sourceAddress);
     }).then(function() {
         // assert(sourceAddress in myEnv.coverage.value);
-        return env.FileSource.create(env.locate(sourceAddress));
+        return env.FileSource.create(sourceURL);
     }).then(function(mainFileSource) {
+        console.log('mainsource url', mainFileSource.url, Boolean(mainFileSource.generated.generated));
         return mainFileSource.prepare().then(function() {
             return mainFileSource;
         });

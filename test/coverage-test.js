@@ -24,6 +24,20 @@ jsenv.generate({logLevel: 'info'}).then(function(env) {
     });
 
     return env.evalMain(source, sourceAddress).then(function() {
+        // var remapFile = jsenv.FileSource.create(jsenv.locate('../lib/module-coverage/remap.js'));
+
+        // return remapFile.prepare().then(function() {
+        //     console.log(remapFile.sourceMap.consumer.originalPositionFor({
+        //         line: 222,
+        //         column: 29
+        //     }));
+
+        //     console.log(remapFile.getOriginalPosition({
+        //         line: 222,
+        //         column: 29
+        //     }));
+        // });
+
         return env.coverage.remap(env.coverage.value);
     }).then(function(coverage) {
         console.log('coverage', coverage);
