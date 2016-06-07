@@ -884,7 +884,7 @@ after including this file you can create your own env, (most time only one is en
                         'agent-more',
                         'exception-handler',
                         'file-source',
-                        'sourcemap-error-stack',
+                        'remap-error-stack',
                         'i18n',
                         'language',
                         'module-coverage',
@@ -998,13 +998,13 @@ after including this file you can create your own env, (most time only one is en
                         var translate = System.translate;
                         System.translate = function(load) {
                             // console.log('translate', load.source);
-                            self.storeSource(load.address, load.source);
+                            self.sources.set(load.address, load.source);
 
                             return translate.call(this, load).then(function(transpiledSource) {
                                 var loadMetadata = load.metadata;
                                 var loadFormat = loadMetadata.format;
                                 if (loadFormat !== 'json') {
-                                    self.storeSource(load.address, transpiledSource);
+                                    self.sources.set(load.address, transpiledSource);
                                     // we could speed up sourcemap by reading it from load.metadata.sourceMap;
                                     // but systemjs set it to undefined after transpilation (load.metadata.sourceMap = undefined)
                                     // saying it's now useless because the transpiled embeds it in base64
@@ -1038,16 +1038,11 @@ after including this file you can create your own env, (most time only one is en
                     } else {
                         installPromise = jsenv.import('env/file-source').then(function(exports) {
                             return exports.default;
-                            // return exports.default.extend({
-                            //     cache: {}
-                            // });
-                        }).then(function(FileSource) {
-                            // this.FileSource = FileSource;
-                            jsenv.FileSource = FileSource;
-
-                            jsenv.storeSource = function(url, source) {
-                                return jsenv.FileSource.storeSource(url, source);
-                            };
+                        }).then(function(sources) {
+                            jsenv.sources = sources;
+                        }).then(function() {
+                            // tod only if node or a browser which does not support sourcemap (firefox)
+                            return System.import('env/remap-error-stack');
                         });
 
                         jsenv.installPromise = installPromise;
