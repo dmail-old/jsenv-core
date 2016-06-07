@@ -1,5 +1,7 @@
 import jsenv from 'jsenv';
 
+import require from '@node/require';
+
 // import assert from '@node/assert';
 
 jsenv.generate({logLevel: 'info'}).then(function(env) {
@@ -30,6 +32,17 @@ jsenv.generate({logLevel: 'info'}).then(function(env) {
         return env.coverage.remap(coverage);
     }).then(function(data) {
         console.log('remapped', data.coverage);
+
+        var istanbul = require('istanbul');
+        var reporter = new istanbul.Reporter(null, './coverage-report/');
+
+        reporter.add('html');
+
+        return new Promise(function(resolve) {
+            reporter.write(data.collector, false, resolve);
+        }).then(function() {
+            console.log('html report generated');
+        });
     });
 });
 

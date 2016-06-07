@@ -1042,7 +1042,7 @@ after including this file you can create your own env, (most time only one is en
                     if (jsenv.installPromise) {
                         installPromise = jsenv.installPromise;
                     } else {
-                        var corePlugins = ['agent-more'];
+                        var corePlugins = ['agent-more', 'platform-more'];
 
                         installPromise = Promise.all(corePlugins.map(function(corePlugin) {
                             return jsenv.import('env/' + corePlugin);
