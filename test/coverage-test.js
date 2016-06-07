@@ -2,9 +2,6 @@ import jsenv from 'jsenv';
 
 // import assert from '@node/assert';
 
-// donc pour coverage il faut voir le coverage object qu'on obtient
-// puis vérifier que remap marche bien
-
 jsenv.generate({logLevel: 'info'}).then(function(env) {
     var source = `
     export default function() {
@@ -12,12 +9,6 @@ jsenv.generate({logLevel: 'info'}).then(function(env) {
     }
     `;
     var sourceAddress = 'anonymous';
-
-    // env.run(function() {
-    //     // execute the mainAction exports.default before generating the coverage
-    //     // what we could do is simply to manually generated the coverage after we exports.default();
-    //     env.mainAction.result.default();
-    // });
 
     return env.importDefault('env/module-coverage').then(function(Coverage) {
         var coverage = Coverage.create({
