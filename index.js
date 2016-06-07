@@ -829,6 +829,12 @@ after including this file you can create your own env, (most time only one is en
                     return this.System.import(a, b);
                 },
 
+                importDefault: function(a, b) {
+                    return this.import(a, b).then(function(exports) {
+                        return exports.default;
+                    });
+                },
+
                 createSystem: function() {
                     // dont touch the global System, use a local one
                     var System = Object.create(this.SystemPrototype);
@@ -1036,13 +1042,31 @@ after including this file you can create your own env, (most time only one is en
                     if (jsenv.installPromise) {
                         installPromise = jsenv.installPromise;
                     } else {
-                        installPromise = jsenv.import('env/file-source').then(function(exports) {
-                            return exports.default;
+                        var corePlugins = ['agent-more'];
+
+                        installPromise = Promise.all(corePlugins.map(function(corePlugin) {
+                            return jsenv.import('env/' + corePlugin);
+                        })).then(function() {
+                            jsenv.defineSupportDetector('error-stack-sourcemap', function() {
+                                if (jsenv.isNode()) {
+                                    return false;
+                                }
+                                if (jsenv.isBrowser()) {
+                                    if (jsenv.agent.name === 'chrome') {
+                                        return true;
+                                    }
+                                    return false;
+                                }
+                                return false;
+                            });
+                        }).then(function() {
+                            return jsenv.importDefault('env/file-source');
                         }).then(function(sources) {
                             jsenv.sources = sources;
                         }).then(function() {
-                            // tod only if node or a browser which does not support sourcemap (firefox)
-                            return System.import('env/remap-error-stack');
+                            if (jsenv.support('error-stack-sourcemap') === false) {
+                                return System.import('env/remap-error-stack');
+                            }
                         });
 
                         jsenv.installPromise = installPromise;
