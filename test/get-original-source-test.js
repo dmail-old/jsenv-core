@@ -12,7 +12,7 @@ Promise.resolve().then(function() {
     return jsenv.generate({logLevel: 'info'}).then(function(env) {
         return env.evalMain(source, sourceAddress);
     }).then(function() {
-        return env.FileSource.create(sourceURL);
+        return env.sources.get(sourceURL);
     }).then(function(mainFileSource) {
         return mainFileSource.prepare().then(function() {
             return mainFileSource;
@@ -41,7 +41,7 @@ Promise.resolve().then(function() {
         return env.evalMain(source, sourceAddress);
     }).then(function() {
         // assert(sourceAddress in myEnv.coverage.value);
-        return env.FileSource.create(sourceURL);
+        return env.sources.get(sourceURL);
     }).then(function(mainFileSource) {
         return mainFileSource.prepare().then(function() {
             return mainFileSource;

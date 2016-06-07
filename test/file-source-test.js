@@ -7,7 +7,7 @@ var selfUrl = env.mainAction.module.href;
 
 Promise.resolve().then(function() {
     // self source
-    assert(selfUrl in env.FileSource.cache);
+    assert(env.sources.has(selfUrl));
     console.log('self source is correctly cached');
 
     // console.log(selfUrl, selfRedirectedURL);
@@ -21,7 +21,7 @@ Promise.resolve().then(function() {
     return jsenv.generate({logLevel: 'info'}).then(function(env) {
         return env.evalMain(source, sourceAddress);
     }).then(function() {
-        assert(sourceURL in env.FileSource.cache);
+        assert(env.sources.has(sourceURL));
         console.log('anonymous module source is correctly cached');
     });
 });
