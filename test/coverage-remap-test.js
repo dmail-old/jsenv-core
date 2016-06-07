@@ -6,11 +6,7 @@ import jsenv from 'jsenv';
 // puis vérifier que remap marche bien
 
 jsenv.generate({logLevel: 'info'}).then(function(env) {
-    var source = `
-    export default function() {
-        return true;
-    }
-    `;
+    var source = 'export default true';
     var sourceAddress = 'anonymous';
 
     env.config(function() {
@@ -27,16 +23,22 @@ jsenv.generate({logLevel: 'info'}).then(function(env) {
         });
     });
 
-    // env.run(function() {
-    //     // execute the mainAction exports.default before generating the coverage
-    //     // what we could do is simply to manually generated the coverage after we exports.default();
-    //     env.mainAction.result.default();
-    // });
+    return env.evalMain(source, sourceAddress).then(function() {
+        // var remapFile = jsenv.FileSource.create(jsenv.locate('../lib/module-coverage/remap.js'));
 
-    return env.evalMain(source, sourceAddress).then(function(exports) {
-        return exports.default();
-    }).then(function() {
-        return env.coverage.collect();
+        // return remapFile.prepare().then(function() {
+        //     console.log(remapFile.sourceMap.consumer.originalPositionFor({
+        //         line: 222,
+        //         column: 29
+        //     }));
+
+        //     console.log(remapFile.getOriginalPosition({
+        //         line: 222,
+        //         column: 29
+        //     }));
+        // });
+
+        return env.coverage.remap(env.coverage.value);
     }).then(function(coverage) {
         console.log('coverage', coverage);
     });
