@@ -23,5 +23,7 @@ Promise.resolve().then(function() {
     }).then(function() {
         assert(env.sources.has(sourceURL));
         console.log('anonymous module source is correctly cached');
+        assert(env.sources.has(sourceURL + '!transpiled'));
+        console.log('anonymous module transpiled source is correctly cached');
     });
 });

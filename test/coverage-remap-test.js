@@ -28,8 +28,8 @@ jsenv.generate({logLevel: 'info'}).then(function(env) {
         return env.coverage.collect();
     }).then(function(coverage) {
         return env.coverage.remap(coverage);
-    }).then(function(remappedCoverage) {
-        console.log('remapped', remappedCoverage);
+    }).then(function(data) {
+        console.log('remapped', data.coverage);
     });
 });
 
