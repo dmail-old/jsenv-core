@@ -26,24 +26,32 @@ var commandSignatures = {
                 type: 'boolean',
                 default: false,
                 params: {
-                    console: {
-                        type: 'boolean',
-                        default: true
-                    },
-                    json: {
-                        type: 'boolean',
-                        default: false
-                    },
-                    html: {
-                        type: 'boolean',
-                        default: false
-                    },
-                    codecov: {
-                        type: 'boolean',
-                        default: false,
+                    report: {
                         params: {
-                            token: {
-                                type: 'string'
+                            console: {
+                                type: 'boolean',
+                                default: true
+                            },
+                            json: {
+                                type: 'boolean',
+                                default: false
+                            },
+                            html: {
+                                type: 'boolean',
+                                default: false
+                            }
+                        }
+                    },
+                    upload: {
+                        params: {
+                            codecov: {
+                                type: 'boolean',
+                                default: false,
+                                params: {
+                                    token: {
+                                        type: 'string'
+                                    }
+                                }
                             }
                         }
                     }

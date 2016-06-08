@@ -22,10 +22,10 @@
 		"link-dev": "",
 		"test": "node ./bin/run test/modules/module-test.js -test",
 		"cover": "node ./bin/run test/modules/module-test.js -test -cover",
-		"cover-console": "node ./bin/run test/modules/module-test.js -test -cover -cover-console",
-		"cover-html": "node ./bin/run test/modules/module-test.js -test -cover -cover-console -cover-html",
-		"cover-json": "node ./bin/run test/modules/module-test.js -test -cover -cover-console -cover-json",
-		"ci": "node ./bin/run test/modules/module-test.js -test -cover -cover-codecov -cover-codecov-token=f695edf1-d0f4-4799-bb08-46955137f0c3"
+		"cover-console": "node ./bin/run test/modules/module-test.js -test -cover -cover-report-console",
+		"cover-html": "node ./bin/run test/modules/module-test.js -test -cover -cover-report-console -cover-report-html",
+		"cover-json": "node ./bin/run test/modules/module-test.js -test -cover -cover-report-console -cover-report-json",
+		"ci": "node ./bin/run test/modules/module-test.js -test -cover -cover-upload-codecov -cover-upload-codecov-token=f695edf1-d0f4-4799-bb08-46955137f0c3"
 	},
 	"repository": {
 		"type": "git",

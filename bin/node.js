@@ -16,31 +16,44 @@ module.exports = function run(filename, options) {
         if (options.cover) {
             env.config('module-coverage', function() {
                 return System.import('env/module-coverage').then(function(exports) {
-                    // most time we do code coverage test to see how a file is covering all it's dependencies
-                    // so checking that the file is the mainLocation or a peer or inside is sufficient
+                    var coverOptions = {};
 
                     var mainURI = env.createURI(env.mainModule.href);
-                    var mainNodeURI = mainURI.clone();
-                    mainNodeURI.protocol = ''; // remove the file:/// protocol on node
-                    mainNodeURI.suffix = '';
-                    mainNodeURI.filename += '-coverage';
-
-                    console.log('report directory :', mainNodeURI.href);
-
-                    var token = options['cover-codecov-token'] || process.env.CODECOV_TOKEN;
-
-                    var coverOptions = {
-                        urlIsPartOfCoverage: function(url) {
-                            return mainURI.includes(url);
-                        },
-                        directory: mainNodeURI.href,
-                        console: options['cover-console'],
-                        json: options['cover-json'],
-                        html: options['cover-html'],
-                        codecov: options['cover-codecov'] ? {
-                            token: token
-                        } : false
+                    coverOptions.urlIsPartOfCoverage = function(url) {
+                        // most time we do code coverage test to see how a file is covering all it's dependencies
+                        // so checking that the file is the mainLocation or a peer or inside is sufficient
+                        return mainURI.includes(url);
                     };
+
+                    var console = options['cover-report-console'];
+                    var json = options['cover-report-json'];
+                    var html = options['cover-rpeort-html'];
+                    if (console || json || html) {
+                        var mainNodeURI = mainURI.clone();
+                        mainNodeURI.protocol = ''; // remove the file:/// protocol on node
+                        mainNodeURI.suffix = '';
+                        mainNodeURI.filename += '-coverage';
+
+                        console.log('report directory :', mainNodeURI.href);
+
+                        coverOptions.report = {
+                            directory: mainNodeURI.href,
+                            console: console,
+                            json: json,
+                            html: html
+                        };
+                    }
+
+                    var codecov = options['cover-upload-codecov'];
+                    if (codecov) {
+                        var token = options['cover-upload-codecov-token'] || process.env.CODECOV_TOKEN;
+
+                        coverOptions.upload = {
+                            codecov: {
+                                token: token
+                            }
+                        };
+                    }
 
                     return exports.default.cover(coverOptions);
                 });
