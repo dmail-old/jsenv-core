@@ -1,68 +1,80 @@
 import env from 'env';
 
-import Action from 'env/action';
-import LazyModule from 'env/lazy-module';
+env.configMain();
 
-env.build(function main() {
-    return {
-        configMain() {
-            var mainModule = LazyModule.create({
-                parentLocation: this.baseURI.href
-            });
-            var mainAction = Action.create({
-                name: 'main',
-                uri: this.baseURI,
-                module: mainModule,
-                main() {
-                    return this.module.import();
+var options = env.options;
+
+if (options.autorun) {
+    env.run(options.autorun);
+}
+
+var coverOptions = options.cover;
+
+// this is part of the options you can pass when generating an env, this code may belong to the module-coverage stuff
+// that will auto plugin into the current env when imported
+if (coverOptions) {
+    env.config(function() {
+        return env.importDefault('env/module-coverage').then(function(CoveragePlugin) {
+            var mainURI = env.createURI(env.mainModule.href);
+
+            env.mainURI = mainURI;
+
+            return CoveragePlugin.create({
+                urlIsPartOfCoverage: function(url) {
+                    // most time we do code coverage test to see how a file is covering all it's dependencies
+                    // so checking that the file is the mainLocation or a peer or inside is sufficient
+                    return mainURI.includes(url);
                 }
             });
+        }).then(function(coveragePlugin) {
+            env.coveragePlugin = coveragePlugin;
+            return coveragePlugin.install();
+        });
+    });
 
-            this.mainModule = mainModule;
-            this.mainAction = mainAction;
-        },
+    env.run(function() {
+        var coveragePlugin = env.coveragePlugin;
 
-        config(...args) {
-            return this.mainAction.config(...args);
-        },
+        return coveragePlugin.collect().then(function(coverage) {
+            return coveragePlugin.remap(coverage);
+        }).then(function(coverage) {
+            var console = coverOptions.console;
+            var json = coverOptions.json;
+            var html = coverOptions.html;
 
-        run(...args) {
-            return this.mainAction.run(...args);
-        },
+            if (console || json || html) {
+                var mainURIClone = env.mainURI.clone();
+                mainURIClone.protocol = ''; // remove the file:/// protocol on node
+                mainURIClone.suffix = '';
+                mainURIClone.filename += '-coverage';
 
-        evalMain(source, sourceURL) {
-            this.mainModule.source = source;
-            this.mainModule.location = sourceURL || 'anonymous';
-            return this.start();
-        },
+                console.log('report directory :', mainURIClone.href);
 
-        exportMain(exports) {
-            // seems strange to pass an object because this object will not benefit
-            // from any polyfill/transpilation etc
-            this.mainModule.exports = exports;
-            this.mainModule.location = 'anonymous';
-            return this.start();
-        },
+                coveragePlugin.options.report = {
+                    directory: mainURIClone.href,
+                    console: console,
+                    json: json,
+                    html: html
+                };
 
-        importMain(moduleLocation) {
-            console.log('importing', moduleLocation);
-            this.mainModule.location = moduleLocation;
-            return this.start();
-        },
-
-        start() {
-            if (!this.mainModule.location) {
-                throw new Error('mainModule location must be set before calling start()');
+                return coveragePlugin.report(coverage).then(function() {
+                    return coverage;
+                });
             }
+            return coverage;
+        }).then(function(coverage) {
+            var codecov = coverOptions.codecov;
+            if (codecov) {
+                var token = coverOptions.codecov.token || process.env.CODECOV_TOKEN;
 
-            // the first thing we do it to normalize the mainModule location because we'll need it
-            return this.mainModule.normalize().then(function() {
-                return this.mainAction.exec();
-            }.bind(this)).then(function() {
-                return this.mainAction.result;
-            }.bind(this));
-        }
-    };
-});
+                coveragePlugin.options.upload = {
+                    codecov: {
+                        token: token
+                    }
+                };
 
-env.configMain();
+                return coveragePlugin.upload(coverage, token);
+            }
+        });
+    });
+}

@@ -577,17 +577,6 @@ after including this file you can create your own env, (most time only one is en
             };
         });
 
-        // build(function installGlobalMethod() {
-        //     return {
-        //         installGlobalMethod: function(globalName, method) {
-        //             var handler = this.createCancellableAssignment(this.global, globalName);
-        //             handler.assign(method);
-        //             // give a way to restore previous global state thanks to globalValueHandler
-        //             return handler;
-        //         }
-        //     };
-        // });
-
         build(function support() {
             var detectors = {};
 
@@ -925,7 +914,7 @@ after including this file you can create your own env, (most time only one is en
                         this.System.paths[utilName] = utilPath;
                     }, this);
 
-                    // jsenv.debug('configured env system');
+                    // console.log('system configured on', this.id);
                 }
             };
         });

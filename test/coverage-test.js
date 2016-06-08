@@ -2,7 +2,14 @@ import jsenv from 'jsenv';
 
 // import assert from '@node/assert';
 
-jsenv.generate({logLevel: 'info'}).then(function(env) {
+jsenv.generate({
+    logLevel: 'info',
+    autorun() {
+        // call exports.default
+        this.parent.result.default();
+    },
+    cover: {}
+}).then(function(env) {
     var source = `
     export default function() {
         return true;
@@ -10,23 +17,7 @@ jsenv.generate({logLevel: 'info'}).then(function(env) {
     `;
     var sourceAddress = 'anonymous';
 
-    return env.importDefault('env/module-coverage').then(function(Coverage) {
-        var coverage = Coverage.create({
-            urlIsPartOfCoverage(url) {
-                return url.includes(sourceAddress);
-            }
-        });
-
-        env.coverage = coverage;
-
-        return coverage.install(env);
-    }).then(function() {
-        return env.evalMain(source, sourceAddress);
-    }).then(function(exports) {
-        return exports.default();
-    }).then(function() {
-        return env.coverage.collect();
-    }).then(function(coverage) {
-        console.log('coverage', coverage);
+    return env.evalMain(source, sourceAddress).then(function() {
+        console.log(env.coveragePlugin.value);
     });
 });
