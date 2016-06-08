@@ -1042,33 +1042,9 @@ after including this file you can create your own env, (most time only one is en
                     if (jsenv.installPromise) {
                         installPromise = jsenv.installPromise;
                     } else {
-                        var corePlugins = ['agent-more', 'platform-more'];
-
-                        installPromise = Promise.all(corePlugins.map(function(corePlugin) {
-                            return jsenv.import('env/' + corePlugin);
-                        })).then(function() {
-                            jsenv.defineSupportDetector('error-stack-sourcemap', function() {
-                                if (jsenv.isNode()) {
-                                    return false;
-                                }
-                                if (jsenv.isBrowser()) {
-                                    if (jsenv.agent.name === 'chrome') {
-                                        return true;
-                                    }
-                                    return false;
-                                }
-                                return false;
-                            });
-                        }).then(function() {
-                            return jsenv.importDefault('env/file-source');
-                        }).then(function(sources) {
-                            jsenv.sources = sources;
-                        }).then(function() {
-                            if (jsenv.support('error-stack-sourcemap') === false) {
-                                return System.import('env/remap-error-stack');
-                            }
+                        installPromise = jsenv.importDefault(this.dirname + '/install.js').then(function(install) {
+                            return install(jsenv);
                         });
-
                         jsenv.installPromise = installPromise;
                     }
 
