@@ -882,7 +882,7 @@ after including this file you can create your own env, (most time only one is en
                         'remap-error-stack',
                         'i18n',
                         'language',
-                        'module-coverage',
+                        'module-cover',
                         'module-test',
                         'platform-more',
                         'rest',

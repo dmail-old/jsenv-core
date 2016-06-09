@@ -8,7 +8,9 @@ jsenv.generate({
         // call exports.default
         this.parent.result.default();
     },
-    cover: {}
+    cover: {
+
+    }
 }).then(function(env) {
     var source = `
     export default function() {
@@ -18,6 +20,6 @@ jsenv.generate({
     var sourceAddress = 'anonymous';
 
     return env.evalMain(source, sourceAddress).then(function() {
-        console.log(env.coveragePlugin.value);
+        // console.log(env.plugins.get('cover').value);
     });
 });
