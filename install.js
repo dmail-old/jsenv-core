@@ -98,6 +98,9 @@ export default function(jsenv) {
 
                 // the first thing we do it to normalize the mainModule location because we'll need it
                 return this.mainModule.normalize().then(function() {
+                    var mainURI = this.createURI(this.mainModule.href);
+                    this.mainURI = mainURI;
+
                     return this.mainAction.exec();
                 }.bind(this)).then(function() {
                     return this.mainAction.result;
