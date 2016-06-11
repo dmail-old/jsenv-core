@@ -17,36 +17,21 @@ var commandSignatures = {
     0: {
         type: 'string',
         alias: 'filename',
+        fn: startCommand,
         params: {
-            verbose: {
-                type: 'boolean',
-                default: false
-            },
+            verbose: false,
             cover: {
-                type: 'boolean',
-                default: false,
                 params: {
                     report: {
                         params: {
-                            console: {
-                                type: 'boolean',
-                                default: true
-                            },
-                            json: {
-                                type: 'boolean',
-                                default: false
-                            },
-                            html: {
-                                type: 'boolean',
-                                default: false
-                            }
+                            console: true,
+                            json: false,
+                            html: false
                         }
                     },
                     upload: {
                         params: {
                             codecov: {
-                                type: 'boolean',
-                                default: false,
                                 params: {
                                     token: {
                                         type: 'string'
@@ -61,15 +46,15 @@ var commandSignatures = {
                 type: 'boolean',
                 default: false,
                 params: {
-                    output: {
-                        type: 'array',
-                        enum: ['console', 'json'],
-                        default: ['console']
+                    report: {
+                        params: {
+                            console: true,
+                            json: false
+                        }
                     }
                 }
             }
-        },
-        fn: startCommand
+        }
     },
     version: {
         type: 'boolean',
