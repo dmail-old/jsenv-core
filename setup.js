@@ -53,7 +53,13 @@ if (options.autorun) {
     env.run(options.autorun);
 }
 
+var testOptions = options.test;
+if (testOptions) {
+    env.plugins.install('env/module-test');
+}
+
 var coverOptions = options.cover;
 if (coverOptions) {
     env.plugins.install('env/module-cover');
 }
+
