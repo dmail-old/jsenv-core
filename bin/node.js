@@ -1,7 +1,9 @@
 module.exports = function run(filename, options) {
     require('../index.js');
 
-    return global.jsenv.generate().then(function(env) {
+    // console.log('generating env with options', options);
+
+    return global.jsenv.generate(options).then(function(env) {
         var mainModuleURL = env.locate(filename);
 
         if (options.test && false) {
