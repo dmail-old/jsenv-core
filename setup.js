@@ -13,8 +13,8 @@ env.build(function plugins() {
 
         add(plugin) {
             var envPluginOptions;
-            if (env.options.plugins && plugin.name in env.options.plugins) {
-                envPluginOptions = env.options.plugins[plugin.name];
+            if (plugin.name in env.options) {
+                envPluginOptions = env.options[plugin.name];
             } else {
                 envPluginOptions = {};
             }
