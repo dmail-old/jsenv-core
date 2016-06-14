@@ -904,6 +904,7 @@ after including this file you can create your own env, (most time only one is en
                         'lazy-module',
                         'options',
                         'proto',
+                        'string-template',
                         'thenable',
                         'timeout',
                         'uri'
