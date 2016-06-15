@@ -1187,11 +1187,6 @@ after including this file you can create your own env, (most time only one is en
     function createJSEnv() {
         // create an object that will receive the env
         var jsenv = {};
-        // name of the global method used to create env object
-        jsenv.globalName = 'jsenv';
-        // set the name of a future module that will export env
-        jsenv.rootModuleName = 'jsenv';
-        jsenv.moduleName = 'env';
         // provide the minimal env available : platform, agent, global, baseAndInternalURl
         buildJSEnv(jsenv);
         return jsenv;
@@ -1217,6 +1212,9 @@ after including this file you can create your own env, (most time only one is en
     moreover now we want the ability to create multiple env it's not possible
     */
 
+    jsenv.globalName = 'jsenv';
+    jsenv.rootModuleName = 'jsenv';
+    jsenv.moduleName = 'env';
     jsenv.globalAssignment = jsenv.createCancellableAssignment(jsenv.global, jsenv.globalName);
     jsenv.globalAssignment.assign(jsenv);
 
