@@ -991,11 +991,19 @@ after including this file you can create your own env, (most time only one is en
                         var System = this.System;
                         var self = this;
 
+                        // any future fetch hook must call sources.set
+                        var fetch = System.fetch;
+                        System.fetch = function(load) {
+                            return fetch.call(this, load).then(function(source) {
+                                // console.log('translate', load.source);
+                                self.sources.set(load.address, load.source);
+                                return source;
+                            });
+                        };
+
+                        // any future translate hook must call sources.set
                         var translate = System.translate;
                         System.translate = function(load) {
-                            // console.log('translate', load.source);
-                            self.sources.set(load.address, load.source);
-
                             return translate.call(this, load).then(function(transpiledSource) {
                                 var loadMetadata = load.metadata;
                                 var loadFormat = loadMetadata.format;
