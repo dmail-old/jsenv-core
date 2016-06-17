@@ -898,6 +898,7 @@ after including this file you can create your own env, (most time only one is en
                     [
                         'action',
                         'array-sorted',
+                        'base64',
                         'dependency-graph',
                         'fetch-as-text',
                         'iterable',
