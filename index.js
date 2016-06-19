@@ -908,7 +908,8 @@ after including this file you can create your own env, (most time only one is en
                         'string-template',
                         'thenable',
                         'timeout',
-                        'uri'
+                        'uri',
+                        'uri-template'
                     ].forEach(function(utilName) {
                         var utilPath = this.dirname + '/lib/util/' + utilName + '/index.js';
                         this.System.paths[this.moduleName + '/' + utilName] = utilPath;
