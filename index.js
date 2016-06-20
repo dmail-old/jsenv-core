@@ -149,6 +149,7 @@ after including this file you can create your own env, (most time only one is en
             } else if (typeof process !== 'undefined' && {}.toString.call(process) === "[object process]") {
                 // Don't get fooled by e.g. browserify environments.
                 type = 'node';
+                agent.setName('node');
                 agent.setVersion(process.version.slice(1));
             } else {
                 type = 'unknown';
