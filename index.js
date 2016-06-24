@@ -904,6 +904,8 @@ after including this file you can create your own env, (most time only one is en
                         'fetch-as-text',
                         'iterable',
                         'lazy-module',
+                        'object-clone',
+                        'object-merge',
                         'options',
                         'proto',
                         'string-template',
