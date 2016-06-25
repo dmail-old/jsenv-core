@@ -21,7 +21,7 @@ env.build(function plugins() {
 
             var options;
             if (plugin.defaultOptions) {
-                options = Options.create(Options.create(plugin.defaultOptions), envPluginOptions);
+                options = Options.create(plugin.defaultOptions, envPluginOptions);
             } else {
                 options = Options.create(envPluginOptions);
             }
