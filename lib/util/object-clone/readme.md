@@ -1,6 +1,6 @@
 ## clone
 
-Deeply clone an object, support circular references & property descriptors
+Deeply clone an object, support circular references, property descriptors and more
 
 ```javascript
 var clone = require('@dmail/object-clone');
