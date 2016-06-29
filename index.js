@@ -831,7 +831,7 @@ after including this file you can create your own env, (most time only one is en
                     System.constructor();
 
                     System.transpiler = 'babel';
-                    // System.trace = true;
+                    System.trace = true;
                     System.babelOptions = {};
                     System.paths.babel = this.dirname + '/node_modules/babel-core/browser.js';
                     // .json auto handled as json
