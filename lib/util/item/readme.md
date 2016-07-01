@@ -1,3 +1,5 @@
+OUTDATED
+
 ## clone
 
 Deeply clone an object, support circular references, property descriptors and more
