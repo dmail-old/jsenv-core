@@ -1,8 +1,5 @@
 /* eslint-env browser, node */
-
-/*
-after including this file you can create your own env, (most time only one is enough)
-*/
+/* after including this file you can create your own env, (most time only one is enough) */
 
 (function() {
     function buildJSEnv(jsenv) {
@@ -145,12 +142,39 @@ after including this file you can create your own env, (most time only one is en
                     type = 'unknown'; // 'webworker';
                 } else {
                     type = 'browser';
+
+                    var ua = navigator.userAgent.toLowerCase();
+                    var regex = /(opera|ie|firefox|chrome|version)[\s\/:]([\w\d\.]+(?:\.\d+)?)?.*?(safari|version[\s\/:]([\w\d\.]+)|$)/;
+                    var UA = ua.match(regex) || [null, 'unknown', 0];
+                    var name = UA[1] === 'version' ? UA[3] : UA[1];
+                    var version;
+
+                    // version
+                    if (UA[1] === 'ie' && document.documentMode) {
+                        version = document.documentMode;
+                    } else if (UA[1] === 'opera' && UA[4]) {
+                        version = UA[4];
+                    } else {
+                        version = UA[2];
+                    }
+
+                    agent.setName(name);
+                    agent.setVersion(version);
+
+                    this.platform.setName(window.navigator.platform);
                 }
             } else if (typeof process !== 'undefined' && {}.toString.call(process) === "[object process]") {
                 // Don't get fooled by e.g. browserify environments.
                 type = 'node';
                 agent.setName('node');
                 agent.setVersion(process.version.slice(1));
+
+                var os = require('os');
+
+                // https://nodejs.org/api/process.html#process_process_platform
+                // 'darwin', 'freebsd', 'linux', 'sunos', 'win32'
+                this.platform.setName(process.platform === 'win32' ? 'windows' : process.platform);
+                this.platform.setVersion(os.release());
             } else {
                 type = 'unknown';
             }
@@ -216,7 +240,7 @@ after including this file you can create your own env, (most time only one is en
                     if (mustReplaceBackSlashBySlash) {
                         path = replaceBackSlashBySlash(String(path));
                     }
-                    if (/^[A-Z]:\/.*?$/.test(path)) {
+                    if (/^[A-Za-z]:\/.*?$/.test(path)) {
                         path = 'file:///' + path;
                     }
                     return path;
@@ -877,7 +901,6 @@ after including this file you can create your own env, (most time only one is en
                     this.registerCoreModule(this.moduleName, this);
 
                     [
-                        'agent-more',
                         'exception-handler',
                         'file-source',
                         'remap-error-stack',
@@ -885,7 +908,6 @@ after including this file you can create your own env, (most time only one is en
                         'language',
                         'module-cover',
                         'module-test',
-                        'platform-more',
                         'rest',
                         'restart',
                         'service-http',

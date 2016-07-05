@@ -1,5 +1,3 @@
-import 'env/agent-more';
-import 'env/platform-more';
 import 'env/language';
 import 'env/restart';
 
@@ -15,6 +13,18 @@ import Action from 'env/action';
 import LazyModule from 'env/lazy-module';
 
 export default function(jsenv) {
+    var userAgent = 'jsenv ';
+    userAgent += jsenv.agent.name;
+    userAgent += '/';
+    userAgent += jsenv.agent.version;
+    userAgent += ' (';
+    userAgent += jsenv.platform.name;
+    userAgent += ' ';
+    userAgent += jsenv.platform.version;
+    userAgent += ')';
+    console.log(userAgent);
+    console.log(jsenv.baseURL);
+
     jsenv.build(function locate() {
         return {
             createURI(a, b) {
