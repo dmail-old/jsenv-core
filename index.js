@@ -901,18 +901,19 @@
                     this.registerCoreModule(this.moduleName, this);
 
                     [
-                        'exception-handler',
+                        'dictionnary',
                         'file-source',
-                        'remap-error-stack',
                         'i18n',
                         'language',
                         'module-cover',
                         'module-test',
+                        'remap-error-stack',
                         'rest',
                         'restart',
                         'service-http',
                         'stream',
-                        'stacktrace'
+                        'stacktrace',
+                        'string-template'
                     ].forEach(function(libName) {
                         var libPath = this.dirname + '/lib/' + libName + '/index.js';
                         this.System.paths[this.moduleName + '/' + libName] = libPath;
@@ -930,7 +931,6 @@
                         'object-merge',
                         'options',
                         'proto',
-                        'string-template',
                         'thenable',
                         'timeout',
                         'uri',
