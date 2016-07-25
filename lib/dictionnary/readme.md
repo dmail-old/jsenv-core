@@ -1,40 +1,27 @@
-# i18n
+# Dictionnary
 
-JavaScript i18n
+A JavaScript version of a real dictionnary
 
 ## Example
 
 ```javascript
-import I18N from 'jsenv/i18n';
+import Dictionnary from 'env/dictionnary';
 
-let i18n = I18N.create({
-	"greetings": {
-		"en": "Hello",
-		"fr": "Bonjour"
-	},
-	"greetings-scope": "#{greetings} {name}"
+let dict = Dictionnary.create();
+
+dict.registerFilter('young', function(user) {
+    return user.age < 25;
 });
 
-i18n.options.preferences = ['en', 'fr'];
-i18n.translate("greetings"); // Hello
-i18n.translate("greetings-scope", {name: 'damien'}); // Hello damien
-
-i18n.options.preferences = ['fr', 'en'];
-i18n.translate("greetings"); // Bonjour
-```
-
-## Description
-
-This module allow to conditionnaly generate string depending global and local options.
-Internationalization is just a use case.
-
-## Transformers
-
-```javascript
-
-i18n.registerTransformer('')
-
+dict.append({
+    "greetings": {
+        "young": "hi",
+        "": "hello"
+    },
+    "greetings-scope": "#{greetings} {name}"
 });
-```
 
-## Traits
+dict.look('greeting'); // 'hello'
+dict.look('greetings', {age: 20}); // 'hi'
+dict.look('greetings-scope', {age: 20, name: 'dam'}); // 'hi dam'
+```
