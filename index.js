@@ -931,6 +931,7 @@
                         'object-merge',
                         'options',
                         'proto',
+                        'shared-map',
                         'thenable',
                         'timeout',
                         'uri',
