@@ -1,53 +1,38 @@
-OUTDATED
+## any
 
-## clone
+Helper to create any value with an immutable approach
 
-Deeply clone an object, support circular references, property descriptors and more
+## any.scan
 
 ```javascript
-var clone = require('@dmail/object-clone');
+import any from 'env/any';
 
-var a = {name: 'a'};
-var b = clone(a);
-b.name; // 'a'
-
-// of course b != a
+let user = {name: 'dam'};
+let userDefinition = any.scan(user);
 ```
 
-It clone deeply
+## any.factory
 
 ```javascript
-var a = {
-	list: [
-		{name: 'first'}
-	]
-};
-var b = clone(a);
+import any from 'env/any';
 
-b.list[0].name; // 'first'
-b.list != a.list; // true
+let user = {name: 'dam', traits: ['old']};
+let userFactory = any.factory(user);
+
+let userA = userFactory.generate();
+
+user.traits != userA.traits; // true
+userA.traits[0]; // 'old'
 ```
 
-It support property descriptors
+## any.concat
 
 ```javascript
+import any from 'env/any';
 
-var a = {
-	get name(){
-		return 'a';
-	}
-};
-var b = clone(a);
-b.name; // 'a'
-```
+let user = {name: 'dam'};
+let friendsProperty = {friends: []};
+let userWithFriends = any.concat(user, friendsProperty);
 
-It support circular references
-
-```javascript
-var a = {};
-a.self = a;
-var b = clone(a);
-
-a.self; // a
-b.self; // b
+userWithFriends.friends !== friendsProperty.friends; // true
 ```
