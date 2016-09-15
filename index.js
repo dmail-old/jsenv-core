@@ -1015,7 +1015,7 @@
                     return Promise.resolve().then(function() {
                         // this is just a way to make things faster because we already go the transpiledSource without having to query the filesystem
                         // for now I'll just disable this because it's only for perf reason
-                        // I have to enable this for anonymous module anyway
+                        // -> no because I have to enable this for anonymous module anyway
                         var System = this.System;
                         var self = this;
 
@@ -1024,6 +1024,10 @@
                         System.fetch = function(load) {
                             return fetch.call(this, load).then(function(source) {
                                 // console.log('translate', load.source);
+                                if (self.mainURI && load.address === self.mainURI.toString()) {
+                                    // console.log('main source', load.source, 'source', source);
+                                    source = 'debugger;\n' + source;
+                                }
                                 self.sources.set(load.address, load.source);
                                 return source;
                             });
