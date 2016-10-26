@@ -12,7 +12,8 @@
 		"istanbul": "0.4.2",
 		"remap-istanbul": "0.5.1",
 		"os-locale": "1.4.0",
-		"open": "*"
+		"open": "*",
+		"stampit": "3.0.4"
 	},
 	"bin": {
 		"jsenv": "./bin/run"
