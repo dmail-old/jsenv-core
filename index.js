@@ -864,9 +864,15 @@
                     System.config({
                         map: {
                             'source-map': this.dirname + '/node_modules/source-map',
+                            immutable: this.dirname + '/node_modules/immutable',
                             modules: this.dirname + '/node_modules'
                         },
                         packages: {
+                            immutable: {
+                                main: 'dist/immutable.js',
+                                format: 'cjs',
+                                defaultExtension: 'js'
+                            },
                             "source-map": {
                                 main: 'source-map.js',
                                 format: 'cjs',
