@@ -863,7 +863,8 @@
 
                     System.config({
                         map: {
-                            'source-map': this.dirname + '/node_modules/source-map'
+                            'source-map': this.dirname + '/node_modules/source-map',
+                            modules: this.dirname + '/node_modules'
                         },
                         packages: {
                             "source-map": {
