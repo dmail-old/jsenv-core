@@ -1,6 +1,6 @@
 import jsenv from 'jsenv';
-import CallSite from './lib/callsite.js';
-import parseStack from './lib/stack-parse.js';
+import CallSite from './src/callsite.js';
+import parseStack from './src/stack-parse.js';
 
 function is(error) {
     return error && 'stack' in error;

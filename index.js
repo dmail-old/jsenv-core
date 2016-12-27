@@ -1,6 +1,19 @@
 /* eslint-env browser, node */
 /* after including this file you can create your own env, (most time only one is enough) */
 
+/*
+
+à faire:
+
+enlever certain trucs comme les modules qu isont externalisées dans configSystem
+
+externaliser sourcemap
+externaliser remap-error-stack
+externaliser module-test
+externaliser module-cover
+
+*/
+
 (function() {
     function buildJSEnv(jsenv) {
         function assign(object, properties) {
@@ -908,49 +921,26 @@
                     this.registerCoreModule(this.moduleName, this);
 
                     [
-                        'dictionnary',
-                        'file-source',
-                        'i18n',
-                        'language',
-                        'module-cover',
-                        'module-test',
-                        'remap-error-stack',
-                        'rest',
-                        'restart',
-                        'service-http',
-                        'stream',
-                        'stacktrace',
-                        'string-template'
-                    ].forEach(function(libName) {
-                        var libPath = this.dirname + '/lib/' + libName + '/index.js';
-                        this.System.paths[this.moduleName + '/' + libName] = libPath;
-                    }, this);
-
-                    [
                         'action',
                         'array-sorted',
                         'base64',
                         'dependency-graph',
                         'fetch-as-text',
-                        'item',
+                        'file-source',
                         'iterable',
                         'lazy-module',
-                        'object-merge',
                         'options',
                         'proto',
-                        'shared-map',
+                        'stacktrace',
                         'thenable',
                         'timeout',
-                        'uri',
-                        'uri-template'
-                    ].forEach(function(utilName) {
-                        var utilPath = this.dirname + '/lib/util/' + utilName + '/index.js';
-                        this.System.paths[this.moduleName + '/' + utilName] = utilPath;
+                        'uri'
+                    ].forEach(function(libName) {
+                        var libPath = this.dirname + '/src/' + libName + '/index.js';
+                        this.System.paths[this.moduleName + '/' + libName] = libPath;
                         // add a global name too for now
-                        this.System.paths[utilName] = utilPath;
+                        this.System.paths[libName] = libPath;
                     }, this);
-
-                    // console.log('system configured on', this.id);
                 }
             };
         });

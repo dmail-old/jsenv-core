@@ -1,13 +1,13 @@
 // will use clone with predefined options in order to concatenate array
 
 import proto from 'env/proto';
-import Item from 'env/item';
+// import Item from 'env/item';
 
-function createOptions(defaultOptions, userOptions) {
-    // return new Item.Factory(defaultOptions || {}, {mergeValue: userOptions || null, arrayConcat: true}).generate();
+// function createOptions(defaultOptions, userOptions) {
+//     // return new Item.Factory(defaultOptions || {}, {mergeValue: userOptions || null, arrayConcat: true}).generate();
 
-    return Item.concat(defaultOptions, userOptions);
-}
+//     return Item.concat(defaultOptions, userOptions);
+// }
 
 let Options = {
     allowObject: false, // let to false because object structure are often circular and deep while we only want option
@@ -89,7 +89,7 @@ export const test = {
 
     main(assert) {
         this.add("create(defaultOptions)", function() {
-            let options = createOptions.create({
+            let options = Options.create({
                 key: 'value'
             });
 

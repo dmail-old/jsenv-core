@@ -1,4 +1,4 @@
-var parse = require('../lib/callsite-parse.js');
+var parse = require('../src/callsite-parse.js');
 
 function match(actual, expected){
 	var maxDifferencesLogged = 5;

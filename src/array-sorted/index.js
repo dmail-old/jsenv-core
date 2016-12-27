@@ -1,6 +1,6 @@
 // import proto from 'proto';
 
-import Comparer from './lib/comparer.js';
+import Comparer from './src/comparer.js';
 
 function defaultCompare(a, b) {
     if (a < b) {

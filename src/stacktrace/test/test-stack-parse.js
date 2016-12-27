@@ -1,7 +1,7 @@
-var parse = require('../lib/stack-parse.js');
+var parse = require('../src/stack-parse.js');
 var assert = require('assert');
 
-var stacks = [	
+var stacks = [
 	{
 		string: 'Error\n\tat repl:1:1',
 		name: 'Error',
@@ -37,7 +37,7 @@ var stacks = [
 		name: 'Error',
 		message: 'ENOENT, no such file or directory',
 		trace: '\n\tat Error (native)\n\tat Object.<anonymous> (file.js:5:9)'
-	},	
+	},
 	{
 		string: 'SyntaxError: file:///run.js: Unterminated string constant (227:14)\
 			\n226 | fail: function(error){\

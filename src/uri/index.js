@@ -62,7 +62,7 @@ toNumber: function(){
     },
 */
 
-import '../../polyfill/url-search-params/index.js#?env|default.needs.url-search-params';
+import '../polyfill/url-search-params/index.js#?env|default.needs.url-search-params';
 
 import env from 'env';
 import proto from 'env/proto';
