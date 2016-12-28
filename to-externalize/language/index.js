@@ -34,3 +34,10 @@ jsenv.build(function language() {
         language: language
     };
 });
+
+// prepare() the language preferences to be able to call jsenv.language.best() sync
+    // if (true) { // eslint-disable-line no-constant-condition
+    //     installPromise = installPromise.then(function() {
+    //         return jsenv.language.prepare();
+    //     });
+    // }

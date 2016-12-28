@@ -9,11 +9,16 @@
 		"systemjs": "0.19.27",
 		"source-map": "0.5.6",
 		"istanbul": "0.4.2",
-		"remap-istanbul": "0.5.1",
 		"os-locale": "1.4.0",
-		"open": "*",
-		"stampit": "3.0.4",
-		"immutable": "3.8.1"
+		"open": "*"
+	},
+	"scripts": {
+		"test": "node ./bin/run test/modules/module-test.js -test",
+		"cover": "node ./bin/run test/modules/module-test.js -test -cover",
+		"cover-console": "node ./bin/run test/modules/module-test.js -test -cover -cover-report-console",
+		"cover-html": "node ./bin/run test/modules/module-test.js -test -cover -cover-report-console -cover-report-html",
+		"cover-json": "node ./bin/run test/modules/module-test.js -test -cover -cover-report-console -cover-report-json",
+		"ci": "node ./bin/run test/modules/module-test.js -test -cover -cover-upload-codecov -cover-upload-codecov-token=f695edf1-d0f4-4799-bb08-46955137f0c3"
 	},
 	"repository": {
 		"type": "git",

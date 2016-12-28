@@ -12,6 +12,16 @@ externaliser remap-error-stack
 externaliser module-test
 externaliser module-cover
 
+maintenant qu'on a externalisé des trucs l'idée c'est de faire un truc à la babel
+qui en gros dit: je souhaite me servir de ces fonctionnalités là: module-test, module-source
+sauf que pour pouvoir faire ça je sais pas, donc s'inspirer de babel
+
+en gros babel utilise .babelrc pour dire utilise ce plugin (qui doit alors être dans les node_modules je présume)
+ou utilise une options de la méthode transform, en tous cas
+c'est un module dans le node_modules
+
+je dis pourquoi pas
+
 */
 
 (function() {
@@ -922,16 +932,11 @@ externaliser module-cover
 
                     [
                         'action',
-                        'array-sorted',
-                        'base64',
-                        'dependency-graph',
                         'fetch-as-text',
-                        'file-source',
                         'iterable',
                         'lazy-module',
                         'options',
                         'proto',
-                        'stacktrace',
                         'thenable',
                         'timeout',
                         'uri'
@@ -979,7 +984,7 @@ externaliser module-cover
                                     // env.warn(
                                     //     'global.System used at ',
                                     //     new Error().stack.split('\n')[1],
-                                    //     ', use jsenv.System instead'
+                                    //     ', use env.System instead'
                                     // );
                                     accessed = true;
                                 }
@@ -1008,83 +1013,17 @@ externaliser module-cover
                     return env;
                 },
 
-                setup: function() {
-                    return Promise.resolve().then(function() {
-                        // this is just a way to make things faster because we already go the transpiledSource without having to query the filesystem
-                        // for now I'll just disable this because it's only for perf reason
-                        // -> no because I have to enable this for anonymous module anyway
-                        var System = this.System;
-                        var self = this;
-
-                        // any future fetch hook must call sources.set
-                        var fetch = System.fetch;
-                        System.fetch = function(load) {
-                            return fetch.call(this, load).then(function(source) {
-                                // console.log('translate', load.source);
-                                // if (self.mainURI && load.address === self.mainURI.toString()) {
-                                //     // console.log('main source', load.source, 'source', source);
-                                //     source = 'debugger;\n' + source;
-                                // }
-                                self.sources.set(load.address, load.source);
-                                return source;
-                            });
-                        };
-
-                        // any future translate hook must call sources.set
-                        var translate = System.translate;
-                        System.translate = function(load) {
-                            return translate.call(this, load).then(function(transpiledSource) {
-                                var loadMetadata = load.metadata;
-                                var loadFormat = loadMetadata.format;
-                                if (loadFormat !== 'json') {
-                                    self.sources.set(load.address, transpiledSource);
-                                    // we could speed up sourcemap by reading it from load.metadata.sourceMap;
-                                    // but systemjs set it to undefined after transpilation (load.metadata.sourceMap = undefined)
-                                    // saying it's now useless because the transpiled embeds it in base64
-                                    // https://github.com/systemjs/systemjs/blob/master/dist/system.src.js#L3578
-                                    // I keep this commented as a reminder that sourcemap could be available using load.metadata
-                                    // I may open an issue on github about this, fore as it's only a perf issue I think it will never happen
-                                    // function readSourceMapFromModuleMeta() { }
-                                }
-                                return transpiledSource;
-                            });
-                        };
-
-                        // to review :
-                        // we should warn when two different things try to add a source for a given module
-                        // for instance if moduleSource.set('test.js', 'source') is called while there is already
-                        // a source for test.js we must throw because it's never supposed to happen
-                        // it's not a big error but it means there is two something to improve and maybe something wrong
-                        // we should store source found in sourcemap in module-source, maybe not according to above
-                        // but if the source is supposed to exists then check that it does exists (keep in mind nested sourcemap)
-                        // finally stackTrace.firstCallSite.loadFile will try to load a file that may be accessible in moduleSources so check it
-                    }.bind(this)).then(function() {
-                        return this.import(this.dirname + '/setup.js');
-                    }.bind(this));
-                },
-
-                install: function() {
-                    var installPromise;
-
-                    if (jsenv.installPromise) {
-                        installPromise = jsenv.installPromise;
-                    } else {
-                        installPromise = jsenv.importDefault(this.dirname + '/install.js').then(function(install) {
-                            return install(jsenv);
-                        });
-                        jsenv.installPromise = installPromise;
-                    }
-
-                    return installPromise;
+                setup: function(env) {
+                    return jsenv.importDefault(this.dirname + '/setup.js').then(function(setup) {
+                        return setup(env);
+                    });
                 },
 
                 generate: function(options) {
-                    return jsenv.install().then(function() {
-                        var env = jsenv.create(options);
+                    var env = jsenv.create(options);
 
-                        return env.setup().then(function() {
-                            return env;
-                        });
+                    return jsenv.setup(env).then(function() {
+                        return env;
                     });
                 }
             };
@@ -1139,13 +1078,13 @@ externaliser module-cover
         }
 
         if (jsenv.support('set-immediate') === false) {
-            add('set-immediate-polyfill', 'lib/polyfill/set-immediate/index.js');
+            add('set-immediate-polyfill', 'src/polyfill/set-immediate/index.js');
         }
         if (jsenv.support('promise') === false) {
-            add('promise-polyfill', 'lib/polyfill/promise/index.js');
+            add('promise-polyfill', 'src/polyfill/promise/index.js');
         }
         if (jsenv.support('url') === false) {
-            add('url-polyfill', 'lib/polyfill/url/index.js');
+            add('url-polyfill', 'src/polyfill/url/index.js');
         }
 
         if (jsenv.isBrowser()) {

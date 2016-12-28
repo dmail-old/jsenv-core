@@ -142,6 +142,25 @@ exceptionHandler.throw = function(exceptionValue) {
     process.exit(1);
 };
 
+// jsenv.defineSupportDetector('error-stack-sourcemap', function() {
+//         if (this.isNode()) {
+//             return false;
+//         }
+//         if (this.isBrowser()) {
+//             if (this.agent.name === 'chrome') {
+//                 return true;
+//             }
+//             return false;
+//         }
+//         return false;
+//     });
+
+//     if (jsenv.support('error-stack-sourcemap') === false) {
+//         installPromise = installPromise.then(function() {
+//             return jsenv.import('env/remap-error-stack');
+//         });
+//     }
+
 /*
 // we must make this cross platform or it's pretty useless
 engine.trace = function(error) {
