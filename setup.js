@@ -122,6 +122,12 @@ export default function(env) {
             },
 
             add(plugin) {
+                // si le plugin a des dépendances, ajoute les avants
+                // le truc c'est si le plugin est déjà en cours d'installation il faut le savoir
+                // il faudrais donc une sorte de lazyPlugin qu'on met pour savoir s'il existe
+                // est ce qu'on pourrais pas réutiliser Action ? y'a LazyModule et une action
+                // est lazy par défaut
+
                 var envPluginOptions;
                 if (plugin.name in env.options) {
                     envPluginOptions = env.options[plugin.name];
@@ -144,6 +150,8 @@ export default function(env) {
             },
 
             install(pluginLocation) {
+                pluginLocation = env.locate(pluginLocation);
+
                 return env.config(function() {
                     return env.importDefault(pluginLocation).then(function(plugin) {
                         // console.log('adding plugin', plugin);
@@ -157,6 +165,8 @@ export default function(env) {
             plugins: plugins
         };
     });
+
+    // env.plugins.install('./plugin.js');
 
     // var options = env.options;
     // if (options.autorun) {

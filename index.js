@@ -888,7 +888,8 @@ je dis pourquoi pas
                         map: {
                             'source-map': this.dirname + '/node_modules/source-map',
                             immutable: this.dirname + '/node_modules/immutable',
-                            modules: this.dirname + '/node_modules'
+                            modules: this.dirname + '/node_modules',
+                            '@jsenv/compose': this.dirname + '/node_modules/jsenv-compose'
                         },
                         packages: {
                             immutable: {
@@ -900,6 +901,10 @@ je dis pourquoi pas
                                 main: 'source-map.js',
                                 format: 'cjs',
                                 defaultExtension: 'js'
+                            },
+                            '@jsenv/compose': {
+                                main: 'index.js',
+                                format: 'es6'
                             }
                         }
                     });

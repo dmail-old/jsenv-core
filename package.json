@@ -10,9 +10,12 @@
 		"source-map": "0.5.6",
 		"istanbul": "0.4.2",
 		"os-locale": "1.4.0",
-		"open": "*"
+		"open": "*",
+		"jsenv-compose": "https://github.com/jsenv/compose.git"
 	},
 	"scripts": {
+		"preinstall": "npm link C:/Users/Damien/Documents/Github/compose",
+		"start": "node start.js",
 		"test": "node ./bin/run test/modules/module-test.js -test",
 		"cover": "node ./bin/run test/modules/module-test.js -test -cover",
 		"cover-console": "node ./bin/run test/modules/module-test.js -test -cover -cover-report-console",

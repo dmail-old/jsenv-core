@@ -6,6 +6,13 @@ import Thenable from 'env/thenable';
 import Iterable from 'env/iterable';
 import LazyModule from 'env/lazy-module';
 
+/*
+il fautdrais pouvoir dire qu'une action
+correspond à un fichier à éxécuter ça c'est bon
+mais que il faut aussi s'assurer que d'autre fichier se sont bien éxécuté
+ça ça n'existe pas
+*/
+
 function pipe(methods, bind, initialValue, condition) {
     var iterableMethods = Iterable.map(methods, function(method, index, methods, value) {
         return Thenable.callFunction(method, bind, value);
@@ -523,9 +530,19 @@ let Action = proto.extend('Action', {
 
     reset() {
         this.state = 'idle';
-        this.pending = this.cancelled = this.skipped = this.expired = this.settled =
-        this.resolved = this.rejected = false;
-        this.startDate = this.endDate = this.result = this.value = this.currentAction = this.currentHook = undefined;
+        this.pending =
+        this.cancelled =
+        this.skipped =
+        this.expired =
+        this.settled =
+        this.resolved =
+        this.rejected = false;
+        this.startDate =
+        this.endDate =
+        this.result =
+        this.value =
+        this.currentAction =
+        this.currentHook = undefined;
 
         // reset should reset runActions created during the main hook
         // this.runActions.length = 0;
