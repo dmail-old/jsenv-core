@@ -9,9 +9,9 @@ var DuplexStream = Stream.Duplex;
 var Body = DuplexStream.compose('Body', {
     constructor(body) {
         if (body !== undefined) {
-            if (Body.isPrototypeOf(body)) {
-                return body;
-            }
+            // if (Body.isPrototypeOf(body)) {
+            //     return body;
+            // }
             this.fill(body);
         }
     },

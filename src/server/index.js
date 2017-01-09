@@ -5,11 +5,6 @@ import env from '@jsenv/env';
 import compose from '@jsenv/compose';
 import require from '@node/require';
 
-// ceci devrait devenir un truc plus intelligent sinon on ne peut pas combiner le concept d'attendre que quelque chose
-// se termine plusieurs fois
-// comme on peut le voir on doit appeler process.exit() une fois qu'on a terminé
-// donc un jsenv.addBeforeExit()
-
 /*
 provide beforeExit.on/off to register callback to run before code exists
 thoose callback are runned in parallel when user leaves the page (browser) or terminal (node)
@@ -27,14 +22,14 @@ env.build(function beforeExit() {
             })).then(performExit);
         },
 
-        on(fn) {
+        add(fn) {
             if (listeners.length === 0) {
                 installBeforeExit();
             }
             listeners.push(fn);
         },
 
-        off(fn) {
+        remove(fn) {
             var index = listeners.indexOf(fn);
             if (index > -1) {
                 listeners.splice(index, 1);
@@ -120,7 +115,7 @@ const NodeServer = compose({
         const isHttps = url.protocol === 'https:';
         const port = url.port || (isHttps ? 443 : 80);
 
-        env.beforeExit.on(function() {
+        env.beforeExit.add(function() {
             return this.close();
         }.bind(this));
 

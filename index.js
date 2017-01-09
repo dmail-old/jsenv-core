@@ -160,9 +160,13 @@ je dis pourquoi pas
                 }
             };
 
-            if (typeof window !== 'undefined') {
-                if (window.MessageChannel) {
-                    type = 'unknown'; // 'webworker';
+            if (typeof window === 'object') {
+                if (
+                    typeof window.WorkerGlobalScope === 'object' &&
+                    typeof navigator === 'object' &&
+                    typeof navigator instanceof window.WorkerNavigator
+                ) {
+                    type = 'webworker';
                 } else {
                     type = 'browser';
 
@@ -186,7 +190,7 @@ je dis pourquoi pas
 
                     this.platform.setName(window.navigator.platform);
                 }
-            } else if (typeof process !== 'undefined' && {}.toString.call(process) === "[object process]") {
+            } else if (typeof process === 'object' && {}.toString.call(process) === "[object process]") {
                 // Don't get fooled by e.g. browserify environments.
                 type = 'node';
                 agent.setName('node');
@@ -1136,7 +1140,11 @@ je dis pourquoi pas
             var loadCount = 0;
             var scriptLoadedMethodName = 'includeLoaded';
 
-            var scriptLoadedGlobalMethodAssignment = jsenv.installGlobalMethod(scriptLoadedMethodName, function() {
+            var scriptLoadedGlobalMethodAssignment = jsenv.createCancellableAssignment(
+                jsenv.global,
+                scriptLoadedMethodName
+            );
+            scriptLoadedGlobalMethodAssignment.assign(function() {
                 loadCount++;
                 if (loadCount === j) {
                     scriptLoadedGlobalMethodAssignment.cancel();
