@@ -1,6 +1,8 @@
+/* eslint-env browser, node */
+
 // https://github.com/WebReflection/url-search-params/tree/master/src
 
-import jsenv from 'jsenv';
+// import jsenv from 'jsenv';
 
 var replace = {
     '!': '%21',
@@ -24,12 +26,12 @@ function decode(str) {
     return decodeURIComponent(str.replace(/\+/g, ' '));
 }
 
-let URLSearchParams = {
-    constructor(queryString) {
+var URLSearchParams = {
+    constructor: function(queryString) {
         this.fromString(queryString);
     },
 
-    fromString(queryString) {
+    fromString: function(queryString) {
         this.params = {};
 
         if (queryString) {
@@ -52,7 +54,7 @@ let URLSearchParams = {
         }
     },
 
-    append(name, value) {
+    append: function(name, value) {
         var params = this.params;
 
         value = String(value);
@@ -63,34 +65,34 @@ let URLSearchParams = {
         }
     },
 
-    delete(name) {
+    delete: function(name) {
         delete this.params[name];
     },
 
-    get(name) {
+    get: function(name) {
         var params = this.params;
         return name in params ? params[name][0] : null;
     },
 
-    getAll(name) {
+    getAll: function(name) {
         var params = this.params;
         return name in params ? params[name].slice(0) : [];
     },
 
-    has(name) {
+    has: function(name) {
         return name in this.params;
     },
 
-    set(name, value) {
+    set: function(name, value) {
         value = String(value);
         this.params[name] = [value];
     },
 
-    toJSON() {
+    toJSON: function() {
         return {};
     },
 
-    toString() {
+    toString: function() {
         var params = this.params;
         var query = [];
         var key;
@@ -117,8 +119,10 @@ let URLSearchParams = {
 URLSearchParams.constructor.prototype = URLSearchParams;
 URLSearchParams = URLSearchParams.constructor;
 
-if (('URLSearchParams' in jsenv.global) === false) {
-    jsenv.global.URLSearchParams = URLSearchParams;
-}
+(function(global) {
+    if (('URLSearchParams' in global) === false) {
+        global.URLSearchParams = URLSearchParams;
+    }
+})(typeof global === 'undefined' ? window : global);
 
-export default URLSearchParams;
+// export default URLSearchParams;

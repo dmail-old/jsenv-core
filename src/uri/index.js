@@ -62,16 +62,16 @@ toNumber: function(){
     },
 */
 
-import '../polyfill/url-search-params/index.js#?env|default.needs.url-search-params';
+// import '../polyfill/url-search-params/index.js#?env|default.needs.url-search-params';
 
-import env from 'env';
-import proto from 'env/proto';
+import env from '@jsenv/env';
+import compose from '@jsenv/compose';
 
 function mustAppendSlashesForProtocol(protocol) {
     return protocol === 'http' || protocol === 'https' || protocol === 'file';
 }
 
-let URI = proto.extend('URI', {
+const URI = compose('URI', {
     protocol: null,
     username: null,
     password: null,
@@ -145,6 +145,60 @@ let URI = proto.extend('URI', {
 
     toURL() {
         return new URL(this.href);
+    }
+}, {
+    // helper methods
+    commonPath(data) {
+        var uri = URI.create(data, this);
+
+        var index = uri.pathname.indexOf(this.pathname);
+        if (index === -1) {
+            return '';
+        }
+        return uri.pathname.slice(0, index);
+    },
+
+    includes(data) {
+        var uri = URI.create(data, this);
+
+        if (this.origin !== uri.origin) {
+            return false;
+        }
+
+        // console.log(this, 'includes', uri);
+
+        return uri.dirname.startsWith(this.dirname);
+    },
+
+    relative(data) {
+        var uri = URI.create(data, this);
+
+        if (this.origin !== uri.origin) {
+            return uri.toString();
+        }
+
+        // left to right, look for closest common path segment
+        var fromSegments = this.pathname.split('/');
+        var toSegments = uri.pathname.split('/');
+
+        while (fromSegments[0] === toSegments[0]) {
+            fromSegments.shift();
+            toSegments.shift();
+        }
+
+        var length = fromSegments.length - toSegments.length;
+        if (length > 0) {
+            while (length--) {
+                toSegments.unshift('..');
+            }
+        } else if (length === 0) {
+            length = toSegments.length - 1;
+            while (length--) {
+                toSegments.unshift('..');
+            }
+        }
+
+        return toSegments.join('/');
     }
 });
 
@@ -376,62 +430,6 @@ let URI = proto.extend('URI', {
         });
     });
 })();
-
-// helper methods
-URI.define({
-    commonPath(data) {
-        var uri = URI.create(data, this);
-
-        var index = uri.pathname.indexOf(this.pathname);
-        if (index === -1) {
-            return '';
-        }
-        return uri.pathname.slice(0, index);
-    },
-
-    includes(data) {
-        var uri = URI.create(data, this);
-
-        if (this.origin !== uri.origin) {
-            return false;
-        }
-
-        // console.log(this, 'includes', uri);
-
-        return uri.dirname.startsWith(this.dirname);
-    },
-
-    relative(data) {
-        var uri = URI.create(data, this);
-
-        if (this.origin !== uri.origin) {
-            return uri.toString();
-        }
-
-        // left to right, look for closest common path segment
-        var fromSegments = this.pathname.split('/');
-        var toSegments = uri.pathname.split('/');
-
-        while (fromSegments[0] === toSegments[0]) {
-            fromSegments.shift();
-            toSegments.shift();
-        }
-
-        var length = fromSegments.length - toSegments.length;
-        if (length > 0) {
-            while (length--) {
-                toSegments.unshift('..');
-            }
-        } else if (length === 0) {
-            length = toSegments.length - 1;
-            while (length--) {
-                toSegments.unshift('..');
-            }
-        }
-
-        return toSegments.join('/');
-    }
-});
 
 // var absURLRegEx = /^[^:\/?#]+:/;
 // function isAbsoluteURL(name) {

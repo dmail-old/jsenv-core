@@ -1,6 +1,6 @@
-import proto from 'env/proto';
+import compose from '@jsenv/compose';
 
-var MappedIterator = proto.extend({
+var MappedIterator = compose({
     constructor(iterable, map, bind) {
         if (typeof map !== 'function') {
             throw new TypeError('map must be a function');
@@ -32,7 +32,7 @@ var MappedIterator = proto.extend({
     }
 });
 
-var MappedIterable = proto.extend({
+var MappedIterable = compose({
     iterable: null,
     map: null,
     bind: null,

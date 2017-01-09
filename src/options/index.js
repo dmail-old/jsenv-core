@@ -1,6 +1,5 @@
 // will use clone with predefined options in order to concatenate array
 
-import proto from 'env/proto';
 // import Item from 'env/item';
 
 // function createOptions(defaultOptions, userOptions) {
@@ -8,6 +7,19 @@ import proto from 'env/proto';
 
 //     return Item.concat(defaultOptions, userOptions);
 // }
+
+function define() {
+    var target = this;
+    var i = 0;
+    var j = arguments.length;
+    while (i < j) {
+        var arg = arguments[i];
+        Object.keys(arg).forEach(function(key) { // eslint-disable-line
+            Object.defineProperty(target, key, Object.getOwnPropertyDescriptor(arg, key));
+        });
+        i++;
+    }
+}
 
 let Options = {
     allowObject: false, // let to false because object structure are often circular and deep while we only want option
@@ -24,10 +36,10 @@ let Options = {
 
         if (length > 0 && Options.is(defaultOptions, this.allowObject)) {
             options = Object.create(defaultOptions);
-            proto.define.apply(options, args);
+            define.apply(options, args);
         } else {
             options = Object.create(null);
-            proto.define.apply(options, arguments);
+            define.apply(options, arguments);
         }
 
         // for the whole structure, every time, every options object is recreated but without more property

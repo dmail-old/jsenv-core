@@ -1,7 +1,7 @@
-import Options from 'env/options';
-import Action from 'env/action';
-import LazyModule from 'env/lazy-module';
-import URI from 'env/uri';
+import Options from '@jsenv/options';
+import Action from '@jsenv/action';
+import LazyModule from '@jsenv/lazy-module';
+import URI from '@jsenv/uri';
 
 export default function(env) {
     var envAgent = '';
@@ -27,7 +27,8 @@ export default function(env) {
             baseURI: URI.create(this.baseURL),
 
             locateFrom(data, baseURI, stripFile) {
-                var href = URI.create(data, baseURI).href;
+                var uri = URI.create(data, baseURI);
+                var href = uri.href;
 
                 if (stripFile && href.indexOf('file:///') === 0) {
                     href = href.slice('file:///'.length);

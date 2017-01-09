@@ -207,6 +207,10 @@ je dis pourquoi pas
             return {
                 agent: agent,
 
+                isWindows: function() {
+                    return this.platform.name === 'windows';
+                },
+
                 isBrowser: function() {
                     return this.agent.type === 'browser';
                 },
@@ -932,8 +936,21 @@ je dis pourquoi pas
                         this.registerCoreModule('@node/require', require);
                     }
 
-                    this.registerCoreModule(this.rootModuleName, jsenv);
-                    this.registerCoreModule(this.moduleName, this);
+                    var jsenv = this;
+                    var prefixModule = function(name) {
+                        var prefix = jsenv.modulePrefix;
+                        var prefixedName;
+                        if (prefix) {
+                            prefixedName = prefix + '/' + name;
+                        } else {
+                            prefixedName = name;
+                        }
+
+                        return prefixedName;
+                    };
+
+                    this.registerCoreModule(prefixModule(this.rootModuleName), jsenv);
+                    this.registerCoreModule(prefixModule(this.moduleName), this);
 
                     [
                         'action',
@@ -941,15 +958,14 @@ je dis pourquoi pas
                         'iterable',
                         'lazy-module',
                         'options',
-                        'proto',
                         'thenable',
+                        'rest',
+                        'server',
                         'timeout',
                         'uri'
                     ].forEach(function(libName) {
                         var libPath = this.dirname + '/src/' + libName + '/index.js';
-                        this.System.paths[this.moduleName + '/' + libName] = libPath;
-                        // add a global name too for now
-                        this.System.paths[libName] = libPath;
+                        this.System.paths[prefixModule(libName)] = libPath;
                     }, this);
                 }
             };
@@ -1091,6 +1107,9 @@ je dis pourquoi pas
         if (jsenv.support('url') === false) {
             add('url-polyfill', 'src/polyfill/url/index.js');
         }
+        if (jsenv.support('url-search-params') === false) {
+            add('url-search-params-polyfill', 'src/polyfill/url-search-params/index.js');
+        }
 
         if (jsenv.isBrowser()) {
             add('systemjs', 'node_modules/systemjs/dist/system.js');
@@ -1194,6 +1213,7 @@ je dis pourquoi pas
     */
 
     jsenv.globalName = 'jsenv';
+    jsenv.modulePrefix = '@jsenv';
     jsenv.rootModuleName = 'jsenv';
     jsenv.moduleName = 'env';
     jsenv.globalAssignment = jsenv.createCancellableAssignment(jsenv.global, jsenv.globalName);

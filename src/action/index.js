@@ -1,10 +1,10 @@
-import env from 'env';
-import proto from 'env/proto';
-import Options from 'env/options';
-import Timeout from 'env/timeout';
-import Thenable from 'env/thenable';
-import Iterable from 'env/iterable';
-import LazyModule from 'env/lazy-module';
+import env from '@jsenv/env';
+import compose from '@jsenv/compose';
+import Options from '@jsenv/options';
+import Timeout from '@jsenv/timeout';
+import Thenable from '@jsenv/thenable';
+import Iterable from '@jsenv/iterable';
+import LazyModule from '@jsenv/lazy-module';
 
 /*
 il fautdrais pouvoir dire qu'une action
@@ -26,129 +26,125 @@ Hook is a wrapper for a thenable allowing to collect the resolved/rejected value
 Hook is itself a thenable that will resolve or reject to the hook itself
 Moreover hook comes with an optional timeout mecanism
 */
-let Hook = proto.extend('Hook', {
-    constructor(thenable) {
-        this.promise = new Promise(function(resolve, reject) {
-            this.resolvePromise = resolve;
-            this.rejectPromise = reject;
-        }.bind(this));
 
-        thenable.then(this.resolve.bind(this), this.reject.bind(this));
+let ActionHook = compose(
+    'ActionHook',
+    {
+        createPromise(thenable) {
+            const promise = new Promise(function(resolve, reject) {
+                this.resolvePromise = resolve;
+                this.rejectPromise = reject;
+            }.bind(this));
 
-        return this.promise;
-    },
+            thenable.then(this.resolve.bind(this), this.reject.bind(this));
 
-    setTimeout(duration) {
-        this.timeout = Timeout.create();
-        this.timeout.set(duration);
-        this.timeout.then(function() {
-            this.expire(this.timeout.value);
-        }.bind(this));
-    },
+            return promise;
+        },
 
-    clearTimeout() {
-        if (this.timeout) {
-            this.timeout.clear();
-        }
-    },
+        setTimeout(duration) {
+            this.timeout = Timeout.create();
+            this.timeout.set(duration);
+            this.timeout.then(function() {
+                this.expire(this.timeout.value);
+            }.bind(this));
+        },
 
-    clear() {
-        this.clearTimeout();
-    },
-
-    expire(duration) {
-        this.expired = true;
-        this.reject(duration);
-    },
-
-    resolve(value) {
-        this.clear();
-        this.value = value;
-        this.state = 'resolved';
-        this.resolvePromise(value);
-    },
-
-    reject(value) {
-        this.clear();
-        this.value = value;
-        this.state = 'rejected';
-        this.rejectPromise(value);
-    }
-});
-
-let ActionHook = Hook.extend('ActionHook', {
-    constructor(action, name) {
-        // jsenv.debug('create hook', name, 'for', action.name);
-
-        this.action = action;
-        this.name = name;
-        let callback = this.getCallback();
-        let thenable;
-        if (callback) {
-            thenable = Thenable.applyFunction(callback, action, this.getArguments());
-        } else {
-            thenable = Promise.resolve();
-        }
-
-        var promise = Hook.constructor.call(this, thenable);
-
-        action.currentHook = this;
-        if (callback) {
-            let timeouts = action.options.timeouts;
-            if (name in timeouts) {
-                this.setTimeout(timeouts[name]);
+        clearTimeout() {
+            if (this.timeout) {
+                this.timeout.clear();
             }
-        }
+        },
 
-        return promise;
-    },
+        clear() {
+            this.action.currentHook = undefined;
 
-    getCallback() {
-        var name = this.name;
-        var action = this.action;
-        var callback;
+            this.clearTimeout();
+        },
 
-        if (name in action) {
-            let value = action[name];
-            if (typeof value === 'function') {
-                callback = value;
-            }
-        }
+        expire(duration) {
+            this.expired = true;
+            this.reject(duration);
+        },
 
-        return callback;
-    },
+        resolve(value) {
+            this.clear();
+            this.value = value;
+            this.state = 'resolved';
+            this.resolvePromise(value);
+        },
 
-    getArguments() {
-        return this.action.configActions.map(function(configAction) {
-            return configAction.result;
-        });
-    },
-
-    reject(value) {
-        if (value instanceof Error) {
-            if (this.name !== 'main') {
-                value.message = this.name + ' hook error: ' + value.message;
-            }
-        } else if (this.expired) {
-            if (typeof value === 'number') {
-                value = this.name + ' hook timed out after ' + value;
+        reject(value) {
+            if (value instanceof Error) {
+                if (this.name !== 'main') {
+                    value.message = this.name + ' hook error: ' + value.message;
+                }
+            } else if (this.expired) {
+                if (typeof value === 'number') {
+                    value = this.name + ' hook timed out after ' + value;
+                } else {
+                    value = this.name + ' hook expired';
+                }
             } else {
-                value = this.name + ' hook expired';
+                value = this.name + ' hook rejected with ' + value;
             }
-        } else {
-            value = this.name + ' hook rejected with ' + value;
+
+            this.clear();
+            this.value = value;
+            this.state = 'rejected';
+            this.rejectPromise(value);
         }
-
-        return Hook.reject.call(this, value);
     },
+    {
+        constructor(action, name) {
+            // jsenv.debug('create hook', name, 'for', action.name);
 
-    clear() {
-        this.action.currentHook = undefined;
-        return Hook.clear.call(this);
+            this.action = action;
+            this.name = name;
+            let callback = this.getCallback();
+            let thenable;
+            if (callback) {
+                thenable = Thenable.applyFunction(callback, action, this.getArguments());
+            } else {
+                thenable = Promise.resolve();
+            }
+
+            var promise = this.createPromise(thenable);
+
+            action.currentHook = this;
+            if (callback) {
+                let timeouts = action.options.timeouts;
+                if (name in timeouts) {
+                    this.setTimeout(timeouts[name]);
+                }
+            }
+
+            return promise;
+        },
+
+        getCallback() {
+            var name = this.name;
+            var action = this.action;
+            var callback;
+
+            if (name in action) {
+                let value = action[name];
+                if (typeof value === 'function') {
+                    callback = value;
+                }
+            }
+
+            return callback;
+        },
+
+        getArguments() {
+            return this.action.configActions.map(function(configAction) {
+                return configAction.result;
+            });
+        }
     }
-});
+);
 
-let Action = proto.extend('Action', {
+let Action = compose('Action', {
     options: {
         timeouts: {
             before: 5000,

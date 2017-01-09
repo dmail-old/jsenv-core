@@ -1,6 +1,6 @@
-import proto from 'env/proto';
+import compose from '@jsenv/compose';
 
-var ConditionalIterator = proto.extend({
+var ConditionalIterator = compose({
     constructor(iterable, condition, bind) {
         if (typeof condition !== 'function') {
             throw new TypeError('condition must be a function');
@@ -41,7 +41,7 @@ var ConditionalIterator = proto.extend({
     }
 });
 
-var ConditionalIterable = proto.extend({
+var ConditionalIterable = compose({
     iterable: null,
     condition: null,
     bind: null,

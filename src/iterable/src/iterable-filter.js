@@ -1,6 +1,6 @@
-import proto from 'env/proto';
+import compose from '@jsenv/compose';
 
-var FilteredIterator = proto.extend('FilteredIterator', {
+var FilteredIterator = compose('FilteredIterator', {
     constructor(iterator, filter, bind, kind) {
         if (typeof filter !== 'function') {
             throw new TypeError('filter must be a function');
@@ -61,7 +61,7 @@ var FilteredIterator = proto.extend('FilteredIterator', {
     }
 });
 
-var FilteredIterable = proto.extend('FilteredIterable', {
+var FilteredIterable = compose('FilteredIterable', {
     iterable: null,
     filter: null,
     bind: null,

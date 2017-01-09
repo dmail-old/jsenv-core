@@ -1,7 +1,7 @@
-import jsenv from 'jsenv';
-import proto from 'env/proto';
+import jsenv from '@jsenv/jsenv';
+import compose from '@jsenv/compose';
 
-let LazyModule = proto.extend('LazyModule', {
+const LazyModule = compose('LazyModule', {
     env: jsenv,
     location: '', // name that will produce a uri used to create a module from file with SystemJS
     parentLocation: '', // parentlocation used to resolve the location
