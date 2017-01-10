@@ -9,10 +9,10 @@ import BodyConsumer from './body-consumer.js';
 import Body from './body.js';
 // import Response from './response.js';
 
-var Request = compose('Request', BodyConsumer, {
-    baseURI: env.baseURI,
+const Request = compose('Request', BodyConsumer, {
+    baseUrl: env.baseUrl,
     method: 'GET',
-    uri: null,
+    url: null,
     headers: {},
     body: null,
 
@@ -30,11 +30,12 @@ var Request = compose('Request', BodyConsumer, {
 
         Object.assign(this, options);
 
-        if (!this.uri) {
-            this.uri = this.baseURI.clone();
+        if (this.url) {
+            this.url = this.baseUrl.resolve(this.url);
+        } else {
+            this.url = this.baseUrl.clone();
         }
 
-        this.uri = this.baseURI.resolve(this.uri);
         this.headers = Headers.create(this.headers);
 
         if (this.hasOwnProperty('body')) {
@@ -49,10 +50,6 @@ var Request = compose('Request', BodyConsumer, {
 
             this.body = Body.create(this.body);
         }
-    },
-
-    get url() {
-        return this.uri.toURL();
     },
 
     clone() {
@@ -70,8 +67,8 @@ var Request = compose('Request', BodyConsumer, {
         if (this.headers) {
             properties.headers = this.headers.toJSON();
         }
-        if (this.uri) {
-            properties.uri = this.uri.clone();
+        if (this.url) {
+            properties.url = this.url.clone();
         }
 
         var cloneRequest = this.create(properties);

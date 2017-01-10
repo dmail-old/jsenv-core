@@ -1,35 +1,4 @@
 /*
-pour pouvoir run un fichier on va avoir besoin d'un premier truc c'est d'envoyer
-au client lorsqu'il le demande le code qu'il doit éxécuter
-pour le moment ce sera toujours le même code genre 'console.log('it works');'
-
-pour cela il faut démarrer un client
-par exemple ouvrir son navigateur avec un index.html spécifique
-qui va charger jsenv d'une manière spécifique et non pas en démarrant un serveur
-et qui ensuite demande à un serveur le code à éxécuter
-puis l'éxécute de le faisant passer pa la moulinette SystemJS en désactivant la transpilation
-
-la première étape consiste donc à pouvoir include jsenv depuis un index.html
-puis à pouvoir réclamer le code au serveur en utilisant une requête http
-
-mais faire une requête http suppose d'avoir accès à rest, et rest à lui-même beaucoup de dépendance
-et utilise babel donc pour le moment on va s'affranchir de ça
-et faire une requête http à la main (xmlhttprequest)
-mais bon c'est pas fou puisque il faudras alors réécrire ce bout de code pour nodejs
-pour le moment on fait comme ça pas grave on améliore plus tard
-
-une fois qu'on arrive à faire cette requête qui dit au serveur "hey je souhaite éxécuter du code"
-il faut écrire le code serveur qui va alors renvoyer "console.log('it works')"
-et le client pourra l'éxécuter
-
-pour le test unitaire et le coverage il faudrais que le client renvoit au serveur comment s'est déroulé
-l'éxécution du code afin qu ele serveur choisisse comment réagir au déroulement de l'éxécution du code
-le client doit vraiment se contenter d'éxécuter le bout de code et renvoyer comment ça s'est passé
-il ne doit pas chercher à afficher le coverage, le résultats des test, upload des rapports etc
-ce travail sera fait par le serveur ou stocker pour être affiché plus tard par ce client ou un autre
-
-le client envoit donc un POST une fois le fichier éxécuter pour dire comment ça s'est passé
-
 run-report.json, or the content of the POST request
 {
     url: 'http://localhost:80',
@@ -40,32 +9,158 @@ run-report.json, or the content of the POST request
 }
 
 // https://gist.github.com/paulirish/5438650
+
+donc maintenant ce qu'il faut faire c'est qu'au lieu de retourner en dur "it works"
+on va retourner le fichier correspondant pour chaque requête GET
+(éventuellement check le header accept qui est set par systemjs à "application/x-es-module, *\/*")
+et ne faire le truc avec babel que lorsque ce header est présent
 */
 
 import require from '@node/require';
+import fs from '@node/fs';
 import env from '@jsenv/env';
 
 import rest from './src/rest/index.js';
 import NodeServer from './src/server/index.js';
 
+const serverUrl = 'http://localhost';
 const babel = require('babel-core');
+const myRest = rest.create(serverUrl);
 
-const myRest = rest.create('./');
+function filesystem(method) {
+    var args = Array.prototype.slice.call(arguments, 1);
+
+    return new Promise(function(resolve, reject) {
+        args.push(function(error, result) {
+            if (error) {
+                if (error instanceof Error) {
+                    reject(error);
+                } else {
+                    resolve(error);
+                }
+            } else {
+                resolve(result);
+            }
+        });
+
+        fs[method].apply(fs, args);
+    });
+}
 
 myRest.use({
-    match() {
-        return true;
+    match(request) {
+        return request.headers.get('accept').includes('application/x-es-module');
     },
 
     methods: {
-        '*': function() {
-            return {
-                status: 200,
-                body: '\
-                    console.log("it works");\n\
-                    export default "foo";\
-                '
-            };
+        get(request) {
+            const filepath = request.url.ressource;
+            console.log('the file at', filepath);
+
+            function transformFsError(error) {
+                if (error) {
+                    // https://iojs.org/api/errors.html#errors_eacces_permission_denied
+                    if (error.code === 'EACCES') {
+                        return {
+                            status: 403
+                        };
+                    }
+                    if (error.code === 'EPERM') {
+                        return {
+                            status: 403
+                        };
+                    }
+                    if (error.code === 'ENOENT') {
+                        return {
+                            status: 404
+                        };
+                    }
+                    // file access may be temporarily blocked
+                    // (by an antivirus scanning it because recently modified for instance)
+                    if (error.code === 'EBUSY') {
+                        return {
+                            status: 503,
+                            headers: {
+                                'retry-after': 0.01 // retry in 10ms
+                            }
+                        };
+                    }
+                    // emfile means there is too many files currently opened
+                    if (error.code === 'EMFILE') {
+                        return {
+                            status: 503,
+                            headers: {
+                                'retry-after': 0.1 // retry in 100ms
+                            }
+                        };
+                    }
+                }
+                return Promise.reject(error);
+            }
+
+            function transpile(code, filename) {
+                const options = env.System.babelOptions || {};
+                options.modules = 'system';
+                if (options.sourceMap === undefined) {
+                    options.sourceMap = 'inline';
+                }
+                // options.inputSourceMap = load.metadata.sourceMap;
+                options.filename = filename;
+                options.code = true;
+                options.ast = false;
+                const result = babel.transform(code, options);
+                return result.code;
+            }
+
+            let promise = filesystem('stat', filepath).then(function(stat) {
+                if (stat.isDirectory()) {
+                    return {
+                        status: 403
+                    };
+                }
+
+                if (request.headers.has('if-modified-since')) {
+                    // the request headers if-modified-since is not a valid date
+                    let mtime;
+
+                    try {
+                        mtime = new Date(request.headers.get('if-modified-since'));
+                    } catch (e) {
+                        return 400;
+                    }
+
+                    if (stat.mtime <= mtime) {
+                        return {
+                            status: 304,
+                            headers: {
+                                'last-modified': stat.mtime.toUTCString()
+                            }
+                        };
+                    }
+                }
+
+                const properties = {
+                    status: 200,
+                    headers: {
+                        'last-modified': stat.mtime.toUTCString(),
+                        'content-type': 'application/javascript',
+                        'content-length': stat.size
+                    }
+                };
+
+                if (request.method === 'GET') {
+                    return filesystem('readFile', filepath).then(function(buffer) {
+                        const fileContent = buffer.toString();
+                        const transpiledContent = transpile(fileContent, filepath);
+                        properties.body = transpiledContent;
+                        properties.headers['content-length'] = Buffer.byteLength(transpiledContent);
+                        return properties;
+                    }, transformFsError);
+                }
+                return properties;
+            }, transformFsError);
+
+            return promise;
         }
     }
 });
@@ -85,44 +180,19 @@ const server = NodeServer.create(function(httpRequest, httpResponse) {
     }
 
     const request = myRest.createRequest(requestProperties);
-    console.log(request.method, request.uri.toString());
+    console.log(request.method, request.url.toString());
+    // console.log('myRest base url', myRest.baseUrl.toString());
+    // console.log('httpRequest url', httpRequest.url);
+    // console.log('request url', request.url.toString());
+
+    const corsHeaders = {
+        'access-control-allow-origin': '*',
+        'access-control-allow-methods': ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'].join(', '),
+        'access-control-allow-headers': ['x-requested-with', 'content-type', 'accept'].join(', '),
+        'access-control-max-age': 1 // Seconds
+    };
 
     myRest.fetch(request).then(function(response) {
-        const babelBody = rest.createBody();
-
-        const buffers = [];
-        const write = babelBody.write;
-        const close = babelBody.close;
-        babelBody.write = function(buffer) {
-            buffers.push(buffer);
-        };
-        babelBody.close = function() {
-            const code = buffers.join('');
-            const options = env.System.babelOptions || {};
-            options.modules = 'system';
-            if (options.sourceMap === undefined) {
-                options.sourceMap = 'inline';
-            }
-            // options.inputSourceMap = load.metadata.sourceMap;
-            options.filename = 'http://localhost/file.js';
-            options.code = true;
-            options.ast = false;
-            const transpiledCode = babel.transform(code, options).code;
-            write.call(this, transpiledCode);
-            return close.call(this);
-        };
-
-        response.body.pipeTo(babelBody);
-
-        response.body = babelBody;
-        return response;
-    }).then(function(response) {
-        const corsHeaders = {
-            'access-control-allow-origin': '*',
-            'access-control-allow-methods': ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'].join(', '),
-            'access-control-allow-headers': ['x-requested-with', 'content-type', 'accept'].join(', '),
-            'access-control-max-age': 1 // Seconds
-        };
         Object.keys(corsHeaders).forEach(function(corsHeaderName) {
             response.headers.append(corsHeaderName, corsHeaders[corsHeaderName]);
         });
@@ -146,7 +216,8 @@ const server = NodeServer.create(function(httpRequest, httpResponse) {
             httpResponse.end();
         }
     }).catch(function(e) {
-        httpResponse.writeHead(500);
+        console.log(500, e.stack);
+        httpResponse.writeHead(500, corsHeaders);
         httpResponse.end(e ? e.stack : '');
     });
 });
@@ -158,4 +229,4 @@ server.onTransition = function(oldStatus, status) {
         console.log('jsenv closed');
     }
 };
-server.open('http://localhost');
+server.open(serverUrl);

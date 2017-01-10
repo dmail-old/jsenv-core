@@ -29,16 +29,18 @@ import ResponseGeneratorWithServices from './response-generator-service.js';
 import compose from '@jsenv/compose';
 
 const rest = compose('Rest', {
-    constructor(uri) {
-        this.Request = Request.compose({
-            baseURI: env.createURI(uri)
-        });
+    baseUrl: env.baseUrl,
+
+    constructor(baseUrl) {
+        if (baseUrl) {
+            this.baseUrl = this.baseUrl.resolve(baseUrl);
+        }
         this.ResponseGenerator = ResponseGeneratorWithServices.compose({services: []});
         this.services = this.ResponseGenerator.services;
     },
 
     createURI() {
-        return this.Request.baseURI.clone();
+        return this.baseUrl.clone();
     },
 
     createHeaders(properties) {
@@ -53,8 +55,14 @@ const rest = compose('Rest', {
         return Response.create(properties);
     },
 
-    createRequest(properties) {
-        return this.Request.create(properties);
+    createRequest(properties = {}) {
+        if (properties.url) {
+            properties.url = this.baseUrl.resolve(properties.url);
+        } else {
+            properties.url = this.baseUrl.clone();
+        }
+
+        return Request.create(properties);
     },
 
     // service properties
@@ -104,16 +112,16 @@ const rest = compose('Rest', {
     },
 
     fetch() {
-        if (this.Request.isPrototypeOf(arguments[0])) {
+        if (Request.isPrototypeOf(arguments[0])) {
             return this.createResponsePromiseForRequest(arguments[0]);
         }
 
-        var uri = arguments[0];
+        var url = arguments[0];
         var options = arguments[1] || {};
         var request;
 
         try {
-            options.uri = uri;
+            options.url = url;
             request = this.createRequest(options);
         } catch (e) {
             return Promise.reject(e);
@@ -122,30 +130,30 @@ const rest = compose('Rest', {
         return this.fetch(request);
     },
 
-    get(uri, options = {}) {
+    get(url, options = {}) {
         options.method = 'GET';
 
-        return this.fetch(uri, options);
+        return this.fetch(url, options);
     },
 
-    post(uri, body, options = {}) {
+    post(url, body, options = {}) {
         options.method = 'POST';
         options.body = body;
 
-        return this.fetch(uri, options);
+        return this.fetch(url, options);
     },
 
-    put(uri, body, options = {}) {
+    put(url, body, options = {}) {
         options.method = 'PUT';
         options.body = body;
 
-        return this.fetch(uri, options);
+        return this.fetch(url, options);
     },
 
-    delete(uri, options = {}) {
+    delete(url, options = {}) {
         options.method = 'DELETE';
 
-        return this.fetch(uri, options);
+        return this.fetch(url, options);
     }
 });
 

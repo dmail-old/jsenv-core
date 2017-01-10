@@ -636,6 +636,22 @@ je dis pourquoi pas
         build(function support() {
             var detectors = {};
 
+            // implementation.add('object-assign');
+            // implementation.has('object-assign');
+            // implementation.get('object-assign');
+            // implementation.support('object-assign', version = '*');
+            // will do feature = this.get
+            // version = feature.get(version)
+            // et retourne version.test()
+
+            // on pourrais aussi ajouter des version à la feature
+            // const feature = implementation.add('object-assign');
+            // si on appelle direct feature.detect cela va alors
+            // ajouter un feature.version qui vaut '*' pour lequel le détecteur est celui qu'on passe
+            // feature.detect(function() {});
+            // feature.detectMethod(Object, 'assign');
+            // feature.detectObject(global, 'Array');
+
             return {
                 support: function(name) {
                     return Boolean(detectors[name].call(this));
@@ -966,7 +982,7 @@ je dis pourquoi pas
                         'rest',
                         'server',
                         'timeout',
-                        'uri'
+                        'url'
                     ].forEach(function(libName) {
                         var libPath = this.dirname + '/src/' + libName + '/index.js';
                         this.System.paths[prefixModule(libName)] = libPath;
@@ -1093,6 +1109,24 @@ je dis pourquoi pas
     }
 
     function listFiles(jsenv) {
+        // bon j'ai besoin de détecter ce dont y'a besoin
+        // pour le moment partons du principe que c'est tout
+        // dont on va utiliser
+        /* require('core-js-builder')({
+  modules: ['es6', 'core.dict'], // modules / namespaces
+  blacklist: ['es6.reflect'],    // blacklist of modules / namespaces, by default - empty list
+  library: false,                // flag for build without global namespace pollution, by default - false
+  umd: true                      // use UMD wrapper for export `core` object, by default - true
+}).then(code => {
+  // ...
+}).catch(error => {
+  // ...
+});
+*/
+        // mais ça limite on pourrais le mettre dans le code spécifique au serveur nodejs
+        // ensuite le client lui va demander au serveur le fichier en précisant tout ce dont il a besoin
+        // le serveur lui fait un build custom et lui retourne
+
         var files = [];
 
         function add(name, path) {

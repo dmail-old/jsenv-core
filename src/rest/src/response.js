@@ -11,7 +11,7 @@ const Response = compose('Response', BodyConsumer, {
     headers: null,
     body: null,
     redirectCount: 0,
-    uri: null,
+    url: null,
 
     cacheState: 'none', // 'local', 'validated', 'partial'
 
@@ -24,10 +24,6 @@ const Response = compose('Response', BodyConsumer, {
         if (this.hasOwnProperty('body')) {
             this.body = Body.create(this.body);
         }
-    },
-
-    get url() {
-        return this.uri.toURL();
     },
 
     clone() {

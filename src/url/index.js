@@ -71,7 +71,7 @@ function mustAppendSlashesForProtocol(protocol) {
     return protocol === 'http' || protocol === 'https' || protocol === 'file';
 }
 
-const URI = compose('URI', {
+const Url = compose('Url', {
     protocol: null,
     username: null,
     password: null,
@@ -87,9 +87,9 @@ const URI = compose('URI', {
 
     constructor(data, base) {
         if (data === null || data === undefined) {
-            throw new TypeError(data + ' is not a valid uri');
+            throw new TypeError(data + ' is not a valid url');
         }
-        if (URI.isPrototypeOf(data)) {
+        if (Url.isPrototypeOf(data)) {
             return data;
         }
 
@@ -106,11 +106,11 @@ const URI = compose('URI', {
     },
 
     clone() {
-        var uri = Object.create(URI);
+        var url = Object.create(Url);
 
-        Object.assign(uri, this);
+        Object.assign(url, this);
 
-        return uri;
+        return url;
     },
 
     get search() {
@@ -126,11 +126,11 @@ const URI = compose('URI', {
     },
 
     resolve(data) {
-        return URI.create(data, this);
+        return Url.create(data, this);
     },
 
-    equals(uri) {
-        return this.href === uri.href;
+    equals(url) {
+        return this.href === url.href;
     },
 
     fromURL(url) {
@@ -149,37 +149,37 @@ const URI = compose('URI', {
 }, {
     // helper methods
     commonPath(data) {
-        var uri = URI.create(data, this);
+        var url = Url.create(data, this);
 
-        var index = uri.pathname.indexOf(this.pathname);
+        var index = url.pathname.indexOf(this.pathname);
         if (index === -1) {
             return '';
         }
-        return uri.pathname.slice(0, index);
+        return url.pathname.slice(0, index);
     },
 
     includes(data) {
-        var uri = URI.create(data, this);
+        var url = Url.create(data, this);
 
-        if (this.origin !== uri.origin) {
+        if (this.origin !== url.origin) {
             return false;
         }
 
         // console.log(this, 'includes', uri);
 
-        return uri.dirname.startsWith(this.dirname);
+        return url.dirname.startsWith(this.dirname);
     },
 
     relative(data) {
-        var uri = URI.create(data, this);
+        var url = Url.create(data, this);
 
-        if (this.origin !== uri.origin) {
-            return uri.toString();
+        if (this.origin !== url.origin) {
+            return url.toString();
         }
 
         // left to right, look for closest common path segment
         var fromSegments = this.pathname.split('/');
-        var toSegments = uri.pathname.split('/');
+        var toSegments = url.pathname.split('/');
 
         while (fromSegments[0] === toSegments[0]) {
             fromSegments.shift();
@@ -285,7 +285,7 @@ const URI = compose('URI', {
         pathname: {
             parts: ['dirname', 'filename'],
             get(dirname, filename) {
-                return dirname ? (dirname + '/' + filename) : '';
+                return dirname ? (dirname + '/' + filename) : filename;
             },
 
             set(pathname) {
@@ -408,7 +408,7 @@ const URI = compose('URI', {
     Object.keys(abstractions).forEach(function(abstractionName) {
         var abstraction = abstractions[abstractionName];
 
-        Object.defineProperty(URI, abstractionName, {
+        Object.defineProperty(Url, abstractionName, {
             configurable: true,
             enumerable: false,
 
@@ -447,4 +447,4 @@ const URI = compose('URI', {
 //     return absURLRegEx.test(name);
 // }
 
-export default URI;
+export default Url;

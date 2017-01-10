@@ -163,7 +163,7 @@ let Action = compose('Action', {
     // beforeAll() {},
     // afterAll() {},
     name: undefined,
-    uri: undefined,
+    url: undefined,
     agent: {}, // any agent is ok, but you can provide {type: 'browser', name: 'firefox'}
     state: 'idle', // idle, setup, config, main, run, done
     configActions: [], // dependencies
@@ -229,8 +229,8 @@ let Action = compose('Action', {
         }
 
         // inherit from action uri
-        if (this.uri && !action.uri) {
-            action.uri = this.uri;
+        if (this.url && !action.url) {
+            action.url = this.url;
         }
 
         list.push(action);
@@ -272,7 +272,7 @@ let Action = compose('Action', {
             return data;
         } else if (typeof data === 'string') {
             var lazyModule = LazyModule.create();
-            lazyModule.parentLocation = this.uri.href;
+            lazyModule.parentLocation = this.url.href;
             lazyModule.location = data;
             var main = function() {
                 return lazyModule.import();

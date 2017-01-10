@@ -65,10 +65,6 @@ const ResponseGenerator = compose('ResponseGenerator', {
         this.promise = this.open();
     },
 
-    get url() {
-        return this.uri.toURL();
-    },
-
     then(a, b) {
         return this.promise.then(a, b);
     },
@@ -128,7 +124,7 @@ const ResponseGenerator = compose('ResponseGenerator', {
         return delay;
     },
 
-    redirect(uri/* , temporary */) {
+    redirect(url/* , temporary */) {
         if (this.request.redirectMode === 'error') {
             throw new NetWorkError('redirection not supported by redirectMode');
         }
@@ -141,7 +137,7 @@ const ResponseGenerator = compose('ResponseGenerator', {
 
             this.redirectCount++;
             this.request = this.request.clone(); // make almost the same request at different url
-            this.request.uri = env.createURI(uri);
+            this.request.url = env.createUrl(url);
             // this.request.url = new global.URL(url);
 
             return true;
@@ -185,9 +181,9 @@ const ResponseGenerator = compose('ResponseGenerator', {
 
     prepareResponse(response) {
         response.redirectCount = this.redirectCount;
-        response.uri = this.request.uri.clone();
+        response.url = this.request.url.clone();
 
-        env.info(response.status, String(response.uri));
+        env.info(response.status, String(response.url));
 
         return response;
     },

@@ -1,7 +1,7 @@
 import Options from '@jsenv/options';
 import Action from '@jsenv/action';
 import LazyModule from '@jsenv/lazy-module';
-import URI from '@jsenv/uri';
+import Url from '@jsenv/url';
 
 export default function(env) {
     var envAgent = '';
@@ -19,16 +19,16 @@ export default function(env) {
 
     env.build(function locate() {
         return {
-            createURI(a, b) {
-                return URI.create(a, b);
+            createUrl(a, b) {
+                return Url.create(a, b);
             },
 
-            internalURI: URI.create(this.internalURL),
-            baseURI: URI.create(this.baseURL),
+            internalUrl: Url.create(this.internalURL),
+            baseUrl: Url.create(this.baseURL),
 
-            locateFrom(data, baseURI, stripFile) {
-                var uri = URI.create(data, baseURI);
-                var href = uri.href;
+            locateFrom(data, baseUrl, stripFile) {
+                var url = Url.create(data, baseUrl);
+                var href = url.href;
 
                 if (stripFile && href.indexOf('file:///') === 0) {
                     href = href.slice('file:///'.length);
@@ -38,11 +38,11 @@ export default function(env) {
             },
 
             locate(data, stripFile) {
-                return this.locateFrom(data, this.baseURI, stripFile);
+                return this.locateFrom(data, this.baseUrl, stripFile);
             },
 
             locateInternal(data, stripFile) {
-                return this.locateFrom(data, this.internalURI, stripFile);
+                return this.locateFrom(data, this.internalUrl, stripFile);
             }
         };
     });
@@ -52,11 +52,11 @@ export default function(env) {
             configMain() {
                 var mainModule = LazyModule.create({
                     env: this,
-                    parentLocation: this.baseURI.href
+                    parentLocation: this.baseUrl.href
                 });
                 var mainAction = Action.create({
                     name: 'main',
-                    uri: this.baseURI,
+                    url: this.baseUrl,
                     module: mainModule,
                     main() {
                         return this.module.import();
@@ -75,9 +75,9 @@ export default function(env) {
                 return this.mainAction.run(...args);
             },
 
-            evalMain(source, sourceURL) {
+            evalMain(source, sourceUrl) {
                 this.mainModule.source = source;
-                this.mainModule.location = sourceURL || 'anonymous';
+                this.mainModule.location = sourceUrl || 'anonymous';
                 return this.start();
             },
 
@@ -101,8 +101,8 @@ export default function(env) {
 
                 // the first thing we do it to normalize the mainModule location because we'll need it
                 return this.mainModule.normalize().then(function() {
-                    var mainURI = this.createURI(this.mainModule.href);
-                    this.mainURI = mainURI;
+                    var mainUrl = this.createUrl(this.mainModule.href);
+                    this.mainUrl = mainUrl;
 
                     return this.mainAction.exec();
                 }.bind(this)).then(function() {
