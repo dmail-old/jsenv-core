@@ -32,9 +32,13 @@
         //     return load.source;
         // };
 
-        window.jsenv.import('http://localhost/setup.js').then(function() {
-            console.log('here', arguments);
-        });
+        console.log(
+            window.jsenv.detectImplementationStatus()
+        );
+
+        // window.jsenv.import('http://localhost/polyfill.js').then(function() {
+        //     console.log('here', arguments);
+        // });
 
         // global.jsenv.generate().then(function(env) {
         //     // got my env ready
