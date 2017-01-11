@@ -677,149 +677,6 @@ je dis pourquoi pas
             };
         });
 
-        build(function implementation() {
-            var implementation = {};
-            implementation.features = [];
-
-            implementation.add = function(featureName) {
-                var existingFeature = this.get(featureName);
-                if (existingFeature) {
-                    throw new Error('The feature ' + featureName + ' already exists');
-                }
-                var feature = new Feature(featureName);
-                this.features.push(feature);
-                return feature;
-            };
-            implementation.get = function(featureName) {
-                return find(this.features, function(feature) {
-                    return feature.name === featureName;
-                });
-            };
-            implementation.support = function(featureName, featureVersion) {
-                if (arguments.length === 1) {
-                    featureVersion = '*';
-                }
-                var feature = this.get(featureName);
-                if (feature === null) {
-                    // unknown feature
-                    return false;
-                }
-                var version = feature.get(featureVersion);
-                if (version === null) {
-                    // unknown version
-                    return false;
-                }
-                return version.test();
-            };
-            function find(entries, fn) {
-                var i = 0;
-                var j = entries.length;
-                var foundIndex = -1;
-                var foundEntry;
-
-                while (i < j) {
-                    var entry = entries[i];
-                    if (fn(entry)) {
-                        foundIndex = i;
-                        foundEntry = entry;
-                        break;
-                    }
-                    i++;
-                }
-
-                return foundIndex === -1 ? null : foundEntry;
-            }
-
-            function Feature(name) {
-                this.versions = [];
-                this.name = name;
-            }
-            var featureProto = Feature.prototype;
-            featureProto.get = function(versionName) {
-                return find(this.versions, function(existingVersion) {
-                    return existingVersion.match(versionName);
-                });
-            };
-            featureProto.add = function(versionName) {
-                var existingVersion = this.get(versionName);
-                if (existingVersion) {
-                    throw new Error('The version ' + versionName + ' already exists');
-                }
-                var version = new FeatureVersion(versionName);
-                this.versions.push(version);
-                return version;
-            };
-
-            var env = this;
-            function FeatureVersion(version) {
-                this.version = env.createVersion(version);
-            }
-            var featureVersionProto = FeatureVersion.prototype;
-            featureVersionProto.match = function(version) {
-                return this.version.match(version);
-            };
-            featureVersionProto.test = function() {
-                var detector = this.detector;
-                if (detector) {
-                    return Boolean(detector());
-                }
-                return false;
-            };
-            featureVersionProto.detect = function(firstArg) {
-                var detector;
-                if (typeof firstArg === 'boolean') {
-                    detector = function() {
-                        return firstArg;
-                    };
-                } else if (typeof firstArg === 'function') {
-                    detector = firstArg;
-                } else {
-                    throw new TypeError('feature version detect first arg must be a function or a boolean');
-                }
-                this.detector = detector;
-            };
-            featureVersionProto.detectMethod = function(object, methodName) {
-                return this.detect(function() {
-                    return typeof object[methodName] === 'function';
-                });
-            };
-            featureVersionProto.detectObject = function(object, objectName) {
-                return this.detect(function() {
-                    return typeof object[objectName] === 'object';
-                });
-            };
-            featureVersionProto.detectNumber = function(object, numberName) {
-                return this.detect(function() {
-                    return typeof object[numberName] === 'number';
-                });
-            };
-
-            // some helpers
-            featureProto.detect = function(detector) {
-                return this.any().detect(detector);
-            };
-            featureProto.detectMethod = function(object, methodName) {
-                return this.any().detectMethod(object, methodName);
-            };
-            featureProto.detectObject = function(object, objectName) {
-                return this.any().detectObject(object, objectName);
-            };
-            featureProto.detectNumber = function(object, numberName) {
-                return this.any().detectNumber(object, numberName);
-            };
-            featureProto.any = function() {
-                var version = this.get('*');
-                if (!version) {
-                    version = this.add('*');
-                }
-                return version;
-            };
-
-            return {
-                implementation: implementation
-            };
-        });
-
         build(function caseTransform() {
             return {
                 hyphenToCamel: function(string) {
@@ -833,625 +690,6 @@ je dis pourquoi pas
                         return g[0] + '-' + g[1].toLowerCase();
                     });
                 }
-            };
-        });
-
-        build(function prepareImplementationDetection() {
-            var implementation = jsenv.implementation;
-            // var hyphenToCamel = jsenv.hyphenToCamel;
-            var camelToHypen = function(string) {
-                string = string.replace(/_/g, '-');
-                // s'il n'y a que des char uppercase et des -
-                // ne met juste en lower case
-                var i = 0;
-                var j = string.length;
-                var everyLetterIsDashOrUpperCase = true;
-                while (i < j) {
-                    var letter = string[i];
-                    if (letter !== '-' && letter !== letter.toUpperCase()) {
-                        everyLetterIsDashOrUpperCase = false;
-                        break;
-                    }
-                    i++;
-                }
-                if (everyLetterIsDashOrUpperCase) {
-                    return string.toLowerCase();
-                }
-                return jsenv.camelToHypen(string).toLowerCase();
-            };
-
-            function partialLeft(fn) {
-                var leftArgs = [];
-                var i = 1;
-                var j = arguments.length;
-                while (i < j) {
-                    leftArgs.push(arguments[i]);
-                    i++;
-                }
-                return function() {
-                    var fullArgs = [];
-                    fullArgs.push.apply(fullArgs, leftArgs);
-                    fullArgs.push.apply(fullArgs, arguments);
-                    return fn.apply(this, fullArgs);
-                };
-            }
-            function detect(featureName, detector) {
-                implementation.add(featureName).detect(detector);
-            }
-            function detectIf(featureName, ifFeatureName, detector) {
-                implementation.add(featureName).detect(function() {
-                    return (
-                        implementation.support(ifFeatureName) &&
-                        detector()
-                    );
-                });
-            }
-            function detectMany(detection, object, prefix) {
-                var i = 3;
-                var j = arguments.length;
-                var features = [];
-                while (i < j) {
-                    var detectionName = arguments[i];
-                    var hyphenatedDetectionName = camelToHypen(detectionName);
-                    var featureName;
-                    if (prefix) {
-                        featureName = prefix + '-' + hyphenatedDetectionName;
-                    } else {
-                        featureName = hyphenatedDetectionName;
-                    }
-                    var feature = implementation.add(featureName);
-                    detection(feature, object, detectionName);
-                    features.push(feature);
-                    i++;
-                }
-                return features;
-            }
-            var detectMethods = partialLeft(detectMany, function(feature, object, methodName) {
-                feature.detectMethod(object, methodName);
-            });
-            var detectPresence = partialLeft(detectMany, function(feature, object, propertyName) {
-                feature.detect(function() {
-                    return propertyName in object;
-                });
-            });
-            var detectNumbers = partialLeft(detectMany, function(feature, object, numberName) {
-                feature.detect(function() {
-                    return typeof object[numberName] === 'number';
-                });
-            });
-            var detectGlobalMethods = partialLeft(detectMethods, jsenv.global, '');
-
-            // Object
-            detect('object-to-string', function() {
-                // to be replaced with check of core-js
-                // https://github.com/zloirock/core-js/blob/master/modules/es6.object.to-string.js
-                return false;
-            });
-            detectMethods(Object, 'object',
-                // es6
-                'assign',
-                'is',
-                'setPrototypeOf',
-                'freeze',
-                'seal',
-                'preventExtensions',
-                'isFrozen',
-                'isSealed',
-                'isExtensible',
-                'getOwnPropertyDescriptor',
-                'getPrototypeOf',
-                'keys',
-                'getOwnPropertyNames',
-                // es7
-                'values',
-                'entries',
-                '__defineSetter__',
-                '__defineGetter__',
-                '__lookupSetter__',
-                '__lookupGetter__',
-                'getOwnPropertyDescriptors'
-            );
-
-            // Function
-            detect('function-name', function() {
-                // to be replaced with check of core-js
-                // https://github.com/zloirock/core-js/blob/v2.4.1/modules/es6.function.name.js
-                return false;
-            });
-            detectMethods(Function, 'function',
-                'bind'
-            );
-
-            // Array
-            detectMethods(Array, 'array',
-                'from',
-                'of',
-                'copyWithin',
-                'fill',
-                'find',
-                'findIndex',
-                'isArray',
-                'slice',
-                'join',
-                'indexOf',
-                'lastIndexOf',
-                'every',
-                'some',
-                'forEach',
-                'map',
-                'filter',
-                'reduce',
-                'reduceRight',
-                'sort'
-            );
-
-            // String
-            detectMethods(String.prototype, 'string',
-                // es6
-                'from-code-point',
-                'codePointAt',
-                'endsWith',
-                'includes',
-                'repeat',
-                'startsWith',
-                'trim',
-                'anchor',
-                'big',
-                'blink',
-                'bold',
-                'fixed',
-                'fontcolor',
-                'fontsize',
-                'italics',
-                'link',
-                'small',
-                'strike',
-                'sub',
-                'sup',
-                // es7
-                'padStart',
-                'padEnd',
-                'trimStart',
-                'trimEnd',
-                'matchAll',
-                'at'
-            );
-            detectMethods(String, 'string',
-                'raw'
-            );
-
-            // RegExp
-            detect('regexp-constructor', function() {
-                // to be replaced with check of core-js
-                // https://github.com/zloirock/core-js/blob/v2.4.1/modules/es6.regexp.constructor.js
-                return true;
-            });
-            detect('regexp-flags', function() {
-                // to be replaced with check of core-js
-                // https://github.com/zloirock/core-js/blob/v2.4.1/modules/es6.regexp.flags.js
-                return false;
-            });
-
-            // Number
-            detect('number-constructor', function() {
-                // to be replaced with check of core-js
-                // https://github.com/zloirock/core-js/blob/v2.4.1/modules/es6.number.constructor.js
-                return false;
-            });
-            detectNumbers(Number, 'number',
-                'epsilon',
-                'MAX_SAFE_INTEGER',
-                'MIN_SAFE_INTEGER'
-            );
-            detectMethods(Number, 'number',
-                'isFinite',
-                'isInteger',
-                'isNaN',
-                'isSafeInteger',
-                'parseFloat',
-                'parseInt'
-            );
-            detectMethods(Number.prototype, 'number',
-                'toFixed',
-                'toPrecision'
-            );
-
-            // Math
-            detectMethods(Math, 'math',
-                // es6
-                'acosh',
-                'asinh',
-                'atanh',
-                'cbrt',
-                'clz32',
-                'cosh',
-                'expm1',
-                'fround',
-                'hypot',
-                'imul',
-                'log1p',
-                'log10',
-                'log2',
-                'sign',
-                'sinh',
-                'tanh',
-                'trunc',
-                // es7
-                'clamp',
-                'degrees',
-                'fscale',
-                'radians',
-                'scale',
-                'iaddh',
-                'isubh',
-                'imulh',
-                'umulh'
-            );
-            detectNumbers(Math, 'math',
-                'DEG_PER_RAD',
-                'RAD_PER_DEG'
-            );
-
-            // Date
-            detect('date-to-iso-string', function() {
-                // to be replaced with check of core-js
-                // https://github.com/zloirock/core-js/blob/v2.4.1/modules/es6.date.to-iso-string.js
-                return false;
-            });
-            detect('date-to-json', function() {
-                // to be replaced with check of core-js
-                // https://github.com/zloirock/core-js/blob/v2.4.1/modules/es6.date.to-json.js
-                return false;
-            });
-            detect('date-to-string', function() {
-                // to be replaced with check of core-js
-                // https://github.com/zloirock/core-js/blob/v2.4.1/modules/es6.date.to-string.js
-                return false;
-            });
-            detectMethods(Date, 'date',
-                'now'
-            );
-
-            // Promise
-            detect('promise', function() {
-                return false;
-                // if (('Promise' in jsenv.global) === false) {
-                //     return false;
-                // }
-                // if (Promise.isPolyfill) {
-                //     return true;
-                // }
-                // // agent must implement onunhandledrejection to consider promise implementation valid
-                // if (jsenv.isBrowser()) {
-                //     if ('onunhandledrejection' in jsenv.global) {
-                //         return true;
-                //     }
-                //     return false;
-                // }
-                // if (jsenv.isNode()) {
-                //     // node version > 0.12.0 got the unhandledRejection hook
-                //     // this way to detect feature is AWFUL but for now let's do this
-                //     if (jsenv.agent.version.major > 0 || jsenv.agent.version.minor > 12) {
-                //         // apprently node 6.1.0 unhandledRejection is not great too, to be tested
-                //         if (jsenv.agent.version.major === 6 && jsenv.agent.version.minor === 1) {
-                //             return false;
-                //         }
-                //         return true;
-                //     }
-                //     return false;
-                // }
-                // return false;
-            });
-
-            // Symbol
-            detectGlobalMethods('Symbol');
-            detectPresence(implementation.support('symbol') ? Symbol : null, 'symbol',
-                'hasInstance',
-                'match',
-                'replace',
-                'search',
-                'split',
-                'toPrimitive',
-                'iterator',
-                'asyncIterator'
-            );
-            detectIf('function-has-instance', 'symbol-has-instance', function() {
-                return Symbol.hasInstance in Function.prototype;
-            });
-            detectIf('regexp-match', 'symbol-match', function() {
-                return Symbol.match in RegExp.prototype;
-            });
-            detectIf('regexp-replace', 'symbol-replace', function() {
-                return Symbol.replace in RegExp.prototype;
-            });
-            detectIf('regexp-search', 'symbol-search', function() {
-                return Symbol.search in RegExp.prototype;
-            });
-            detectIf('regexp-split', 'symbol-split', function() {
-                return Symbol.split in RegExp.prototype;
-            });
-            detectIf('date-to-primitive', 'symbol-to-primitive', function() {
-                return Symbol.toPrimitive in Date.prototype;
-            });
-            detectIf('array-iterator', 'symbol-iterator', function() {
-                return Symbol.iterator in Array.prototype;
-            });
-            detectIf('string-iterator', 'symbol-iterator', function() {
-                return Symbol.iterator in String.prototype;
-            });
-            detectIf('number-iterator', 'symbol-iterator', function() {
-                return Symbol.iterator in Number.prototype;
-            });
-
-            detectGlobalMethods(
-                'Map',
-                'Set',
-                'WeakMap',
-                'WeakSet',
-                'ArrayBuffer',
-                'DataView',
-                'Int8Array',
-                'Uint8Array',
-                'Uint8ClampedArray',
-                'Int16Array',
-                'Uint16Array',
-                'Int32Array',
-                'Uint32Array',
-                'Float32Array',
-                'Float64Array',
-                'Observable',
-                'asap'
-            );
-
-            // Reflect
-            detect('reflect', function() {
-                return typeof Reflect === 'object';
-            });
-            detectMethods(implementation.support('reflect') ? Reflect : null, 'reflect',
-                'defineMetadata',
-                'getMetadata',
-                'getOwnMetadata',
-                'hasMetadata',
-                'hasOwnMetadata',
-                'deleteMetadata',
-                'getMetadataKeys',
-                'getOwnMetadataKeys',
-                'metadata'
-            );
-
-            // es7
-            // https://github.com/zloirock/core-js#stage-4-proposals
-            detect('es7-array-includes', function() {
-                return false;
-            });
-
-            detectGlobalMethods(
-                'setTimeout',
-                'setInterval',
-                'setImmediate'
-            );
-
-            detect('dom-iterable', function() {
-                // to be added if any of NodeList, DOMTokenList, MediaList, StyleSheetList, CSSRuleList
-                // has not any of keys, values, entries and @@iterator
-                return false;
-            });
-        });
-
-        build(function compareRequirementWithDetectedImplementation() {
-            var requirements = [
-                'object-to-string',
-                'object-assign',
-                'object-is',
-                'object-set-prototype-of',
-                'object-freeze',
-                'object-seal',
-                'object-prevent-extensions',
-                'object-is-frozen',
-                'object-is-sealed',
-                'object-is-extensible',
-                'object-get-own-property-descriptor',
-                'object-get-prototype-of',
-                'object-keys',
-                'object-get-own-property-names',
-                // es7
-                'object-values',
-                'object-entries',
-                'object---define-setter--',
-                'object---define-getter--',
-                'object---lookup-setter--',
-                'object---lookup-getter--',
-                'object-get-own-property-descriptors',
-
-                'function-name',
-                'function-bind',
-                'function-has-instance',
-
-                'array-from',
-                'array-of',
-                'array-copy-within',
-                'array-fill',
-                'array-find',
-                'array-find-index',
-                'array-is-array',
-                'array-slice',
-                'array-join',
-                'array-index-of',
-                'array-last-index-of',
-                'array-every',
-                'array-some',
-                'array-for-each',
-                'array-map',
-                'array-filter',
-                'array-reduce',
-                'array-reduce-right',
-                'array-sort',
-                'array-iterator',
-
-                'string-from-code-point',
-                'string-raw',
-                'string-code-point-at',
-                'string-ends-with',
-                'string-includes',
-                'string-repeat',
-                'string-starts-with',
-                'string-trim',
-                'string-anchor',
-                'string-big',
-                'string-blink',
-                'string-bold',
-                'string-fixed',
-                'string-fontcolor',
-                'string-fontsize',
-                'string-italics',
-                'string-link',
-                'string-small',
-                'string-strike',
-                'string-sub',
-                'string-sup',
-                'string-iterator',
-                // es7
-                'string-pad-start',
-                'string-pad-end',
-                'string-trim-start',
-                'string-trim-end',
-                'string-match-all',
-                'string-at',
-
-                'regexp-constructor',
-                'regexp-flags',
-                'regexp-match',
-                'regexp-replace',
-                'regexp-search',
-                'regexp-split',
-
-                'number-constructor',
-                'number-epsilon',
-                'number-max-safe-integer',
-                'number-min-safe-integer',
-                'number-is-finite',
-                'number-is-integer',
-                'number-is-na-n',
-                'number-is-safe-integer',
-                'number-parse-float',
-                'number-parse-int',
-                'number-to-fixed',
-                'number-to-precision',
-                'number-iterator',
-
-                // es6
-                'math-acosh',
-                'math-asinh',
-                'math-atanh',
-                'math-cbrt',
-                'math-clz32',
-                'math-cosh',
-                'math-expm1',
-                'math-fround',
-                'math-hypot',
-                'math-imul',
-                'math-log1p',
-                'math-log10',
-                'math-log2',
-                'math-sign',
-                'math-sinh',
-                'math-tanh',
-                'math-trunc',
-                // es7
-                'math-clamp',
-                'math-degrees',
-                'math-fscale',
-                'math-radians',
-                'math-scale',
-                'math-iaddh',
-                'math-isubh',
-                'math-imulh',
-                'math-umulh',
-                'math-deg-per-rad',
-                'math-rad-per-deg',
-
-                'date-to-iso-string',
-                'date-to-json',
-                'date-to-string',
-                'date-now',
-                'date-to-primitive',
-
-                'map',
-                'set',
-                'weak-map',
-                'weak-set',
-                'array-buffer',
-                'data-view',
-                'int8array',
-                'uint8array',
-                'uint8clamped-array',
-                'int16array',
-                'uint16array',
-                'int32array',
-                'uint32array',
-                'float32array',
-                'float64array',
-                'observable',
-                'promise',
-
-                'set-timeout',
-                'set-interval',
-                'set-immediate',
-                'asap',
-
-                'symbol',
-                'symbol-has-instance',
-                'symbol-match',
-                'symbol-replace',
-                'symbol-search',
-                'symbol-split',
-                'symbol-to-primitive',
-                'symbol-iterator',
-                'symbol-async-iterator',
-
-                'reflect',
-                'reflect-define-metadata',
-                'reflect-get-metadata',
-                'reflect-get-own-metadata',
-                'reflect-has-metadata',
-                'reflect-has-own-metadata',
-                'reflect-delete-metadata',
-                'reflect-get-metadata-keys',
-                'reflect-get-own-metadata-keys',
-                'reflect-metadata',
-
-                'es7-array-includes',
-                'dom-iterable'
-            ];
-
-            function detectImplementationStatus() {
-                var requirementsStatus = {};
-                var i = 0;
-                var j = requirements.length;
-                while (i < j) {
-                    var requirementName = requirements[i];
-                    var requirementStatus;
-                    if (jsenv.implementation.support(requirementName)) {
-                        requirementStatus = 'ok';
-                    } else {
-                        requirementStatus = 'missing';
-                    }
-                    // j'imaerais bien qu'en fait mon détecteur
-                    // ah et aussi au lieu de missing 'unkown'
-                    // genre quand le requirement n'existe pas dans la liste
-                    // des features qu'on connait
-                    // permette un troisième type de status genre 'partial' ou 'incorrect' ou 'bugged'
-                    // qui signifique qu'on a une feature mais qu'elle ne fonctionne pas comme attendu
-                    // c'est quelque chose de fréquent et les polyfill servent aussi à ça
-                    requirementsStatus[requirementName] = requirementStatus;
-                    i++;
-                }
-
-                return requirementsStatus;
-            }
-
-            return {
-                detectImplementationStatus: detectImplementationStatus
             };
         });
 
@@ -1718,17 +956,6 @@ je dis pourquoi pas
         // bon j'ai besoin de détecter ce dont y'a besoin
         // pour le moment partons du principe que c'est tout
         // dont on va utiliser
-        /* require('core-js-builder')({
-  modules: ['es6', 'core.dict'], // modules / namespaces
-  blacklist: ['es6.reflect'],    // blacklist of modules / namespaces, by default - empty list
-  library: false,                // flag for build without global namespace pollution, by default - false
-  umd: true                      // use UMD wrapper for export `core` object, by default - true
-}).then(code => {
-  // ...
-}).catch(error => {
-  // ...
-});
-*/
         // mais ça limite on pourrais le mettre dans le code spécifique au serveur nodejs
         // ensuite le client lui va demander au serveur le fichier en précisant tout ce dont il a besoin
         // le serveur lui fait un build custom et lui retourne
@@ -1868,6 +1095,1040 @@ je dis pourquoi pas
     jsenv.moduleName = 'env';
     jsenv.globalAssignment = jsenv.createCancellableAssignment(jsenv.global, jsenv.globalName);
     jsenv.globalAssignment.assign(jsenv);
+
+    jsenv.build(function() {
+        var implementation = {};
+        implementation.features = [];
+
+        implementation.add = function(featureName) {
+            var existingFeature = this.get(featureName);
+            if (existingFeature) {
+                throw new Error('The feature ' + featureName + ' already exists');
+            }
+            var feature = new Feature(featureName);
+            this.features.push(feature);
+            return feature;
+        };
+        implementation.get = function(featureName) {
+            return find(this.features, function(feature) {
+                return feature.name === featureName;
+            });
+        };
+        implementation.getStatus = function(featureName, versionName) {
+            var feature = this.get(featureName);
+            if (feature === null) {
+                return 'unknown';
+            }
+            versionName = versionName || '*';
+            return feature.getStatus(versionName);
+        };
+        implementation.support = function() {
+            return this.getStatus.apply(this, arguments) === 'yes';
+        };
+        function find(entries, fn) {
+            var i = 0;
+            var j = entries.length;
+            var foundIndex = -1;
+            var foundEntry;
+
+            while (i < j) {
+                var entry = entries[i];
+                if (fn(entry)) {
+                    foundIndex = i;
+                    foundEntry = entry;
+                    break;
+                }
+                i++;
+            }
+
+            return foundIndex === -1 ? null : foundEntry;
+        }
+
+        function Feature(name) {
+            this.versions = [];
+            this.name = name;
+        }
+        var featureProto = Feature.prototype;
+        featureProto.get = function(versionName) {
+            return find(this.versions, function(existingVersion) {
+                return existingVersion.match(versionName);
+            });
+        };
+        featureProto.add = function(versionName) {
+            var existingVersion = this.get(versionName);
+            if (existingVersion) {
+                throw new Error('The version ' + versionName + ' already exists');
+            }
+            var version = new FeatureVersion(versionName);
+            this.versions.push(version);
+            return version;
+        };
+        featureProto.getStatus = function(versionName) {
+            if (arguments.length === 0) {
+                versionName = '*';
+            }
+            var version = this.get(versionName);
+            if (version === null) {
+                return 'nomatch';
+            }
+            return version.getStatus();
+        };
+
+        var env = this;
+        function FeatureVersion(version) {
+            this.version = env.createVersion(version);
+        }
+        var featureVersionProto = FeatureVersion.prototype;
+        featureVersionProto.match = function(version) {
+            return this.version.match(version);
+        };
+        featureVersionProto.getStatus = function() {
+            var detector = this.detector;
+            if (detector) {
+                var detectorResult = detector();
+                if (typeof detectorResult === 'string') {
+                    return detectorResult;
+                }
+                if (detectorResult) {
+                    return 'yes';
+                }
+                return 'no';
+            }
+            return 'unspecified';
+        };
+        featureVersionProto.detect = function(firstArg) {
+            var detector;
+            if (typeof firstArg === 'boolean') {
+                detector = function() {
+                    return firstArg;
+                };
+            } else if (typeof firstArg === 'function') {
+                detector = firstArg;
+            } else {
+                throw new TypeError('feature version detect first arg must be a function or a boolean');
+            }
+            this.detector = detector;
+        };
+        featureVersionProto.detectMethod = function(object, methodName) {
+            return this.detect(function() {
+                return typeof object[methodName] === 'function';
+            });
+        };
+        featureVersionProto.detectObject = function(object, objectName) {
+            return this.detect(function() {
+                return typeof object[objectName] === 'object';
+            });
+        };
+        featureVersionProto.detectNumber = function(object, numberName) {
+            return this.detect(function() {
+                return typeof object[numberName] === 'number';
+            });
+        };
+
+        // some helpers
+        featureProto.detect = function(detector) {
+            return this.any().detect(detector);
+        };
+        featureProto.detectMethod = function(object, methodName) {
+            return this.any().detectMethod(object, methodName);
+        };
+        featureProto.detectObject = function(object, objectName) {
+            return this.any().detectObject(object, objectName);
+        };
+        featureProto.detectNumber = function(object, numberName) {
+            return this.any().detectNumber(object, numberName);
+        };
+        featureProto.any = function() {
+            var version = this.get('*');
+            if (!version) {
+                version = this.add('*');
+            }
+            return version;
+        };
+
+        return {
+            implementation: implementation
+        };
+    });
+
+    jsenv.build(function makeImplementationScannable() {
+        // l'idée c'est que chaque feature puisse exprimer comment la feature peut être obtenue
+        // il est aussi possible qu'on ne puisse pas obtenir la feature via polyfill ou autre
+        // il faut alors pouvoir l'exprimer genre fallback: false (par défaut)
+        // un moyen d'être polyfill, soit par un fichier distant (quon inclueras dans un build)
+        // si fallback est une chaîne alors c'est un fichier distant
+        // si c'est une fonction alors on l'apelle
+        // y'auras aussi besoin de détecter certain truc qu'on transpile
+        // https://github.com/75lb/feature-detect-es6/blob/master/lib/feature-detect-es6.js
+        // y'a ptet pas besoin d'une api si spécifique suffit de spécifié ailleurs qu'ici comment
+        // on peut polyfill en prévoyant une propriété fallback sur une feature
+
+        var implementation = jsenv.implementation;
+
+        /*
+        (function() {
+            coreJsFallback('object-assign', 'es6.object.assign');
+            coreJsFallback('object-create', 'es6.object.create');
+            coreJsFallback('object---define-getter--', 'es7.object.define-getter');
+            coreJsFallback('object-define-property', 'es6.object.define-property');
+            coreJsFallback('object-define-properties', 'es6.object.define-properties');
+            coreJsFallback('object---define-setter--', 'es7.object.define-setter');
+            coreJsFallback('object-entries', 'es7.object.entries');
+            coreJsFallback('object-freeze', 'es6.object.freeze');
+            coreJsFallback('object-get-own-property-descriptor', 'es6.object.get-own-property-descriptor');
+            coreJsFallback('object-get-own-property-descriptors', 'es7.object.get-own-property-descriptors');
+            coreJsFallback('object-get-own-property-names', 'es6.object.get-own-property-names');
+            coreJsFallback('object-get-prototype-of', 'es6.object.get-prototype-of');
+            coreJsFallback('object-is', 'es6.object.is');
+            coreJsFallback('object-is-extensible', 'es6.object.is-extensible');
+            coreJsFallback('object-is-frozen', 'es6.object.is-frozen');
+            coreJsFallback('object-is-sealed', 'es6.object.is-sealed');
+            coreJsFallback('object-keys', 'es6.object.keys');
+            coreJsFallback('object---lookup-getter--', 'es7.object.lookup-getter');
+            coreJsFallback('object---lookup-setter--', 'es7.object.lookup-setter');
+            coreJsFallback('object-prevent-extensions', 'es6.object.prevent-extensions');
+            coreJsFallback('object-seal', 'es6.object.seal');
+            coreJsFallback('object-set-prototype-of', 'es6.object.set-prototype-of');
+            coreJsFallback('object-to-string', 'es6.object.to-string');
+            coreJsFallback('object-values', 'es7.object.values');
+
+            coreJsFallback('symbol', 'es6.symbol');
+            // il faudrais aussi mettre tous les symbol-* dans cette catégorie
+            coreJsFallback('symbol-async-iterator', 'es7.symbol.async-iterator');
+            coreJsFallback('symbol-observable', 'es7.symbol.observable');
+
+            coreJsFallback('math-acosh', 'es6.math.acosh');
+            coreJsFallback('math-asinh', 'es6.math.asinh');
+            coreJsFallback('math-atanh', 'es6.math.atanh');
+            coreJsFallback('math-cbrt', 'es6.math.cbrt');
+            coreJsFallback('math-clamp', 'es7.math.clamp');
+            coreJsFallback('math-clz32', 'es6.math.clz32');
+            coreJsFallback('math-cosh', 'es6.math.cosh');
+            coreJsFallback('math-deg-per-rad', 'es7.math.deg-per-rad');
+            coreJsFallback('math-degrees', 'es7.math.degrees');
+            coreJsFallback('math-expm1', 'es6.math.expm1');
+            coreJsFallback('math-fround', 'es6.math.fround');
+            coreJsFallback('math-fscale', 'es7.math.fscale');
+            coreJsFallback('math-hypot', 'es6.math.hypot');
+            coreJsFallback('math-iaddh', 'es7.math.iaddh');
+            coreJsFallback('math-imul', 'es6.math.imul');
+            coreJsFallback('math-imulh', 'es7.math.imulh');
+            coreJsFallback('math-isubh', 'es7.math.isubh');
+            coreJsFallback('math-log10', 'es6.math.log10');
+            coreJsFallback('math-log1p', 'es6.math.log1p');
+            coreJsFallback('math-log2', 'es6.math.log2');
+            coreJsFallback('math-radians', 'es7.math.radians');
+            coreJsFallback('math-rad-per-deg', 'es7.math.rad-per-deg');
+            coreJsFallback('math-scale', 'es7.math.scale');
+            coreJsFallback('math-sign', 'es6.math.sign');
+            coreJsFallback('math-sinh', 'es6.math.sinh');
+            coreJsFallback('math-tanh', 'es6.math.tanh');
+            coreJsFallback('math-trunc', 'es6.math.trunc');
+            coreJsFallback('math-umulh', 'es7.math.umulh');
+
+            coreJsFallback('number-constructor', 'es6.number.constructor');
+            coreJsFallback('number-epsilon', 'es6.number.epsilon');
+            coreJsFallback('number-is-finite', 'es6.number.is-finite');
+            coreJsFallback('number-is-integer', 'es6.number.is-integer');
+            coreJsFallback('number-is-nan', 'es6.number.is-nan');
+            coreJsFallback('number-is-safe-integer', 'es6.number.is-safe-integer');
+            coreJsFallback('number-iterator', 'core.number.iterator');
+            coreJsFallback('number-max-safe-integer', 'es6.number.max-safe-integer');
+            coreJsFallback('number-min-safe-integer', 'es6.number.min-safe-integer');
+            coreJsFallback('number-to-fixed', 'es6.number.to-fixed');
+            coreJsFallback('number-to-precision', 'es6.number.to-precision');
+            coreJsFallback('number-parse-float', 'es6.number.parse-float');
+            coreJsFallback('number-parse-int', 'es6.number.parse-int');
+
+            coreJsFallback('reflect-apply', 'es6.reflect.apply');
+            coreJsFallback('reflect-construct', 'es6.reflect.construct');
+            coreJsFallback('reflect-define-property', 'es6.reflect.define-property');
+            coreJsFallback('reflect-delete-property', 'es6.reflect.delete-property');
+            coreJsFallback('reflect-enumerate', 'es6.reflect.enumerate');
+            coreJsFallback('reflect-get', 'es6.reflect.get');
+            coreJsFallback('reflect-get-own-property-descriptor', 'es6.reflect.get-own-property-descriptor');
+            coreJsFallback('reflect-get-prototype-of', 'es6.reflect.get-prototype-of');
+            coreJsFallback('reflect-has', 'es6.reflect.has');
+            coreJsFallback('reflect-is-extensible', 'es6.reflect.is-extensible');
+            coreJsFallback('reflect-own-keys', 'es6.reflect.own-keys');
+            coreJsFallback('reflect-prevent-extensions', 'es6.reflect.prevent-extensions');
+            coreJsFallback('reflect-set', 'es6.reflect.set');
+            coreJsFallback('reflect-set-prototype-of', 'es6.reflect.set-prototype-of');
+
+            coreJsFallback('reflect-define-metadata', 'es7.reflect.define-metadata');
+            coreJsFallback('reflect-delete-metadata', 'es7.reflect.delete-metadata');
+            coreJsFallback('reflect-get-metadata', 'es7.reflect.get-metadata');
+            coreJsFallback('reflect-get-metadata-keys', 'es7.reflect.get-metadata-keys');
+            coreJsFallback('reflect-get-own-metadata', 'es7.reflect.get-own-metadata');
+            coreJsFallback('reflect-get-own-metadata-keys', 'es7.reflect.get-own-metadata-keys');
+            coreJsFallback('reflect-has-metadata', 'es7.reflect.has-metadata');
+            coreJsFallback('reflect-has-own-metadata', 'es7.reflect.has-own-metadata');
+            coreJsFallback('reflect-metadata', 'es7.reflect.metadata');
+
+            coreJsFallback('regexp-constructor', 'es6.regexp.constructor');
+            coreJsFallback('regexp-escape', 'core.regexp.escape');
+            coreJsFallback('regexp-flags', 'es6.regexp.flags');
+            coreJsFallback('regexp-match', 'es6.regexp.match');
+            coreJsFallback('regexp-replace', 'es6.regexp.replace');
+            coreJsFallback('regexp-search', 'es6.regexp.search');
+            coreJsFallback('regexp-split', 'es6.regexp.split');
+            coreJsFallback('regexp-to-string', 'es6.regexp.to-string');
+
+            coreJsFallback('string-at', 'es7.string.at');
+            coreJsFallback('string-from-code-point', 'es6.string.from-code-point');
+            coreJsFallback('string-code-point-at', 'es6.string.code-point-at');
+            coreJsFallback('string-ends-with', 'es6.string.ends-with');
+            coreJsFallback('string-escape-html', 'core.string.escape-html');
+            coreJsFallback('string-includes', 'es6.string.includes');
+            coreJsFallback('string-iterator', 'es6.string.iterator');
+            coreJsFallback('string-match-all', 'es7.string.match-all');
+            coreJsFallback('string-pad-end', 'es7.string.pad-end');
+            coreJsFallback('string-pad-start', 'es7.string.pad-start');
+            coreJsFallback('string-raw', 'es6.string.raw');
+            coreJsFallback('string-repeat', 'es6.string.repeat');
+            coreJsFallback('string-starts-with', 'es6.string.starts-with');
+            coreJsFallback('string-trim', 'es6.string.trim');
+            coreJsFallback('string-trim-end', 'es7.string.trim-right');
+            coreJsFallback('string-trim-start', 'es7.string.trim-left');
+            coreJsFallback('string-unescape-html', 'core.string.unescape-html');
+
+            coreJsFallback('string-anchor', 'es6.string.anchor');
+            coreJsFallback('string-big', 'es6.string.big');
+            coreJsFallback('string-blink', 'es6.string.blink');
+            coreJsFallback('string-fixed', 'es6.string.fixed');
+            coreJsFallback('string-fontcolor', 'es6.string.fontcolor');
+            coreJsFallback('string-fontsize', 'es6.string.fontsize');
+            coreJsFallback('string-italics', 'es6.string.italics');
+            coreJsFallback('string-link', 'es6.string.link');
+            coreJsFallback('string-small', 'es6.string.small');
+            coreJsFallback('string-strike', 'es6.string.strike');
+            coreJsFallback('string-sub', 'es6.string.sub');
+            coreJsFallback('string-sup', 'es6.string.sup');
+        })();
+         */
+
+        function register(featureName) {
+            var feature = implementation.add(featureName);
+
+            if (arguments.length > 1) {
+                var result = readMultiple(jsenv.global, Array.prototype.slice.call(arguments, 1));
+                feature.path = result.path;
+                feature.status = result.status;
+                feature.value = result.value;
+            }
+
+            var branches = [];
+            feature.when = function(condition, action) {
+                var existingBranchWithCondition = branches.find(function(branch) {
+                    return branch.condition === condition;
+                });
+                if (existingBranchWithCondition) {
+                    existingBranchWithCondition.action = action;
+                } else {
+                    branches.push({
+                        condition: condition,
+                        action: action
+                    });
+                }
+                return this;
+            };
+            feature.verify = function() {
+                var branch = branches.find(function(branch) {
+                    return branch.condition.call(this, this.value);
+                }, this);
+                if (branch) {
+                    return branch.action.call(this, this.value);
+                }
+                throw new Error('feature ' + this.name + ' state has no branch matching his state');
+            };
+
+            feature.when(
+                missing,
+                function() {
+                    throw new Error('feature ' + this.name + ' is missing');
+                }
+            );
+            feature.when(
+                unreachable,
+                function() {
+                    throw new Error('feature ' + this.name + ' not found at ' + this.path);
+                }
+            );
+
+            return feature;
+        }
+        function readMultiple(initialValue, paths) {
+            var i;
+            var j = paths.length;
+            var result = {};
+            var previousResult;
+            var singleReadResult;
+
+            i = j;
+            while (i--) {
+                var path = paths[i];
+                singleReadResult = readSingle(initialValue, path);
+
+                propagateResult(singleReadResult, result);
+                if (result.has === false) {
+                    break;
+                }
+                if (previousResult) {
+                    var propertyResult = readProperty(result.value, previousResult.value);
+                    propagateResult(propertyResult, result);
+                    if (result.has === false) {
+                        break;
+                    }
+                }
+            }
+
+            if (result.has) {
+                result.status = 'located';
+            } else {
+                result.status = i === 0 ? 'missing' : 'notfound';
+            }
+
+            var pathString = '';
+            i = 0;
+            while (i < j) {
+                pathString += paths[i];
+                if (i > 0) {
+                    pathString += ']';
+                    if (i < j - 1) {
+                        pathString += '[';
+                    }
+                }
+                i++;
+            }
+            result.path = pathString;
+
+            return result;
+        }
+        function readSingle(initialValue, path) {
+            var parts = path.split('.');
+            var i = 0;
+            var j = path.length;
+            var result = {};
+            var value = initialValue;
+
+            while (i < j) {
+                var part = parts[i];
+                var propertyResult = readProperty(value, part);
+
+                propagateResult(propertyResult, result);
+                if (result.has === false) {
+                    break;
+                }
+                i++;
+            }
+
+            if (result.has) {
+                result.status = 'located';
+            } else {
+                result.status = i === j - 1 ? 'missing' : 'notfound';
+            }
+
+            return result;
+        }
+        function readProperty(value, propertyName) {
+            var result = {};
+
+            if (propertyName in value) {
+                result.has = true;
+                result.value = value[propertyName];
+            } else {
+                result.has = false;
+                result.value = undefined;
+            }
+
+            return result;
+        }
+        function propagateResult(propertyResult, result) {
+            if (propertyResult.has) {
+                result.has = true;
+                result.value = propertyResult.value;
+            } else {
+                result.has = false;
+                result.value = undefined;
+            }
+        }
+        function missing() {
+            return this.status === 'missing';
+        }
+        function unreachable() {
+            return this.status === 'unreachable';
+        }
+        function notFunction(value) {
+            return typeof value !== 'function';
+        }
+        // function notString(value) {
+        //     return typeof value !== 'string';
+        // }
+        // function notNumber(value) {
+        //     return typeof value !== 'number';
+        // }
+        // function notSymbol(value) {
+        //     return value instanceof Symbol === false;
+        // }
+        function createMatchHelper(condition, action) {
+            var feature = register.apply(this, arguments);
+
+            feature.when(
+                condition,
+                action
+            );
+
+            return feature;
+        }
+        var method = createMatchHelper(notFunction, function() {
+            throw new TypeError('feature ' + this.name + ' was expected to be a function');
+        });
+        // var string = createMatchHelper(notString, function() {
+        //     throw new TypeError('feature ' + this.name + ' was expected to be a string');
+        // });
+        // var number = createMatchHelper(notNumber, function() {
+        //     throw new TypeError('feature ' + this.name + ' was expected to be a number');
+        // });
+        // var symbol = createMatchHelper(notSymbol, function() {
+        //     throw new TypeError('feature ' + this.name + ' was expected to be a symbol');
+        // });
+        var constructor = method;
+        function polyfill() {
+
+        }
+        function or() {
+
+        }
+
+        constructor('asap', 'asap').when(
+            missing,
+            polyfill('es7.asap')
+        );
+        constructor('map', 'Map').when(
+            missing,
+            polyfill('es6.map')
+        );
+        constructor('observable', 'Observable').when(
+            missing,
+            polyfill('es7.observable')
+        );
+        (function() {
+            var ws = '\x09\x0A\x0B\x0C\x0D\x20\xA0\u1680\u180E\u2000\u2001\u2002\u2003';
+            ws += '\u2004\u2005\u2006\u2007\u2008\u2009\u200A\u202F\u205F\u3000\u2028\u2029\uFEFF';
+
+            method('parse-int', 'parseInt').when(
+                function() {
+                    // https://github.com/zloirock/core-js/blob/v2.4.1/modules/_parse-int.js
+                    return (
+                        parseInt(ws + '08') !== 8 ||
+                        parseInt(ws + '0x16') !== 22
+                    );
+                },
+                polyfill('es6.parse-int')
+            );
+            method('parse-float', 'parseFloat').when(
+                function() {
+                    // https://github.com/zloirock/core-js/blob/v2.4.1/modules/_parse-float.js
+                    return 1 / parseFloat(ws + '-0') === -Infinity;
+                },
+                polyfill('es6.parse-float')
+            );
+        })();
+        constructor('promise', 'Promise').when(
+            or(missing, function() {
+                // agent must implement onunhandledrejection to consider promise implementation valid
+                if (jsenv.isBrowser()) {
+                    if ('onunhandledrejection' in jsenv.global) {
+                        return true;
+                    }
+                    return false;
+                }
+                if (jsenv.isNode()) {
+                    // node version > 0.12.0 got the unhandledRejection hook
+                    // this way to detect feature is AWFUL but for now let's do this
+                    if (jsenv.agent.version.major > 0 || jsenv.agent.version.minor > 12) {
+                        // apprently node 6.1.0 unhandledRejection is not great too, to be tested
+                        if (jsenv.agent.version.major === 6 && jsenv.agent.version.minor === 1) {
+                            return false;
+                        }
+                        return true;
+                    }
+                    return false;
+                }
+                return false;
+            }),
+            polyfill('es6.promise')
+        );
+        constructor('set', 'Set').when(
+            missing,
+            polyfill('es6.set')
+        );
+        method('set-immediate', 'setImmediate').when(
+            missing,
+            polyfill('web.immediate')
+        );
+
+        (function() {
+            function brokeanTimerDetector() {
+                // faudrais check si y'a beosin de fix des truc sous IE9
+                // https://github.com/zloirock/core-js/blob/v2.4.1/modules/web.timers.js
+                return false;
+            }
+
+            method('set-interval', 'setInterval').when(
+                brokeanTimerDetector,
+                polyfill('web.timers')
+            );
+            method('set-timeout', 'setTimeout').when(
+                brokeanTimerDetector,
+                'web.timers'
+            );
+        })();
+        constructor('weak-map', 'WeakMap').when(
+            missing,
+            polyfill('es6.weak-map')
+        );
+        constructor('weak-set', 'WeakSet').when(
+            missing,
+            polyfill('es6.weak-set')
+        );
+        constructor('array-buffer', 'ArrayBuffer').when(
+            missing,
+            polyfill('es6.typed.array-buffer')
+        );
+        constructor('data-view', 'DataView').when(
+            missing,
+            polyfill('es6.typed.array-buffer')
+        );
+        constructor('int8array', 'Int8array').when(
+            missing,
+            polyfill('es6.typed.array-buffer')
+        );
+        constructor('uint8array', 'Uint8array').when(
+            missing,
+            polyfill('es6.typed.array-buffer')
+        );
+        constructor('uint8clamped-array', 'Uint8ClampedArray').when(
+            missing,
+            polyfill('es6.typed.array-buffer')
+        );
+        constructor('int16array', 'Int16array').when(
+            missing,
+            polyfill('es6.typed.array-buffer')
+        );
+        constructor('uint16array', 'Uint16array').when(
+            missing,
+            polyfill('es6.typed.array-buffer')
+        );
+        constructor('int32array', 'Int32array').when(
+            missing,
+            polyfill('es6.typed.array-buffer')
+        );
+        constructor('uint32array', 'Uint32array').when(
+            missing,
+            polyfill('es6.typed.array-buffer')
+        );
+        constructor('float32array', 'Float32array').when(
+            missing,
+            polyfill('es6.typed.array-buffer')
+        );
+        constructor('float64array', 'Float64Array').when(
+            missing,
+            polyfill('es6.typed.array-buffer')
+        );
+
+        // feature('typed-array-includes', 'Array.prototype.includes').polyfill('es7.array.includes');
+        (function() {
+            if (jsenv.isBrowser()) {
+                // il faut un peu changer les helpers
+                // afn de vraiment pouvoir utiliser ce qu'on voit ci dessous
+                // c'est à dire de pouvoir lire non plus depuis jsenv.global mais
+                // DomCollection
+                // mais aussi que l'état de la feature puisse être composé de létat d'autre
+                // feature qui ne sont pas forcément register
+
+                var notIterable = or(
+                    function(DomCollection) {
+                        this.method(DomCollection, 'keys');
+                    },
+                    function(DomCollection) {
+                        this.method(DomCollection, 'values');
+                    },
+                    function(DomCollection) {
+                        this.method(DomCollection, 'entries');
+                    },
+                    function(DomCollection) {
+                        this.method(DomCollection, 'Symbol.iterator');
+                    }
+                );
+
+                constructor('node-list-iterable', 'NodeList').when(
+                    notIterable,
+                    polyfill('web.dom.iterable')
+                );
+                constructor('dom-token-list-iterable', 'DomTokenList').when(
+                    notIterable,
+                    polyfill('web.dom.iterable')
+                );
+                constructor('media-list-iterable', 'MediaList').when(
+                    notIterable,
+                    polyfill('web.dom.iterable')
+                );
+                constructor('style-sheet-list-iterable', 'StyleSheetList').when(
+                    notIterable,
+                    polyfill('web.dom.iterable')
+                );
+                constructor('css-rule-list-iterable', 'CSSRuleList').when(
+                    notIterable,
+                    polyfill('web.dom.iterable')
+                );
+            }
+        })();
+
+        /*
+        // map, join, filter y'a surement des fix, il ne suffit pas de vérifié que la méthode existe
+        method('array-copy-within', 'Array.copyWithin').polyfill('es6.array.copy-within');
+        method('array-every', 'Array.every').polyfill('es6.array.every');
+        method('array-find', 'Array.find').polyfill('es6.array.find');
+        method('array-find-index', 'Array.findIndex').polyfill('es6.array.find-index');
+        method('array-fill', 'Array.fill').polyfill('es6.array.fill');
+        method('array-filter', 'Array.filter').polyfill('es6.array.filer');
+        method('array-for-each', 'Array.forEach').polyfill('es6.array.for-each');
+        method('array-from', 'Array.from').polyfill('es6.array.from');
+        method('array-index-of', 'Array.indexOf').polyfill('es6.array.index-of');
+
+        method('array-iterator', 'Array.prototype', 'Symbol.iterator').when(
+            missing,
+            polyfill('es6.array.iterator')
+        );
+        method('array-is-array', 'Array.isArray').polyfill('es6.array.is-array');
+        method('array-join', 'Array.join').polyfill('es6.array.join');
+        method('array-last-index-of', 'Array.lastIndexOf').polyfill('es6.array.last-index-of');
+        method('array-map', 'Array.map').polyfill('es6.array.map');
+        method('array-of', 'Array.of').polyfill('es6.array.of');
+        method('array-reduce', 'Array.reduce').polyfill('es6.array.reduce');
+        method('array-reduce-right', 'Array.reduceRight').polyfill('es6.array.reduce-right');
+        method('array-slice', 'Array.slice').polyfill('es6.array.slice');
+        method('array-some', 'Array.some').polyfill('es6.array.some');
+        method('array-sort', 'Array.sort').polyfill('es6.array.sort');
+
+        // map, join, filter y'a surement des fix, il ne suffit pas de vérifié que la méthode existe
+        // coreJsFallback('array-species', 'es6.array.species');
+        // add('array-species', null);
+
+        method('date-now', 'Date.now').polyfill('es6.date.now');
+        method('date-to-iso-string', 'Date.prototype.toISOString').valid(function() {
+            // https://github.com/zloirock/core-js/blob/v2.4.1/modules/es6.date.to-iso-string.js
+            try {
+                // eslint-disable-next-line no-unused-expressions
+                if (new Date(-5e13 - 1).toISOString() !== '0385-07-25T07:06:39.999Z') {
+                    return false;
+                }
+            } catch (e) {
+                return false;
+            }
+
+            try {
+                // eslint-disable-next-line no-unused-expressions
+                new Date(NaN).toISOString();
+            } catch (e) {
+                return true;
+            }
+            return false;
+        }).polyfill('es6.date.to-iso-string', 'invalid');
+        method('date-to-json', 'Date.prototype.toJSON').valid(function() {
+            // https://github.com/zloirock/core-js/blob/v2.4.1/modules/es6.date.to-json.js
+            try {
+                if (new Date(NaN).toJSON() !== null) {
+                    return false;
+                }
+                var fakeDate = {
+                    toISOString: function() {
+                        return 1;
+                    }
+                };
+                if (Date.prototype.toJSON.call(fakeDate) !== 1) {
+                    return false;
+                }
+            } catch (e) {
+                return false;
+            }
+            return true;
+        }).polyfill('es6.date.to-json');
+        // un peu comme pour array-iterator au dessus
+        // feature('date-to-primitive', detectSymbol('Date.prototype.toPrimitive')).polyfil('es6.date.to-primitive');
+        method('date-to-string', 'Date.prototype.toString').valid(function() {
+            // https://github.com/zloirock/core-js/blob/v2.4.1/modules/es6.date.to-string.js
+            return new Date(NaN).toString() === 'Invalid Date';
+        }).polyfill('es6.date.to-string', 'invalid');
+
+        method('function-bind', 'Function.prototype.bind').polyfill('es6.function.bind');
+        string('function-name', 'Function.prototype.name').polyfill('es6.function.name');
+        // add('function-has-instance', detectSymbol('Function.prototype.hasInstance')).polyfill('es6.function.has-instance');
+
+        add('object-assign', detectMethod('Object.assign'));
+        add('object-create', detectMethod('Object.create'));
+        add('object---define-getter--', detectMethod('Object.__defineGetter__'));
+        add('object-define-property', detectMethod('Object.defineProperty'));
+        add('object-define-properties', detectMethod('Object.defineProperties'));
+        add('object---define-setter--', detectMethod('Object.__defineSetter__'));
+        add('object-entries', detectMethod('Object.entries'));
+        add('object-freeze', detectMethod('Object.freeze'));
+        add('object-get-own-property-descriptor', detectMethod('Object.getOwnPropertyDescriptor'));
+        add('object-get-own-property-descriptors', detectMethod('Object.getOwnPropertyDescriptors'));
+        add('object-get-own-property-names', detectMethod('Object.getOwnPropertyNames'));
+        add('object-get-prototype-of', detectMethod('Object.getPrototypeOf'));
+        add('object-is', detectMethod('Object.is'));
+        add('object-is-extensible', detectMethod('Object.isExtensible'));
+        add('object-is-frozen', detectMethod('Object.isFrozen'));
+        add('object-is-sealed', detectMethod('Object.isSealed'));
+        add('object-keys', detectMethod('Object.keys'));
+        add('object---lookup-getter--', detectMethod('Object.__lookupGetter__'));
+        add('object---lookup-setter--', detectMethod('Object.__lookupSetter__'));
+        add('object-prevent-extensions', detectMethod('Object.preventExtensions'));
+        add('object-seal', detectMethod('Object.seal'));
+        add('object-set-prototype-of', detectMethod('Object.setPrototypeOf'));
+        add('object-to-string', ensure('Object.prototype.toString').isFunction().and(
+            function() {
+                return expect('Symbol.toStringTag').isSymbol();
+            }
+        ).test(function() {
+            // https://github.com/zloirock/core-js/blob/master/modules/es6.object.to-string.js
+            var test = {};
+            test[Symbol.toStringTag] = 'z';
+            return test.toString() === '[object z]';
+        }));
+        add('object-values', detectMethod('Object.values'));
+
+        add('symbol', detectConstructor('Symbol'));
+        add('symbol-async-iterator', detectSymbol('Symbol.asyncIterator'));
+        add('symbol-has-instance', detectSymbol('Symbol.hasInstance'));
+        add('symbol-iterator', detectSymbol('Symbol.iterator'));
+        add('symbol-match', detectSymbol('Symbol.match'));
+        add('symbol-observable', detectSymbol('Symbol.observable'));
+        symbol('symbol-replace', 'Symbol.replace').when(
+            missing,
+            polyfill()
+        );
+        add('symbol-search', detectSymbol('Symbol.search'));
+        add('symbol-split', detectSymbol('Symbol.split'));
+        add('symbol-to-primitive', detectSymbol('Symbol.toPrimitive'));
+
+        add('math-acosh', detectMethod('Math.acosh'));
+        add('math-asinh', detectMethod('Math.asinh'));
+        add('math-atanh', detectMethod('Math.atanh'));
+        add('math-cbrt', detectMethod('Math.cbrt'));
+        add('math-clamp', detectMethod('Math.clamp'));
+        add('math-clz32', detectMethod('Math.clz32'));
+        add('math-cosh', detectMethod('Math.cosh'));
+        number('math-deg-per-rad', 'Math.DEG_PER_RAD').when(
+            missing,
+            polyfill()
+        );
+        add('math-degrees', detectMethod('Math.degrees'));
+        add('math-expm1', detectMethod('Math.expm1'));
+        add('math-fround', detectMethod('Math.fround'));
+        add('math-fscale', detectMethod('Math.fscale'));
+        add('math-hypot', detectMethod('Math.hypot'));
+        add('math-iaddh', detectMethod('Math.iaddh'));
+        add('math-imul', detectMethod('Math.imul'));
+        add('math-imulh', detectMethod('Math.imulh'));
+        add('math-isubh', detectMathMethod('Math.isubh'));
+        add('math-log10', detectMethod('Math.log10'));
+        add('math-log1p', detectMethod('Math.log1p'));
+        add('math-log2', detectMethod('Math.log2'));
+        add('math-radians', detectMethod('Math.radians'));
+        add('math-rad-per-deg', detectNumber('Math.RAD_PER_DEG'));
+        add('math-scale', detectMethod('Math.scale'));
+        add('math-sign', detectMethod('Math.sign'));
+        add('math-sinh', detectMethod('Math.sinh'));
+        add('math-tanh', detectMethod('Math.tanh'));
+        add('math-trunc', detectMethod('Math.trunc'));
+        add('math-umulh', detectMethod('Math.umulh'));
+
+        add('number-constructor', function() {
+            // https://github.com/zloirock/core-js/blob/v2.4.1/modules/es6.number.constructor.js#L46
+            return (
+                Number(' 0o1') &&
+                Number('0b1') &&
+                !Number('+0x1')
+            );
+        });
+        add('number-epsilon', detectNumber('Number.epsilon'));
+        add('number-is-finite', detectMethod('Number.isFinite'));
+        add('number-is-integer', detectMethod('Number.isInteger'));
+        add('number-is-nan', detectMethod('Number.isNaN'));
+        add('number-is-safe-integer', detectMethod('Number.isSafeInteger'));
+        add('number-iterator', detectSymbol('Number.prototype.iterator'));
+        add('number-max-safe-integer', detectNumber('Number.MAX_SAFE_INTEGER'));
+        add('number-min-safe-integer', detectNumber('Number.MIN_SAFE_INTEGER'));
+        add('number-to-fixed', detectMethod('Number.prototype;toFixed'));
+        add('number-to-precision', detectMethod('Number.prototype.toPrecision'));
+        add('number-parse-float', detectMethod('Number.parseFloat'));
+        add('number-parse-int', detectMethod('Number.parseInt'));
+
+        add('reflect-apply', detectMethod('Reflect.apply'));
+        add('reflect-construct', detectMethod('Reflect.construct'));
+        add('reflect-define-property', detectMethod('Reflect.defineProperty'));
+        add('reflect-delete-property', detectMethod('Reflect.deleteProperty'));
+        add('reflect-enumerate', detectMethod('Reflect.enumerate'));
+        add('reflect-get', detectMethod('Reflect.get'));
+        add('reflect-get-own-property-descriptor', detectMethod('Reflect.getownPropertyDescriptor'));
+        add('reflect-get-prototype-of', detectMethod('Reflect.getPrototypeOf'));
+        add('reflect-has', detectMethod('Reflect.has'));
+        add('reflect-is-extensible', detectMethod('Reflect.isExtensible'));
+        add('reflect-own-keys', detectMethod('Reflect.ownKeys'));
+        add('reflect-prevent-extensions', detectMethod('Reflect.preventExtensions'));
+        add('reflect-set', detectMethod('Reflect.set'));
+        add('reflect-set-prototype-of', detectMethod('Reflect.setPrototypeOf'));
+
+        add('reflect-define-metadata', detectMethod('Reflect.defineMetadata'));
+        add('reflect-delete-metadata', detectMethod('Reflect.deleteMetadata'));
+        add('reflect-get-metadata', detectMethod('Reflect.getMetadata'));
+        add('reflect-get-metadata-keys', detectMethod('Reflect.getMetadataKeys'));
+        add('reflect-get-own-metadata', detectMethod('Reflect.getOwnMetadata'));
+        add('reflect-get-own-metadata-keys', detectMethod('gReflect.etOwnMetadataKeys'));
+        add('reflect-has-metadata', detectMethod('Reflect.hasMetadata'));
+        add('reflect-has-own-metadata', detectMethod('Reflect.hasOwnMetadata'));
+        add('reflect-metadata', detectMethod('Reflect.metadata'));
+
+        add('regexp-constructor', combineTest(
+            detectSymbol('Symbol.match'),
+            function() {
+                // https://github.com/zloirock/core-js/blob/v2.4.1/modules/es6.regexp.constructor.js
+                var re1 = /a/g;
+                var re2 = /a/g;
+                re2[Symbol.match] = false;
+                var re3 = RegExp(/a/g, 'i');
+                return (
+                    RegExp(re1) === re1 &&
+                    RegExp(re2) !== re2 &&
+                    RegExp(re3).toString() === '/a/i'
+                );
+            }
+        ));
+        add('regexp-escape', detectMethod('RegExp.escape'));
+        add('regexp-flags', function() {
+            // https://github.com/zloirock/core-js/blob/v2.4.1/modules/es6.regexp.flags.js
+            return /./g.flags === 'g';
+        });
+        add('regexp-match', detectSymbol('RegExp.match'));
+        add('regexp-replace', detectSymbol('RegExp.replace'));
+        add('regexp-search', detectSymbol('RegExp.search'));
+        add('regexp-split', detectSymbol('RegExp.split'));
+        add('regexp-to-string', function() {
+            // https://github.com/zloirock/core-js/blob/master/modules/es6.regexp.to-string.js
+            var toString = RegExp.prototype.toString;
+            return (
+                toString.call({source: 'a', flags: 'b'}) === '/a/b' &&
+                toString.name === 'toString'
+            );
+        });
+
+        add('string-at', detectMethod('String.prototype.at'));
+        add('string-from-code-point', detectMethod('String.prototype.fromCodePoint'));
+        add('string-code-point-at', detectMethod('String.prototype.codePointAt'));
+        add('string-ends-with', detectMethod('String.prototype.endsWith'));
+        add('string-escape-html', detectMethod('String.escapeHTML'));
+        add('string-includes', detectMethod('String.prototype.includes'));
+        add('string-iterator', detectSymbol('String.prototype.iterator'));
+        add('string-match-all', detectSymbol('String.prototype.matchAll'));
+        add('string-pad-end', detectMethod('String.prototype.padEnd'));
+        add('string-pad-start', detectMethod('String.prototype.padStart'));
+        add('string-raw', detectMethod('String.raw'));
+        add('string-repeat', detectMethod('String.prototype.repeat'));
+        add('string-starts-with', detectMethod('String.prototype.startsWith'));
+        add('string-trim', detectMethod('String.prototype.trim'));
+        add('string-trim-end', detectMethod('String.prototype.trimEnd'));
+        add('string-trim-start', detectMethod('String.prototype.trimStart'));
+        add('string-unescape-html', detectMethod('String.unescapeHTML'));
+
+        add('string-anchor', detectMethod('String.prototype.anchor'));
+        add('string-big', detectMethod('String.prototype.big'));
+        add('string-blink', detectMethod('String.prototype.blink'));
+        add('string-fixed', detectMethod('String.prototype.fixed'));
+        add('string-fontcolor', detectMethod('String.prototype.fontcolor'));
+        add('string-fontsize', detectMethod('String.prototype.fontsize'));
+        add('string-italics', detectMethod('String.prototype.italics'));
+        add('string-link', detectMethod('String.prototype.link'));
+        add('string-small', detectMethod('String.prototype.small'));
+        add('string-strike', detectMethod('String.prototype.strike'));
+        add('string-sub', detectMethod('String.prototype.sub'));
+        add('string-sup', detectMethod('String.prototype.sup'));
+        */
+    });
+
+    jsenv.build(function implementationList() {
+        // on pourrait imaginer authoriser des requirements avec des versions object-assign@1.0
+        // voir même des arguments (eslint ou babel le permettent par ex)
+
+        var implementation = this.implementation;
+
+        implementation.include = function(featureName) {
+            implementation.getFeature(featureName).excluded = false;
+        };
+        implementation.exclude = function(featureName) {
+            implementation.getFeature(featureName).excluded = true;
+        };
+
+        implementation.list = function() {
+            return implementation.features.filter(function(feature) {
+                return feature.excluded !== true;
+            });
+        };
+    });
+
+    jsenv.build(function implementationDiff() {
+        // on fera un truc comme ça
+        /* polyfill/
+            a.js
+                object-assign + object-values
+            b.js
+                empty
+
+            meta.json
+                {
+                    "a": {
+                        features: [
+                            'object-assign',
+                            'object-values'
+                        ],
+                        agents: [
+                            'firefox@30.0',
+                            'chrome@45.0',
+                            'node@7.0'
+                        ]
+                    },
+                    "b": {
+                        features: [],
+                        agents: []
+                    }
+                }
+        */
+
+        var implementation = this.implementation;
+
+        implementation.diff = function() {
+            var fallbackFiles = [];
+
+            this.list().filter(function(requiredFeature) {
+                return requiredFeature.getStatus() !== 'yes';
+            }).forEach(function(requiredIncorrectFeature) {
+                var fallback = requiredIncorrectFeature.fallback;
+                if (!fallback) {
+                    throw new Error(
+                        'the feature ' + requiredIncorrectFeature.name + ' is missing but has no fallback'
+                    );
+                }
+
+                if (fallbackFiles.indexOf(fallback) === -1) {
+                    fallbackFiles.push(fallback);
+                }
+            });
+
+            return fallbackFiles;
+        };
+    });
 
     // list requirements amongst setimmediate, promise, url, url-search-params, es6 polyfills & SystemJS
     var files = listFiles(jsenv);
