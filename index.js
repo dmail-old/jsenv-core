@@ -1251,391 +1251,521 @@ je dis pourquoi pas
         };
     });
 
-    jsenv.build(function makeImplementationScannable() {
-        // l'idée c'est que chaque feature puisse exprimer comment la feature peut être obtenue
-        // il est aussi possible qu'on ne puisse pas obtenir la feature via polyfill ou autre
-        // il faut alors pouvoir l'exprimer genre fallback: false (par défaut)
-        // un moyen d'être polyfill, soit par un fichier distant (quon inclueras dans un build)
-        // si fallback est une chaîne alors c'est un fichier distant
-        // si c'est une fonction alors on l'apelle
-        // y'auras aussi besoin de détecter certain truc qu'on transpile
-        // https://github.com/75lb/feature-detect-es6/blob/master/lib/feature-detect-es6.js
-        // y'a ptet pas besoin d'une api si spécifique suffit de spécifié ailleurs qu'ici comment
-        // on peut polyfill en prévoyant une propriété fallback sur une feature
+    jsenv.build(function contextualizer() {
+        function contextualizer() {
+            // http://esprima.org/demo/parse.html#
+            var propertyAccessParser = {
+                tokenize: (function() {
+                    function tokenizer(detectors) {
+                        return function(input) {
+                            var index = 0;
+                            var length = input.length;
+                            var tokens = [];
+                            var restToken = {
+                                type: 'rest',
+                                value: ''
+                            };
 
-        var implementation = jsenv.implementation;
+                            while (index < length) {
+                                var char = input[index];
 
-        /*
-        (function() {
-            coreJsFallback('object-assign', 'es6.object.assign');
-            coreJsFallback('object-create', 'es6.object.create');
-            coreJsFallback('object---define-getter--', 'es7.object.define-getter');
-            coreJsFallback('object-define-property', 'es6.object.define-property');
-            coreJsFallback('object-define-properties', 'es6.object.define-properties');
-            coreJsFallback('object---define-setter--', 'es7.object.define-setter');
-            coreJsFallback('object-entries', 'es7.object.entries');
-            coreJsFallback('object-freeze', 'es6.object.freeze');
-            coreJsFallback('object-get-own-property-descriptor', 'es6.object.get-own-property-descriptor');
-            coreJsFallback('object-get-own-property-descriptors', 'es7.object.get-own-property-descriptors');
-            coreJsFallback('object-get-own-property-names', 'es6.object.get-own-property-names');
-            coreJsFallback('object-get-prototype-of', 'es6.object.get-prototype-of');
-            coreJsFallback('object-is', 'es6.object.is');
-            coreJsFallback('object-is-extensible', 'es6.object.is-extensible');
-            coreJsFallback('object-is-frozen', 'es6.object.is-frozen');
-            coreJsFallback('object-is-sealed', 'es6.object.is-sealed');
-            coreJsFallback('object-keys', 'es6.object.keys');
-            coreJsFallback('object---lookup-getter--', 'es7.object.lookup-getter');
-            coreJsFallback('object---lookup-setter--', 'es7.object.lookup-setter');
-            coreJsFallback('object-prevent-extensions', 'es6.object.prevent-extensions');
-            coreJsFallback('object-seal', 'es6.object.seal');
-            coreJsFallback('object-set-prototype-of', 'es6.object.set-prototype-of');
-            coreJsFallback('object-to-string', 'es6.object.to-string');
-            coreJsFallback('object-values', 'es7.object.values');
+                                var i = 0;
+                                var j = detectors.length;
+                                var detectedToken;
+                                while (i < j) {
+                                    detectedToken = detectors[i](char, index, input);
+                                    if (detectedToken) {
+                                        break;
+                                    }
+                                    i++;
+                                }
 
-            coreJsFallback('symbol', 'es6.symbol');
-            // il faudrais aussi mettre tous les symbol-* dans cette catégorie
-            coreJsFallback('symbol-async-iterator', 'es7.symbol.async-iterator');
-            coreJsFallback('symbol-observable', 'es7.symbol.observable');
+                                if (detectedToken) {
+                                    if (restToken.value.length > 0) {
+                                        tokens.push(restToken);
+                                        restToken = {
+                                            type: 'rest',
+                                            value: ''
+                                        };
+                                    }
+                                    tokens.push(detectedToken);
+                                    index += detectedToken.value.length;
+                                } else {
+                                    restToken.value += char;
+                                    index += 1;
+                                }
+                            }
 
-            coreJsFallback('math-acosh', 'es6.math.acosh');
-            coreJsFallback('math-asinh', 'es6.math.asinh');
-            coreJsFallback('math-atanh', 'es6.math.atanh');
-            coreJsFallback('math-cbrt', 'es6.math.cbrt');
-            coreJsFallback('math-clamp', 'es7.math.clamp');
-            coreJsFallback('math-clz32', 'es6.math.clz32');
-            coreJsFallback('math-cosh', 'es6.math.cosh');
-            coreJsFallback('math-deg-per-rad', 'es7.math.deg-per-rad');
-            coreJsFallback('math-degrees', 'es7.math.degrees');
-            coreJsFallback('math-expm1', 'es6.math.expm1');
-            coreJsFallback('math-fround', 'es6.math.fround');
-            coreJsFallback('math-fscale', 'es7.math.fscale');
-            coreJsFallback('math-hypot', 'es6.math.hypot');
-            coreJsFallback('math-iaddh', 'es7.math.iaddh');
-            coreJsFallback('math-imul', 'es6.math.imul');
-            coreJsFallback('math-imulh', 'es7.math.imulh');
-            coreJsFallback('math-isubh', 'es7.math.isubh');
-            coreJsFallback('math-log10', 'es6.math.log10');
-            coreJsFallback('math-log1p', 'es6.math.log1p');
-            coreJsFallback('math-log2', 'es6.math.log2');
-            coreJsFallback('math-radians', 'es7.math.radians');
-            coreJsFallback('math-rad-per-deg', 'es7.math.rad-per-deg');
-            coreJsFallback('math-scale', 'es7.math.scale');
-            coreJsFallback('math-sign', 'es6.math.sign');
-            coreJsFallback('math-sinh', 'es6.math.sinh');
-            coreJsFallback('math-tanh', 'es6.math.tanh');
-            coreJsFallback('math-trunc', 'es6.math.trunc');
-            coreJsFallback('math-umulh', 'es7.math.umulh');
+                            if (restToken.value.length > 0) {
+                                tokens.push(restToken);
+                            }
+                            return tokens;
+                        };
+                    }
+                    function token(type, value) {
+                        return {
+                            type: type,
+                            value: value
+                        };
+                    }
+                    var detectors = [
+                        function(char) {
+                            if (char === '[') {
+                                return token('open-bracket', char);
+                            }
+                        },
+                        function(char) {
+                            if (char === ']') {
+                                return token('close-bracket', char);
+                            }
+                        },
+                        function(char) {
+                            if (char === '.') {
+                                return token('dot', char);
+                            }
+                        }
+                    ];
 
-            coreJsFallback('number-constructor', 'es6.number.constructor');
-            coreJsFallback('number-epsilon', 'es6.number.epsilon');
-            coreJsFallback('number-is-finite', 'es6.number.is-finite');
-            coreJsFallback('number-is-integer', 'es6.number.is-integer');
-            coreJsFallback('number-is-nan', 'es6.number.is-nan');
-            coreJsFallback('number-is-safe-integer', 'es6.number.is-safe-integer');
-            coreJsFallback('number-iterator', 'core.number.iterator');
-            coreJsFallback('number-max-safe-integer', 'es6.number.max-safe-integer');
-            coreJsFallback('number-min-safe-integer', 'es6.number.min-safe-integer');
-            coreJsFallback('number-to-fixed', 'es6.number.to-fixed');
-            coreJsFallback('number-to-precision', 'es6.number.to-precision');
-            coreJsFallback('number-parse-float', 'es6.number.parse-float');
-            coreJsFallback('number-parse-int', 'es6.number.parse-int');
+                    var tokenize = tokenizer(detectors);
 
-            coreJsFallback('reflect-apply', 'es6.reflect.apply');
-            coreJsFallback('reflect-construct', 'es6.reflect.construct');
-            coreJsFallback('reflect-define-property', 'es6.reflect.define-property');
-            coreJsFallback('reflect-delete-property', 'es6.reflect.delete-property');
-            coreJsFallback('reflect-enumerate', 'es6.reflect.enumerate');
-            coreJsFallback('reflect-get', 'es6.reflect.get');
-            coreJsFallback('reflect-get-own-property-descriptor', 'es6.reflect.get-own-property-descriptor');
-            coreJsFallback('reflect-get-prototype-of', 'es6.reflect.get-prototype-of');
-            coreJsFallback('reflect-has', 'es6.reflect.has');
-            coreJsFallback('reflect-is-extensible', 'es6.reflect.is-extensible');
-            coreJsFallback('reflect-own-keys', 'es6.reflect.own-keys');
-            coreJsFallback('reflect-prevent-extensions', 'es6.reflect.prevent-extensions');
-            coreJsFallback('reflect-set', 'es6.reflect.set');
-            coreJsFallback('reflect-set-prototype-of', 'es6.reflect.set-prototype-of');
+                    return tokenize;
+                })(),
 
-            coreJsFallback('reflect-define-metadata', 'es7.reflect.define-metadata');
-            coreJsFallback('reflect-delete-metadata', 'es7.reflect.delete-metadata');
-            coreJsFallback('reflect-get-metadata', 'es7.reflect.get-metadata');
-            coreJsFallback('reflect-get-metadata-keys', 'es7.reflect.get-metadata-keys');
-            coreJsFallback('reflect-get-own-metadata', 'es7.reflect.get-own-metadata');
-            coreJsFallback('reflect-get-own-metadata-keys', 'es7.reflect.get-own-metadata-keys');
-            coreJsFallback('reflect-has-metadata', 'es7.reflect.has-metadata');
-            coreJsFallback('reflect-has-own-metadata', 'es7.reflect.has-own-metadata');
-            coreJsFallback('reflect-metadata', 'es7.reflect.metadata');
+                transform: (function() {
+                    return function(tokens) {
+                        var charIndex = 0;
+                        var i = 0;
+                        var j = tokens.length;
+                        var targets = [];
+                        var property;
+                        var target;
+                        var bracketOpened;
 
-            coreJsFallback('regexp-constructor', 'es6.regexp.constructor');
-            coreJsFallback('regexp-escape', 'core.regexp.escape');
-            coreJsFallback('regexp-flags', 'es6.regexp.flags');
-            coreJsFallback('regexp-match', 'es6.regexp.match');
-            coreJsFallback('regexp-replace', 'es6.regexp.replace');
-            coreJsFallback('regexp-search', 'es6.regexp.search');
-            coreJsFallback('regexp-split', 'es6.regexp.split');
-            coreJsFallback('regexp-to-string', 'es6.regexp.to-string');
+                        function nextTarget() {
+                            target = {
+                                properties: []
+                            };
+                        }
 
-            coreJsFallback('string-at', 'es7.string.at');
-            coreJsFallback('string-from-code-point', 'es6.string.from-code-point');
-            coreJsFallback('string-code-point-at', 'es6.string.code-point-at');
-            coreJsFallback('string-ends-with', 'es6.string.ends-with');
-            coreJsFallback('string-escape-html', 'core.string.escape-html');
-            coreJsFallback('string-includes', 'es6.string.includes');
-            coreJsFallback('string-iterator', 'es6.string.iterator');
-            coreJsFallback('string-match-all', 'es7.string.match-all');
-            coreJsFallback('string-pad-end', 'es7.string.pad-end');
-            coreJsFallback('string-pad-start', 'es7.string.pad-start');
-            coreJsFallback('string-raw', 'es6.string.raw');
-            coreJsFallback('string-repeat', 'es6.string.repeat');
-            coreJsFallback('string-starts-with', 'es6.string.starts-with');
-            coreJsFallback('string-trim', 'es6.string.trim');
-            coreJsFallback('string-trim-end', 'es7.string.trim-right');
-            coreJsFallback('string-trim-start', 'es7.string.trim-left');
-            coreJsFallback('string-unescape-html', 'core.string.unescape-html');
+                        function nextProperty() {
+                            property = '';
+                        }
 
-            coreJsFallback('string-anchor', 'es6.string.anchor');
-            coreJsFallback('string-big', 'es6.string.big');
-            coreJsFallback('string-blink', 'es6.string.blink');
-            coreJsFallback('string-fixed', 'es6.string.fixed');
-            coreJsFallback('string-fontcolor', 'es6.string.fontcolor');
-            coreJsFallback('string-fontsize', 'es6.string.fontsize');
-            coreJsFallback('string-italics', 'es6.string.italics');
-            coreJsFallback('string-link', 'es6.string.link');
-            coreJsFallback('string-small', 'es6.string.small');
-            coreJsFallback('string-strike', 'es6.string.strike');
-            coreJsFallback('string-sub', 'es6.string.sub');
-            coreJsFallback('string-sup', 'es6.string.sup');
-        })();
-         */
+                        function saveProperty() {
+                            if (!property) {
+                                throw new Error('empty propertyName not allowed');
+                            }
+                            target.properties.push(property);
+                        }
 
-        function register(featureName) {
-            var feature = implementation.add(featureName);
+                        function saveTarget() {
+                            if (!target) {
+                                throw new Error('no target to save');
+                            }
+                            targets.push(target);
+                        }
 
-            if (arguments.length > 1) {
-                var result = readMultiple(jsenv.global, Array.prototype.slice.call(arguments, 1));
-                feature.path = result.path;
-                feature.status = result.status;
-                feature.value = result.value;
-            }
+                        nextTarget();
+                        nextProperty();
+                        bracketOpened = false;
+                        var type;
+                        while (i < j) {
+                            var token = tokens[i];
+                            var value = token.value;
+                            type = token.type;
 
-            var branches = [];
-            feature.when = function(condition, action) {
-                var existingBranchWithCondition = branches.find(function(branch) {
-                    return branch.condition === condition;
-                });
-                if (existingBranchWithCondition) {
-                    existingBranchWithCondition.action = action;
-                } else {
-                    branches.push({
-                        condition: condition,
-                        action: action
-                    });
+                            if (type === 'rest') {
+                                property = value;
+                            } else if (type === 'dot') {
+                                if (property.length === 0) {
+                                    throw new Error('missing name before .');
+                                }
+                                saveProperty();
+                                nextProperty();
+                            } else if (type === 'open-bracket') {
+                                if (property.length === 0) {
+                                    throw new Error('missing name before [');
+                                }
+                                if (bracketOpened) {
+                                    throw new Error('missing ] before [');
+                                }
+                                saveProperty();
+                                nextProperty();
+                                saveTarget();
+                                nextTarget();
+                                bracketOpened = true;
+                            } else if (type === 'close-bracket') {
+                                if (bracketOpened === false) {
+                                    throw new Error('missing [ before ]');
+                                }
+                                if (property.length === 0) {
+                                    throw new Error('missing name between []');
+                                }
+                                bracketOpened = false;
+                            }
+
+                            i++;
+                            charIndex += value.length;
+                        }
+                        if (type === 'rest') {
+                            saveProperty();
+                            saveTarget();
+                        } else if (bracketOpened) {
+                            throw new Error('missing ] before and of input');
+                        } else if (type === 'close-bracket') {
+                            saveProperty();
+                            saveTarget();
+                        } else if (type === 'dot') {
+                            throw new Error('missing name after .');
+                        }
+
+                        return targets;
+                    };
+                })(),
+
+                parse: function(input) {
+                    var tokens = this.tokenize(input);
+                    var result = this.transform(tokens);
+                    return result;
                 }
-                return this;
-            };
-            feature.verify = function() {
-                var branch = branches.find(function(branch) {
-                    return branch.condition.call(this, this.value);
-                }, this);
-                if (branch) {
-                    return branch.action.call(this, this.value);
-                }
-                throw new Error('feature ' + this.name + ' state has no branch matching his state');
             };
 
-            feature.when(
-                missing,
-                function() {
-                    throw new Error('feature ' + this.name + ' is missing');
-                }
-            );
-            feature.when(
-                unreachable,
-                function() {
-                    throw new Error('feature ' + this.name + ' not found at ' + this.path);
-                }
-            );
+            var cache = {};
+            var noValue = {noValue: true};
+            function readPath(value, parts) {
+                var i = 0;
+                var j = parts.length;
 
-            return feature;
-        }
-        function readMultiple(initialValue, paths) {
-            var i;
-            var j = paths.length;
-            var result = {};
-            var previousResult;
-            var singleReadResult;
-
-            i = j;
-            while (i--) {
-                var path = paths[i];
-                singleReadResult = readSingle(initialValue, path);
-
-                propagateResult(singleReadResult, result);
-                if (result.has === false) {
-                    break;
-                }
-                if (previousResult) {
-                    var propertyResult = readProperty(result.value, previousResult.value);
-                    propagateResult(propertyResult, result);
-                    if (result.has === false) {
+                while (i < j) {
+                    var part = parts[i];
+                    if (part in value) {
+                        value = value[part];
+                    } else {
+                        value = noValue;
                         break;
                     }
+                    i++;
                 }
+                return value;
             }
 
-            if (result.has) {
-                result.status = 'located';
-            } else {
-                result.status = i === 0 ? 'missing' : 'notfound';
-            }
+            var context = {
+                act: function() {
+                    var action = {};
 
-            var pathString = '';
-            i = 0;
-            while (i < j) {
-                pathString += paths[i];
-                if (i > 0) {
-                    pathString += ']';
-                    if (i < j - 1) {
-                        pathString += '[';
+                    action.dependents = [];
+                    action.dependencies = [];
+                    action.assertions = [];
+                    action.value = noValue;
+                    action.valid = true;
+                    action.failedAssertion = null;
+                    action.tag = 'action';
+                    action.assert = function(test, type) {
+                        var assertion = {
+                            test: test,
+                            type: type,
+                            result: null
+                        };
+                        this.assertions.push(assertion);
+
+                        this.dependents.forEach(function(dependent) {
+                            dependent.assert(test, type);
+                        });
+
+                        if (this.valid) {
+                            // ne pas faire deux test du même type
+                            // genre constructor + string c'est impossible
+                            console.log('calling test on', this.value, 'for', type);
+                            var returnValue = test.call(this, this.value);
+
+                            var result = {
+                                passed: returnValue,
+                                on: this.value
+                            };
+                            assertion.result = result;
+
+                            if (returnValue) {
+                                this.valid = true;
+                            } else {
+                                this.valid = false;
+                                this.failedAssertion = assertion;
+                            }
+                        } else {
+                            // ignore l'assertion on a déjà fail quelque part
+                        }
+                        return this;
+                    };
+                    action.instructions = [];
+                    action.when = function(condition, sequence) {
+                        var instruction = {
+                            condition: condition,
+                            sequence: sequence
+                        };
+                        this.instructions.push(instruction);
+                        return this;
+                    };
+                    action.exec = function() {
+                        var i = 0;
+                        var j = this.instructions.length;
+                        var someInstructionMatched = false;
+                        var result;
+                        while (i < j) {
+                            var instruction = this.instructions[i];
+                            if (instruction.condition.call(this, this.value)) {
+                                someInstructionMatched = true;
+                                result = instruction.sequence.call(this, this.value);
+                                // break;
+                            }
+                            i++;
+                        }
+                        if (someInstructionMatched) {
+                            return result;
+                        }
+                        console.error('no match');
+                    };
+                    action.adopt = function(action) {
+                        if (this.valid) {
+                            this.source = action.source;
+                            this.path = action.path;
+                            this.value = action.value;
+
+                            if (action.valid) {
+                                this.valid = true;
+                            } else {
+                                this.valid = false;
+                                this.failedAssertion = action.failedAssertion;
+                            }
+
+                            var assertions = action.assertions;
+                            var i = 0;
+                            var j = assertions.length;
+                            while (i < j) {
+                                this.assertions.push(assertions[i]);
+                                i++;
+                            }
+                        }
+                        console.log('adopting', action);
+                        action.dependents.push(this);
+                        return this;
+                    };
+
+                    return action;
+                },
+
+                when: function(condition, action) {
+                    return this.act().when(condition, action);
+                },
+
+                combine: function() {
+                    var actions = arguments;
+                    var i = 0;
+                    var j = arguments.length;
+                    var compositeAction = this.act();
+
+                    while (i < j) {
+                        var action = actions[i];
+                        compositeAction.adopt(action);
+                        i++;
                     }
+
+                    return compositeAction;
+                },
+
+                read: function(object, path) {
+                    var action;
+                    if (path in cache) {
+                        action = cache[path];
+                    } else {
+                        var targets = propertyAccessParser.parse(path);
+                        // le fait qu'on cahce les assertions permet que les assertions soit partagées
+                        // si elels sont faites en amont
+                        // mais si je déclare 'Symbol.iterator' après
+                        // bah chuis niqué
+                        // et ça n'aurais pas 'effect sur Array.prototype[Symbol.iterator]'
+                        var actions = targets.map(function(target) {
+                            var action = this.act();
+                            action.value = readPath(object, target.properties);
+                            action.source = 'path';
+                            action.path = target.properties.join('.');
+                            action.assert(function(value) {
+                                return value !== noValue;
+                            }, 'presence');
+                            return action;
+                        }, this);
+                        action = this.combine.apply(this, actions);
+                        cache[path] = action;
+                    }
+
+                    return action;
+                },
+
+                castAction: function(arg) {
+                    var action;
+                    if (typeof arg === 'object' && arg.tag === 'action') {
+                        action = arg;
+                    } else {
+                        action = this.act();
+                        action.source = 'dynamic';
+                        action.value = arg;
+                    }
+                    return action;
+                },
+
+                createAssertionFactory: function(test, type) {
+                    return function(arg) {
+                        var action;
+                        if (typeof arg === 'string') {
+                            action = this.read(window, arg);
+                        } else {
+                            action = this.castAction(arg);
+                        }
+                        action.assert(test, type);
+                        return action;
+                    }.bind(this);
+                },
+
+                createTypeAssertionFactory: function(name, test) {
+                    return this.createAssertionFactory(test, 'type:' + name);
                 }
-                i++;
-            }
-            result.path = pathString;
+            };
 
-            return result;
-        }
-        function readSingle(initialValue, path) {
-            var parts = path.split('.');
-            var i = 0;
-            var j = path.length;
-            var result = {};
-            var value = initialValue;
-
-            while (i < j) {
-                var part = parts[i];
-                var propertyResult = readProperty(value, part);
-
-                propagateResult(propertyResult, result);
-                if (result.has === false) {
-                    break;
+            Object.keys(context).forEach(function(key) {
+                if (typeof context[key] === 'function') {
+                    context[key] = context[key].bind(context);
                 }
-                i++;
+            });
+
+            return context;
+        }
+
+        return {
+            contextualizer: contextualizer
+        };
+    });
+
+    jsenv.build(function makeImplementationScannable() {
+        // ne pas utiliser la méthode polyfillWhen sur la feature
+        // mais plutot enregister un moyen de check la feature et polyfill lorsque check retourne false
+        // il faut aussi ajouter une propriété path sur la feature pour qu'elle sache où elle est censé se trouver
+        // la plupart du code dans contextualizer va disparaitre puisque trop compoliqué au vu des besoins
+        // une fois qu'on respectera ça
+
+        // y'auras aussi besoin de détecter certain truc qu'on transpile
+        // https://github.com/75lb/feature-detect-es6/blob/master/lib/feature-detect-es6.js
+
+        // var implementation = jsenv.implementation;
+        var hyphenToCamel = jsenv.hyphenToCamel;
+        var context = jsenv.contextualizer.contextualize(jsenv.global);
+        var auto = {};
+        var autoPrototype = {};
+        var autoEs7 = {};
+        var register = function() {
+
+        };
+        var missing = function() {
+            return function() {
+                var path = this.path;
+                return path;
+            };
+        };
+        var registerAndPolyfillWhen = function(featureGroupPrefix, featureGroupPath, featureGroup) {
+            if (featureGroupPath === auto) {
+                featureGroupPath = hyphenToCamel(featureGroupPrefix);
             }
 
-            if (result.has) {
-                result.status = 'located';
-            } else {
-                result.status = i === j - 1 ? 'missing' : 'notfound';
-            }
+            featureGroup.forEach(function(featureValues) {
+                var featureName = featureValues[0];
+                var featureCondition = featureValues[1];
+                var featurePolyfill = featureValues[2];
 
-            return result;
-        }
-        function readProperty(value, propertyName) {
-            var result = {};
+                var featureFullname;
+                if (typeof featureName === 'string') {
+                    featureFullname = featureGroupPrefix ? featureGroupPrefix + '-' + featureName : featureName;
+                } else {
+                    throw new TypeError('feature name must be a string');
+                }
 
-            if (propertyName in value) {
-                result.has = true;
-                result.value = value[propertyName];
-            } else {
-                result.has = false;
-                result.value = undefined;
-            }
+                var feature = register(featureFullname);
 
-            return result;
-        }
-        function propagateResult(propertyResult, result) {
-            if (propertyResult.has) {
-                result.has = true;
-                result.value = propertyResult.value;
-            } else {
-                result.has = false;
-                result.value = undefined;
-            }
-        }
-        function missing() {
-            return this.status === 'missing';
-        }
-        function unreachable() {
-            return this.status === 'unreachable';
-        }
-        function notFunction(value) {
-            return typeof value !== 'function';
-        }
-        // function notString(value) {
-        //     return typeof value !== 'string';
-        // }
-        // function notNumber(value) {
-        //     return typeof value !== 'number';
-        // }
-        // function notSymbol(value) {
-        //     return value instanceof Symbol === false;
-        // }
-        function createMatchHelper(condition, action) {
-            var feature = register.apply(this, arguments);
+                var polyfillCondition;
+                if (featureCondition === auto) {
+                    // missing en faison hypenToCamel
+                    polyfillCondition = missing();
+                } else if (featureCondition === autoPrototype) {
+                    // missing en faisant hypenToCamel et en mattant prototype devant
+                } else if (typeof featureCondition === 'string') {
+                    polyfillCondition = missing();
+                } else if (typeof featureCondition === 'function') {
+                    polyfillCondition = featureCondition;
+                } else {
+                    throw new TypeError('feature polyfilling condition must be a function');
+                }
 
-            feature.when(
-                condition,
-                action
-            );
+                var polyfillLocation;
+                if (featurePolyfill === auto) {
+                    polyfillLocation = 'es6';
+                    if (featureGroupPrefix) {
+                        polyfillLocation += '.' + featureGroupPrefix;
+                    }
+                    polyfillLocation += featureName;
+                } else if (featurePolyfill === autoEs7) {
+                    polyfillLocation = 'es7';
+                    if (featureGroupPrefix) {
+                        polyfillLocation += '.' + featureGroupPrefix;
+                    }
+                    polyfillLocation += featureName;
+                } else if (typeof featurePolyfill === 'string') {
+                    polyfillLocation = featurePolyfill;
+                } else {
+                    throw new TypeError('feature polyfilling location must be a string');
+                }
 
-            return feature;
-        }
-        var method = createMatchHelper(notFunction, function() {
-            throw new TypeError('feature ' + this.name + ' was expected to be a function');
+                feature.polyfillWhen(polyfillCondition, polyfillLocation);
+            });
+        };
+        var combine = context.combine;
+        var method = context.createTypeAssertionFactory('function', function(value) {
+            return typeof value === 'function';
         });
-        // var string = createMatchHelper(notString, function() {
-        //     throw new TypeError('feature ' + this.name + ' was expected to be a string');
-        // });
-        // var number = createMatchHelper(notNumber, function() {
-        //     throw new TypeError('feature ' + this.name + ' was expected to be a number');
-        // });
-        // var symbol = createMatchHelper(notSymbol, function() {
-        //     throw new TypeError('feature ' + this.name + ' was expected to be a symbol');
-        // });
-        var constructor = method;
-        function polyfill() {
+        var some = function() {
+            var predicates = arguments;
+            var j = predicates.length;
+            return function() {
+                var someIsValid = false;
+                var i = 0;
+                while (i < j) {
+                    var predicate = predicates[i];
+                    if (predicate.apply(this, arguments)) {
+                        someIsValid = true;
+                        break;
+                    }
+                    i++;
+                }
+                return someIsValid;
+            };
+        };
 
-        }
-        function or() {
-
-        }
-
-        constructor('asap', 'asap').when(
-            missing,
-            polyfill('es7.asap')
-        );
-        constructor('map', 'Map').when(
-            missing,
-            polyfill('es6.map')
-        );
-        constructor('observable', 'Observable').when(
-            missing,
-            polyfill('es7.observable')
-        );
-        (function() {
+        // globals
+        function checkParseInt() {
+            // https://github.com/zloirock/core-js/blob/v2.4.1/modules/_parse-int.js
             var ws = '\x09\x0A\x0B\x0C\x0D\x20\xA0\u1680\u180E\u2000\u2001\u2002\u2003';
             ws += '\u2004\u2005\u2006\u2007\u2008\u2009\u200A\u202F\u205F\u3000\u2028\u2029\uFEFF';
 
-            method('parse-int', 'parseInt').when(
-                function() {
-                    // https://github.com/zloirock/core-js/blob/v2.4.1/modules/_parse-int.js
-                    return (
-                        parseInt(ws + '08') !== 8 ||
-                        parseInt(ws + '0x16') !== 22
-                    );
-                },
-                polyfill('es6.parse-int')
+            return (
+                parseInt(ws + '08') !== 8 ||
+                parseInt(ws + '0x16') !== 22
             );
-            method('parse-float', 'parseFloat').when(
-                function() {
-                    // https://github.com/zloirock/core-js/blob/v2.4.1/modules/_parse-float.js
-                    return 1 / parseFloat(ws + '-0') === -Infinity;
-                },
-                polyfill('es6.parse-float')
-            );
-        })();
-        constructor('promise', 'Promise').when(
-            or(missing, function() {
+        }
+        function checkParseFloat() {
+            var ws = '\x09\x0A\x0B\x0C\x0D\x20\xA0\u1680\u180E\u2000\u2001\u2002\u2003';
+            ws += '\u2004\u2005\u2006\u2007\u2008\u2009\u200A\u202F\u205F\u3000\u2028\u2029\uFEFF';
+
+            // https://github.com/zloirock/core-js/blob/v2.4.1/modules/_parse-float.js
+            return 1 / parseFloat(ws + '-0') !== -Infinity;
+        }
+        var checkPromise = some(
+            missing(),
+            function() {
                 // agent must implement onunhandledrejection to consider promise implementation valid
                 if (jsenv.isBrowser()) {
                     if ('onunhandledrejection' in jsenv.global) {
@@ -1656,168 +1786,106 @@ je dis pourquoi pas
                     return false;
                 }
                 return false;
-            }),
-            polyfill('es6.promise')
+            }
         );
-        constructor('set', 'Set').when(
-            missing,
-            polyfill('es6.set')
-        );
-        method('set-immediate', 'setImmediate').when(
-            missing,
-            polyfill('web.immediate')
+        var checkTimer = function() {
+            // faudrais check si y'a beosin de fix des truc sous IE9
+            // https://github.com/zloirock/core-js/blob/v2.4.1/modules/web.timers.js
+            return false;
+        };
+        registerAndPolyfillWhen(
+            '',
+            '',
+            [
+                ['asap', auto, autoEs7],
+                ['map', auto, auto],
+                ['observable', auto, autoEs7],
+                ['parseInt', checkParseInt, auto],
+                ['parseFloat', checkParseFloat, auto],
+                ['promise', checkPromise, auto],
+                ['set', auto, auto],
+                ['set-immediate', auto, 'web.immediate'],
+                ['set-interval', checkTimer, 'web.timers'],
+                ['set-timeout', checkTimer, 'web.timers'],
+                ['weak-map', auto, auto],
+                ['weak-set', auto, auto],
+
+                ['array-buffer', auto, 'es6.typed.array-buffer'],
+                ['data-view', auto, 'es6.typed.data-view'],
+                ['int8array', auto, 'es6.typed.data-view'],
+                ['uint8array', auto, 'es6.typed.uint8-array'],
+                ['uint8clamped-array', auto, 'es6.typed.uint8clamped-array'],
+                ['int16array', auto, 'es6.typed.int16array-array'],
+                ['uint16array', auto, 'es6.typed.uint16-array'],
+                ['int32array', auto, 'es6.typed.int32-array'],
+                ['uint32array', auto, 'es6.typed.uint32-array'],
+                ['float32array', auto, 'es6.typed.float32-array'],
+                ['float64array', auto, 'es6.typed.float64-array']
+            ]
         );
 
-        (function() {
-            function brokeanTimerDetector() {
-                // faudrais check si y'a beosin de fix des truc sous IE9
-                // https://github.com/zloirock/core-js/blob/v2.4.1/modules/web.timers.js
+        // special features
+        var checkDomCollection = function() {
+            return function() {
+                if (jsenv.isBrowser()) {
+                    var domCollectionPath = this.path;
+
+                    return combine(
+                        method(domCollectionPath),
+                        method(domCollectionPath + '.keys'),
+                        method(domCollectionPath + '.values'),
+                        method(domCollectionPath + '.entries'),
+                        method(domCollectionPath + '[Symbol.iterator]')
+                    ).valid;
+                }
                 return false;
-            }
-
-            method('set-interval', 'setInterval').when(
-                brokeanTimerDetector,
-                polyfill('web.timers')
-            );
-            method('set-timeout', 'setTimeout').when(
-                brokeanTimerDetector,
-                'web.timers'
-            );
-        })();
-        constructor('weak-map', 'WeakMap').when(
-            missing,
-            polyfill('es6.weak-map')
-        );
-        constructor('weak-set', 'WeakSet').when(
-            missing,
-            polyfill('es6.weak-set')
-        );
-        constructor('array-buffer', 'ArrayBuffer').when(
-            missing,
-            polyfill('es6.typed.array-buffer')
-        );
-        constructor('data-view', 'DataView').when(
-            missing,
-            polyfill('es6.typed.array-buffer')
-        );
-        constructor('int8array', 'Int8array').when(
-            missing,
-            polyfill('es6.typed.array-buffer')
-        );
-        constructor('uint8array', 'Uint8array').when(
-            missing,
-            polyfill('es6.typed.array-buffer')
-        );
-        constructor('uint8clamped-array', 'Uint8ClampedArray').when(
-            missing,
-            polyfill('es6.typed.array-buffer')
-        );
-        constructor('int16array', 'Int16array').when(
-            missing,
-            polyfill('es6.typed.array-buffer')
-        );
-        constructor('uint16array', 'Uint16array').when(
-            missing,
-            polyfill('es6.typed.array-buffer')
-        );
-        constructor('int32array', 'Int32array').when(
-            missing,
-            polyfill('es6.typed.array-buffer')
-        );
-        constructor('uint32array', 'Uint32array').when(
-            missing,
-            polyfill('es6.typed.array-buffer')
-        );
-        constructor('float32array', 'Float32array').when(
-            missing,
-            polyfill('es6.typed.array-buffer')
-        );
-        constructor('float64array', 'Float64Array').when(
-            missing,
-            polyfill('es6.typed.array-buffer')
+            };
+        };
+        registerAndPolyfillWhen(
+            '',
+            '',
+            [
+                ['node-list-iteration', checkDomCollection(), 'web.dom.iterable'],
+                ['dom-token-list-iteration', checkDomCollection(), 'web.dom.iterable'],
+                ['media-list-iteration', checkDomCollection(), 'web.dom.iterable'],
+                ['style-sheet-list-iteration', checkDomCollection(), 'web.dom.iterable'],
+                ['css-rule-list-iteration', checkDomCollection(), 'web.dom.iterable']
+                // ['typed-array-includes', '???',  'es7.array.includes']
+            ]
         );
 
-        // feature('typed-array-includes', 'Array.prototype.includes').polyfill('es7.array.includes');
-        (function() {
-            if (jsenv.isBrowser()) {
-                // il faut un peu changer les helpers
-                // afn de vraiment pouvoir utiliser ce qu'on voit ci dessous
-                // c'est à dire de pouvoir lire non plus depuis jsenv.global mais
-                // DomCollection
-                // mais aussi que l'état de la feature puisse être composé de létat d'autre
-                // feature qui ne sont pas forcément register
-
-                var notIterable = or(
-                    function(DomCollection) {
-                        this.method(DomCollection, 'keys');
-                    },
-                    function(DomCollection) {
-                        this.method(DomCollection, 'values');
-                    },
-                    function(DomCollection) {
-                        this.method(DomCollection, 'entries');
-                    },
-                    function(DomCollection) {
-                        this.method(DomCollection, 'Symbol.iterator');
-                    }
-                );
-
-                constructor('node-list-iterable', 'NodeList').when(
-                    notIterable,
-                    polyfill('web.dom.iterable')
-                );
-                constructor('dom-token-list-iterable', 'DomTokenList').when(
-                    notIterable,
-                    polyfill('web.dom.iterable')
-                );
-                constructor('media-list-iterable', 'MediaList').when(
-                    notIterable,
-                    polyfill('web.dom.iterable')
-                );
-                constructor('style-sheet-list-iterable', 'StyleSheetList').when(
-                    notIterable,
-                    polyfill('web.dom.iterable')
-                );
-                constructor('css-rule-list-iterable', 'CSSRuleList').when(
-                    notIterable,
-                    polyfill('web.dom.iterable')
-                );
-            }
-        })();
-
-        /*
-        // map, join, filter y'a surement des fix, il ne suffit pas de vérifié que la méthode existe
-        method('array-copy-within', 'Array.copyWithin').polyfill('es6.array.copy-within');
-        method('array-every', 'Array.every').polyfill('es6.array.every');
-        method('array-find', 'Array.find').polyfill('es6.array.find');
-        method('array-find-index', 'Array.findIndex').polyfill('es6.array.find-index');
-        method('array-fill', 'Array.fill').polyfill('es6.array.fill');
-        method('array-filter', 'Array.filter').polyfill('es6.array.filer');
-        method('array-for-each', 'Array.forEach').polyfill('es6.array.for-each');
-        method('array-from', 'Array.from').polyfill('es6.array.from');
-        method('array-index-of', 'Array.indexOf').polyfill('es6.array.index-of');
-
-        method('array-iterator', 'Array.prototype', 'Symbol.iterator').when(
-            missing,
-            polyfill('es6.array.iterator')
+        // array
+        // map, join, filter y'a surement des fix, il ne suffit pas de vérifier que la méthode existe
+        registerAndPolyfillWhen(
+            'array',
+            auto,
+            [
+                ['copy-within', auto, auto],
+                ['every', auto, auto],
+                ['find', auto, auto],
+                ['find-index', auto, auto],
+                ['fill', auto, auto],
+                ['filter', auto, auto],
+                ['for-each', auto, auto],
+                ['from', auto, auto],
+                ['index-of', auto, auto],
+                ['iterator', 'Array.prototype[Symbol.iterator]', auto],
+                ['is-array', auto, auto],
+                ['join', auto, auto],
+                ['last-index-of', auto, auto],
+                ['map', auto, auto],
+                ['of', auto, auto],
+                ['reduce', auto, auto],
+                ['reduce-right', auto, auto],
+                ['slice', auto, auto],
+                ['some', auto, auto],
+                ['sort', auto, auto]
+                // ['species', '???', auto]
+            ]
         );
-        method('array-is-array', 'Array.isArray').polyfill('es6.array.is-array');
-        method('array-join', 'Array.join').polyfill('es6.array.join');
-        method('array-last-index-of', 'Array.lastIndexOf').polyfill('es6.array.last-index-of');
-        method('array-map', 'Array.map').polyfill('es6.array.map');
-        method('array-of', 'Array.of').polyfill('es6.array.of');
-        method('array-reduce', 'Array.reduce').polyfill('es6.array.reduce');
-        method('array-reduce-right', 'Array.reduceRight').polyfill('es6.array.reduce-right');
-        method('array-slice', 'Array.slice').polyfill('es6.array.slice');
-        method('array-some', 'Array.some').polyfill('es6.array.some');
-        method('array-sort', 'Array.sort').polyfill('es6.array.sort');
 
-        // map, join, filter y'a surement des fix, il ne suffit pas de vérifié que la méthode existe
-        // coreJsFallback('array-species', 'es6.array.species');
-        // add('array-species', null);
-
-        method('date-now', 'Date.now').polyfill('es6.date.now');
-        method('date-to-iso-string', 'Date.prototype.toISOString').valid(function() {
+        // date
+        var checkDateToIsoString = function() {
             // https://github.com/zloirock/core-js/blob/v2.4.1/modules/es6.date.to-iso-string.js
             try {
                 // eslint-disable-next-line no-unused-expressions
@@ -1835,8 +1903,8 @@ je dis pourquoi pas
                 return true;
             }
             return false;
-        }).polyfill('es6.date.to-iso-string', 'invalid');
-        method('date-to-json', 'Date.prototype.toJSON').valid(function() {
+        };
+        var checkDateToJSON = function() {
             // https://github.com/zloirock/core-js/blob/v2.4.1/modules/es6.date.to-json.js
             try {
                 if (new Date(NaN).toJSON() !== null) {
@@ -1854,208 +1922,262 @@ je dis pourquoi pas
                 return false;
             }
             return true;
-        }).polyfill('es6.date.to-json');
-        // un peu comme pour array-iterator au dessus
-        // feature('date-to-primitive', detectSymbol('Date.prototype.toPrimitive')).polyfil('es6.date.to-primitive');
-        method('date-to-string', 'Date.prototype.toString').valid(function() {
+        };
+        var checkDateToString = function() {
             // https://github.com/zloirock/core-js/blob/v2.4.1/modules/es6.date.to-string.js
             return new Date(NaN).toString() === 'Invalid Date';
-        }).polyfill('es6.date.to-string', 'invalid');
+        };
+        registerAndPolyfillWhen(
+            'date',
+            auto,
+            [
+                ['now', auto, auto],
+                ['to-iso-string', checkDateToIsoString, auto],
+                ['to-json', checkDateToJSON, auto],
+                ['to-primitive', 'Date.prototype[Symbol.toPrimitive]', auto],
+                ['to-string', checkDateToString, auto]
+            ]
+        );
 
-        method('function-bind', 'Function.prototype.bind').polyfill('es6.function.bind');
-        string('function-name', 'Function.prototype.name').polyfill('es6.function.name');
-        // add('function-has-instance', detectSymbol('Function.prototype.hasInstance')).polyfill('es6.function.has-instance');
+        // function
+        registerAndPolyfillWhen(
+            'function',
+            auto,
+            [
+                ['bind', autoPrototype, auto],
+                ['name', autoPrototype, auto],
+                ['has-instance', 'Function.prototype[Symbol.hasInstance]', auto]
+            ]
+        );
 
-        add('object-assign', detectMethod('Object.assign'));
-        add('object-create', detectMethod('Object.create'));
-        add('object---define-getter--', detectMethod('Object.__defineGetter__'));
-        add('object-define-property', detectMethod('Object.defineProperty'));
-        add('object-define-properties', detectMethod('Object.defineProperties'));
-        add('object---define-setter--', detectMethod('Object.__defineSetter__'));
-        add('object-entries', detectMethod('Object.entries'));
-        add('object-freeze', detectMethod('Object.freeze'));
-        add('object-get-own-property-descriptor', detectMethod('Object.getOwnPropertyDescriptor'));
-        add('object-get-own-property-descriptors', detectMethod('Object.getOwnPropertyDescriptors'));
-        add('object-get-own-property-names', detectMethod('Object.getOwnPropertyNames'));
-        add('object-get-prototype-of', detectMethod('Object.getPrototypeOf'));
-        add('object-is', detectMethod('Object.is'));
-        add('object-is-extensible', detectMethod('Object.isExtensible'));
-        add('object-is-frozen', detectMethod('Object.isFrozen'));
-        add('object-is-sealed', detectMethod('Object.isSealed'));
-        add('object-keys', detectMethod('Object.keys'));
-        add('object---lookup-getter--', detectMethod('Object.__lookupGetter__'));
-        add('object---lookup-setter--', detectMethod('Object.__lookupSetter__'));
-        add('object-prevent-extensions', detectMethod('Object.preventExtensions'));
-        add('object-seal', detectMethod('Object.seal'));
-        add('object-set-prototype-of', detectMethod('Object.setPrototypeOf'));
-        add('object-to-string', ensure('Object.prototype.toString').isFunction().and(
-            function() {
-                return expect('Symbol.toStringTag').isSymbol();
-            }
-        ).test(function() {
+        // object
+        var checkObjectToString = function() {
+            // si on a pas Symbol.toStringTag
             // https://github.com/zloirock/core-js/blob/master/modules/es6.object.to-string.js
             var test = {};
             test[Symbol.toStringTag] = 'z';
             return test.toString() === '[object z]';
-        }));
-        add('object-values', detectMethod('Object.values'));
-
-        add('symbol', detectConstructor('Symbol'));
-        add('symbol-async-iterator', detectSymbol('Symbol.asyncIterator'));
-        add('symbol-has-instance', detectSymbol('Symbol.hasInstance'));
-        add('symbol-iterator', detectSymbol('Symbol.iterator'));
-        add('symbol-match', detectSymbol('Symbol.match'));
-        add('symbol-observable', detectSymbol('Symbol.observable'));
-        symbol('symbol-replace', 'Symbol.replace').when(
-            missing,
-            polyfill()
+        };
+        registerAndPolyfillWhen(
+            'object',
+            auto,
+            [
+                ['assign', auto, auto],
+                ['create', auto, auto],
+                ['define-getter', 'Object.__defineGetter__', autoEs7],
+                ['define-property', auto, auto],
+                ['define-properties', auto, autoEs7],
+                ['define-setter', 'Object.__defineSetter__', autoEs7],
+                ['entries', auto, autoEs7],
+                ['freeze', auto, auto],
+                ['get-own-property-descriptor', auto, auto],
+                ['get-own-property-descriptors', auto, autoEs7],
+                ['get-own-property-names', auto, auto],
+                ['get-prototypeof', auto, auto],
+                ['is', auto, auto],
+                ['is-extensible', auto, auto],
+                ['is-frozen', auto, auto],
+                ['is-sealed', auto, auto],
+                ['lookup-getter', 'Object.__lookupGetter__', autoEs7],
+                ['lookup-setter', 'Object.__lookupSetter__', autoEs7],
+                ['prevent-extensions', auto, auto],
+                ['seal', auto, auto],
+                ['set-prototype-of', auto, auto],
+                ['to-string', checkObjectToString, auto],
+                ['values', auto, autoEs7]
+            ]
         );
-        add('symbol-search', detectSymbol('Symbol.search'));
-        add('symbol-split', detectSymbol('Symbol.split'));
-        add('symbol-to-primitive', detectSymbol('Symbol.toPrimitive'));
 
-        add('math-acosh', detectMethod('Math.acosh'));
-        add('math-asinh', detectMethod('Math.asinh'));
-        add('math-atanh', detectMethod('Math.atanh'));
-        add('math-cbrt', detectMethod('Math.cbrt'));
-        add('math-clamp', detectMethod('Math.clamp'));
-        add('math-clz32', detectMethod('Math.clz32'));
-        add('math-cosh', detectMethod('Math.cosh'));
-        number('math-deg-per-rad', 'Math.DEG_PER_RAD').when(
-            missing,
-            polyfill()
+        // symbol
+        registerAndPolyfillWhen(
+            'symbol',
+            auto,
+            [
+                ['', auto, auto],
+                ['async-iterator', auto, autoEs7],
+                ['has-instance', auto, auto],
+                ['iterator', auto, auto],
+                ['match', auto, auto],
+                ['observable', auto, autoEs7],
+                ['replace', auto, auto],
+                ['search', auto, auto],
+                ['split', auto, auto],
+                ['to-primitive', auto, auto]
+            ]
         );
-        add('math-degrees', detectMethod('Math.degrees'));
-        add('math-expm1', detectMethod('Math.expm1'));
-        add('math-fround', detectMethod('Math.fround'));
-        add('math-fscale', detectMethod('Math.fscale'));
-        add('math-hypot', detectMethod('Math.hypot'));
-        add('math-iaddh', detectMethod('Math.iaddh'));
-        add('math-imul', detectMethod('Math.imul'));
-        add('math-imulh', detectMethod('Math.imulh'));
-        add('math-isubh', detectMathMethod('Math.isubh'));
-        add('math-log10', detectMethod('Math.log10'));
-        add('math-log1p', detectMethod('Math.log1p'));
-        add('math-log2', detectMethod('Math.log2'));
-        add('math-radians', detectMethod('Math.radians'));
-        add('math-rad-per-deg', detectNumber('Math.RAD_PER_DEG'));
-        add('math-scale', detectMethod('Math.scale'));
-        add('math-sign', detectMethod('Math.sign'));
-        add('math-sinh', detectMethod('Math.sinh'));
-        add('math-tanh', detectMethod('Math.tanh'));
-        add('math-trunc', detectMethod('Math.trunc'));
-        add('math-umulh', detectMethod('Math.umulh'));
 
-        add('number-constructor', function() {
+        // math
+        registerAndPolyfillWhen(
+            'math',
+            auto,
+            [
+                ['acosh', auto, auto],
+                ['asinh', auto, auto],
+                ['atanh', auto, auto],
+                ['cbrt', auto, auto],
+                ['clamp', auto, autoEs7],
+                ['clz32', auto, auto],
+                ['cosh', auto, auto],
+                ['deg-per-rad', 'DEG_PAR_RAD', 'es7.math.$0'],
+                ['degrees', auto, autoEs7],
+                ['expm1', auto, auto],
+                ['fround', auto, auto],
+                ['fscale', auto, autoEs7],
+                ['hypot', auto, auto],
+                ['iaddh', auto, autoEs7],
+                ['imul', auto, auto],
+                ['imulh', auto, auto],
+                ['isubh', auto, auto],
+                ['log10', auto, auto],
+                ['log1p', auto, auto],
+                ['log2', auto, auto],
+                ['radians', auto, autoEs7],
+                ['rad-per-deg', 'RAD_PAR_DEG', 'es7.math.rad-per-deg'],
+                ['scale', auto, autoEs7],
+                ['sign', auto, auto],
+                ['sinh', auto, auto],
+                ['tanh', auto, auto],
+                ['trunc', auto, auto],
+                ['umulh', auto, autoEs7]
+            ]
+        );
+
+        // number
+        var checkNumberConstructor = function() {
             // https://github.com/zloirock/core-js/blob/v2.4.1/modules/es6.number.constructor.js#L46
             return (
                 Number(' 0o1') &&
                 Number('0b1') &&
                 !Number('+0x1')
             );
-        });
-        add('number-epsilon', detectNumber('Number.epsilon'));
-        add('number-is-finite', detectMethod('Number.isFinite'));
-        add('number-is-integer', detectMethod('Number.isInteger'));
-        add('number-is-nan', detectMethod('Number.isNaN'));
-        add('number-is-safe-integer', detectMethod('Number.isSafeInteger'));
-        add('number-iterator', detectSymbol('Number.prototype.iterator'));
-        add('number-max-safe-integer', detectNumber('Number.MAX_SAFE_INTEGER'));
-        add('number-min-safe-integer', detectNumber('Number.MIN_SAFE_INTEGER'));
-        add('number-to-fixed', detectMethod('Number.prototype;toFixed'));
-        add('number-to-precision', detectMethod('Number.prototype.toPrecision'));
-        add('number-parse-float', detectMethod('Number.parseFloat'));
-        add('number-parse-int', detectMethod('Number.parseInt'));
+        };
+        registerAndPolyfillWhen(
+            'number',
+            auto,
+            [
+                ['constructor', checkNumberConstructor, auto],
+                ['epsilon', auto, auto],
+                ['is-finite', auto, auto],
+                ['is-integer', auto, auto],
+                ['is-nan', 'isNaN', auto],
+                ['is-safe-integer', auto, auto],
+                ['iterator', 'prototype[Symbol.iterator]', 'core.number.iterator'],
+                ['max-safe-integer', 'MAX_SAFE_INTEGER', auto],
+                ['min-safe-integer', 'MIN_SAFE_INTEGER', auto],
+                ['to-fixed', autoPrototype, auto],
+                ['parse-float', auto, auto],
+                ['parse-int', auto, auto]
+            ]
+        );
 
-        add('reflect-apply', detectMethod('Reflect.apply'));
-        add('reflect-construct', detectMethod('Reflect.construct'));
-        add('reflect-define-property', detectMethod('Reflect.defineProperty'));
-        add('reflect-delete-property', detectMethod('Reflect.deleteProperty'));
-        add('reflect-enumerate', detectMethod('Reflect.enumerate'));
-        add('reflect-get', detectMethod('Reflect.get'));
-        add('reflect-get-own-property-descriptor', detectMethod('Reflect.getownPropertyDescriptor'));
-        add('reflect-get-prototype-of', detectMethod('Reflect.getPrototypeOf'));
-        add('reflect-has', detectMethod('Reflect.has'));
-        add('reflect-is-extensible', detectMethod('Reflect.isExtensible'));
-        add('reflect-own-keys', detectMethod('Reflect.ownKeys'));
-        add('reflect-prevent-extensions', detectMethod('Reflect.preventExtensions'));
-        add('reflect-set', detectMethod('Reflect.set'));
-        add('reflect-set-prototype-of', detectMethod('Reflect.setPrototypeOf'));
+        // reflect
+        registerAndPolyfillWhen(
+            'reflect',
+            auto,
+            [
+                ['apply', auto, auto],
+                ['construct', auto, auto],
+                ['define-property', auto, auto],
+                ['delete-property', 'isNaN', auto],
+                ['enumerate', auto, auto],
+                ['get', auto, auto],
+                ['get-own-property-descriptor', auto, auto],
+                ['get-prototype-of', auto, auto],
+                ['has', autoPrototype, auto],
+                ['own-keys', auto, auto],
+                ['prevent-extensions', auto, auto],
+                ['set', auto, auto],
+                ['set-prototype-of', auto, auto],
 
-        add('reflect-define-metadata', detectMethod('Reflect.defineMetadata'));
-        add('reflect-delete-metadata', detectMethod('Reflect.deleteMetadata'));
-        add('reflect-get-metadata', detectMethod('Reflect.getMetadata'));
-        add('reflect-get-metadata-keys', detectMethod('Reflect.getMetadataKeys'));
-        add('reflect-get-own-metadata', detectMethod('Reflect.getOwnMetadata'));
-        add('reflect-get-own-metadata-keys', detectMethod('gReflect.etOwnMetadataKeys'));
-        add('reflect-has-metadata', detectMethod('Reflect.hasMetadata'));
-        add('reflect-has-own-metadata', detectMethod('Reflect.hasOwnMetadata'));
-        add('reflect-metadata', detectMethod('Reflect.metadata'));
+                ['define-metadata', auto, autoEs7],
+                ['delete-metadata', auto, autoEs7],
+                ['get-metadata', autoPrototype, autoEs7],
+                ['get-metadata-keys', auto, autoEs7],
+                ['get-own-metadata', auto, autoEs7],
+                ['get-own-metadata-keys', auto, autoEs7],
+                ['has-metadata', auto, autoEs7],
+                ['has-own-metadata', auto, autoEs7],
+                ['metadata', auto, autoEs7]
+            ]
+        );
 
-        add('regexp-constructor', combineTest(
-            detectSymbol('Symbol.match'),
-            function() {
-                // https://github.com/zloirock/core-js/blob/v2.4.1/modules/es6.regexp.constructor.js
-                var re1 = /a/g;
-                var re2 = /a/g;
-                re2[Symbol.match] = false;
-                var re3 = RegExp(/a/g, 'i');
-                return (
-                    RegExp(re1) === re1 &&
-                    RegExp(re2) !== re2 &&
-                    RegExp(re3).toString() === '/a/i'
-                );
-            }
-        ));
-        add('regexp-escape', detectMethod('RegExp.escape'));
-        add('regexp-flags', function() {
+        // regexp
+        var checkRegExpConstructor = function() {
+            // https://github.com/zloirock/core-js/blob/v2.4.1/modules/es6.regexp.constructor.js
+            var re1 = /a/g;
+            var re2 = /a/g;
+            re2[Symbol.match] = false;
+            var re3 = RegExp(/a/g, 'i');
+            return (
+                RegExp(re1) === re1 &&
+                RegExp(re2) !== re2 &&
+                RegExp(re3).toString() === '/a/i'
+            );
+        };
+        var checkRegExpFlags = function() {
             // https://github.com/zloirock/core-js/blob/v2.4.1/modules/es6.regexp.flags.js
             return /./g.flags === 'g';
-        });
-        add('regexp-match', detectSymbol('RegExp.match'));
-        add('regexp-replace', detectSymbol('RegExp.replace'));
-        add('regexp-search', detectSymbol('RegExp.search'));
-        add('regexp-split', detectSymbol('RegExp.split'));
-        add('regexp-to-string', function() {
+        };
+        var checkRegExpToString = function() {
             // https://github.com/zloirock/core-js/blob/master/modules/es6.regexp.to-string.js
             var toString = RegExp.prototype.toString;
             return (
                 toString.call({source: 'a', flags: 'b'}) === '/a/b' &&
                 toString.name === 'toString'
             );
-        });
+        };
+        registerAndPolyfillWhen(
+            'regexp',
+            auto,
+            [
+                ['constructor', checkRegExpConstructor, auto],
+                ['escape', auto, auto],
+                ['flags', checkRegExpFlags, auto],
+                ['match', 'RegExp.prototype[Symbol.match]', auto],
+                ['replace', 'RegExp.prototype[Symbol.replace]', auto],
+                ['search', 'RegExp.prototype[Symbol.search]', auto],
+                ['split', 'RegExp.prototype[Symbol.split]', auto],
+                ['to-string', checkRegExpToString, auto]
+            ]
+        );
 
-        add('string-at', detectMethod('String.prototype.at'));
-        add('string-from-code-point', detectMethod('String.prototype.fromCodePoint'));
-        add('string-code-point-at', detectMethod('String.prototype.codePointAt'));
-        add('string-ends-with', detectMethod('String.prototype.endsWith'));
-        add('string-escape-html', detectMethod('String.escapeHTML'));
-        add('string-includes', detectMethod('String.prototype.includes'));
-        add('string-iterator', detectSymbol('String.prototype.iterator'));
-        add('string-match-all', detectSymbol('String.prototype.matchAll'));
-        add('string-pad-end', detectMethod('String.prototype.padEnd'));
-        add('string-pad-start', detectMethod('String.prototype.padStart'));
-        add('string-raw', detectMethod('String.raw'));
-        add('string-repeat', detectMethod('String.prototype.repeat'));
-        add('string-starts-with', detectMethod('String.prototype.startsWith'));
-        add('string-trim', detectMethod('String.prototype.trim'));
-        add('string-trim-end', detectMethod('String.prototype.trimEnd'));
-        add('string-trim-start', detectMethod('String.prototype.trimStart'));
-        add('string-unescape-html', detectMethod('String.unescapeHTML'));
+        // string
+        registerAndPolyfillWhen(
+            'string',
+            auto,
+            [
+                ['at', autoPrototype, autoEs7],
+                ['from-code-point', autoPrototype, auto],
+                ['code-point-at', autoPrototype, auto],
+                ['ends-with', autoPrototype, auto],
+                ['escape-html', auto, 'core.string.escape-html'],
+                ['includes', autoPrototype, auto],
+                ['iterator', 'String.prototype[Symbol.iterator]', auto],
+                ['match-all', 'String.prototype[Symbol.matchAll]', autoEs7],
+                ['pad-end', autoPrototype, autoEs7],
+                ['pad-start', autoPrototype, autoEs7],
+                ['raw', auto, auto],
+                ['repeat', autoPrototype, auto],
+                ['starts-with', autoPrototype, auto],
+                ['trim', autoPrototype, auto],
+                ['trim-end', autoPrototype, 'es7.string.trim-right'],
+                ['trim-start', autoPrototype, 'es7.string.trim-left'],
+                ['unescape-html', auto, 'core.string.unescape-html'],
 
-        add('string-anchor', detectMethod('String.prototype.anchor'));
-        add('string-big', detectMethod('String.prototype.big'));
-        add('string-blink', detectMethod('String.prototype.blink'));
-        add('string-fixed', detectMethod('String.prototype.fixed'));
-        add('string-fontcolor', detectMethod('String.prototype.fontcolor'));
-        add('string-fontsize', detectMethod('String.prototype.fontsize'));
-        add('string-italics', detectMethod('String.prototype.italics'));
-        add('string-link', detectMethod('String.prototype.link'));
-        add('string-small', detectMethod('String.prototype.small'));
-        add('string-strike', detectMethod('String.prototype.strike'));
-        add('string-sub', detectMethod('String.prototype.sub'));
-        add('string-sup', detectMethod('String.prototype.sup'));
-        */
+                ['anchor', autoPrototype, auto],
+                ['big', autoPrototype, auto],
+                ['blink', autoPrototype, auto],
+                ['fixed', autoPrototype, auto],
+                ['fontcolor', autoPrototype, auto],
+                ['fontsize', autoPrototype, auto],
+                ['italics', autoPrototype, auto],
+                ['link', autoPrototype, auto],
+                ['small', autoPrototype, auto],
+                ['strike', autoPrototype, auto],
+                ['sub', autoPrototype, auto],
+                ['sup', autoPrototype, auto]
+            ]
+        );
     });
 
     jsenv.build(function implementationList() {

@@ -1,0 +1,893 @@
+<!doctype html>
+
+<head>
+    <title>predicate</title>
+    <meta charset="utf-8" />
+
+    <script type="text/javascript">
+        /* eslint-env browser */
+
+        /*
+        var noValue = {novalue: true};
+        function readAt(initialValue, path) {
+            var value = initialValue;
+
+            if (typeof path === 'string') {
+                var parts = path.split('.');
+                var i = 0;
+                var j = parts.length;
+
+                while (i < j) {
+                    var part = parts[i];
+                    if (part in value) {
+                        value = value[part];
+                    } else {
+                        value = noValue;
+                        break;
+                    }
+                    i++;
+                }
+            } else if (path in initialValue) { // symbol
+                value = initialValue[path];
+            } else {
+                value = noValue;
+            }
+
+            return value;
+        }
+
+        function expect() {
+            var expectation = {};
+            var state = {};
+            expectation.state = state;
+            expectation.isExpectation = true;
+            state.value = window;
+            state.valid = true;
+            state.path = '';
+            state.dependents = [];
+            state.assertions = [];
+
+            expectation.affineLocation = function(subpath) {
+                var path = this.state.path;
+
+                if (path.length > 0) {
+                    if (subpath.indexOf('.') > -1) {
+                        path = path + '[' + subpath + ']';
+                    } else {
+                        path = path + '.' + subpath;
+                    }
+                } else {
+                    path = subpath;
+                }
+                this.state.path = path;
+            };
+
+            expectation.follow = function(pathValue, pathName) {
+                var currentValue = state.value;
+                var valueAt = readAt(currentValue, pathValue);
+
+                console.log(
+                    'from', currentValue, '\n',
+                    'read', pathValue, '(' + pathName + ')', '\n',
+                    '->', valueAt
+                );
+                state.value = valueAt;
+                this.affineLocation(pathName);
+            };
+
+            expectation.before = function(dependentExpectation) {
+                if (state.valid) {
+                    state.valid = dependentExpectation.state.valid;
+                    if (state.valid) {
+                        state.dependents.push(dependentExpectation);
+                        expectation.follow(
+                            dependentExpectation.state.value,
+                            dependentExpectation.state.path
+                        );
+                    } else {
+                        state.failedAssertion = dependentExpectation.state.failedAssertion;
+                    }
+                }
+            };
+
+            var j = arguments.length;
+            if (j === 0) {
+                state.value = noValue;
+            } else {
+                var i = 0;
+                while (i < j) {
+                    var arg = arguments[i];
+                    if (typeof arg === 'string') {
+                        if (state.valid) {
+                            expectation.follow(arg, arg);
+                        }
+                    } else if (arg.isExpectation) {
+                        expectation.before(arg);
+                    } else if (typeof arg === 'object' && typeof arg.valueOf === 'function') {
+                        state.value = arg.valueOf();
+                    } else {
+                        throw new TypeError('expect() arg must be a string, or an object with valueOf method');
+                    }
+                    i++;
+                }
+            }
+
+            expectation.valueOf = function() {
+                return state.value;
+            };
+            expectation.assert = function(test, type) {
+                if (state.valid) {
+                    var result;
+                    // if (state.value === noValue) {
+                    //     result = test.call(this);
+                    // } else {
+                    result = test.call(this, state.value);
+
+                    var assertion = {
+                        test: test,
+                        type: type,
+                        passed: result,
+                        on: state.value,
+                        at: state.path
+                    };
+                    state.assertions.push(assertion);
+
+                    if (result) {
+                        state.valid = true;
+                    } else {
+                        state.valid = false;
+                        state.failedAssertion = assertion;
+                    }
+                } else {
+                    // ignore l'assertion on a déjà fail quelque part
+                }
+            };
+            var instructions = [];
+            expectation.when = function(condition, action) {
+                var instruction = {
+                    condition: condition,
+                    action: action
+                };
+                instructions.push(instruction);
+                return this;
+            };
+            expectation.exec = function() {
+                var i = 0;
+                var j = instructions.length;
+                var someInstructionMatched = false;
+                var result;
+                while (i < j) {
+                    var instruction = instructions[i];
+                    if (instruction.condition.call(this, state.value)) {
+                        someInstructionMatched = true;
+                        result = instruction.action.call(this, state.value);
+                        // break;
+                    }
+                    i++;
+                }
+                if (someInstructionMatched) {
+                    return result;
+                }
+                console.error('no match');
+            };
+
+            return expectation;
+        }
+
+        var expectValue = function() {
+            var expectation = expect.apply(this, arguments);
+            expectation.assert(function(value) {
+                return value !== noValue;
+            }, 'presence');
+            return expectation;
+        };
+        var expectFunction = function() {
+            var expectation = expectValue.apply(this, arguments);
+            expectation.assert(function(value) {
+                return typeof value === 'function';
+            }, 'type:function');
+            return expectation;
+        };
+        var expectConstructor = expectFunction;
+        var expectObject = function() {
+            var expectation = expectValue.apply(this, arguments);
+            expectation.assert(function(value) {
+                return typeof value === 'object';
+            }, 'type:object');
+            return expectation;
+        };
+        var expectSymbol = function() {
+            var expectation = expectValue.apply(this, arguments);
+            expectation.assert(function(value) {
+                return value.constructor === Symbol;
+            }, 'type:symbol');
+            return expectation;
+        };
+        var expectBuiltInSymbol = function(symbolName) {
+            var expectation = expectSymbol(
+                expectConstructor('Symbol', symbolName)
+            );
+            return expectation;
+        };
+
+        var missing = function() {
+            return this.state.valid === false && this.state.failedAssertion.type === 'presence';
+        };
+        var existing = function() {
+            return missing.call(this) === false;
+        };
+        var valid = function() {
+            return this.state.valid === true;
+        };
+        var at = function(path, method) {
+            return function() {
+                var expectation = this;
+                var found;
+                if (expectation.state.path === path) {
+                    found = expectation;
+                } else {
+                    var findDependent = function(expectation) {
+                        var dependents = expectation.state.dependents;
+                        var i = 0;
+                        var j = dependents.length;
+                        var found;
+                        while (i < j) {
+                            var dependent = dependents[i];
+                            if (dependent.state.path === path) {
+                                found = dependent;
+                                break;
+                            } else {
+                                found = findDependent(dependent, path);
+                                if (found) {
+                                    break;
+                                }
+                                i++;
+                            }
+                        }
+                        return found;
+                    };
+                    found = findDependent(expectation);
+                }
+
+                if (!found) {
+                    return false;
+                }
+                return method.call(found);
+            };
+        };
+        var some = function() {
+            var predicates = arguments;
+            var j = predicates.length;
+            return function() {
+                var someIsValid = false;
+                var i = 0;
+                while (i < j) {
+                    var predicate = predicates[i];
+                    if (predicate.apply(this, arguments)) {
+                        someIsValid = true;
+                        break;
+                    }
+                    i++;
+                }
+                return someIsValid;
+            };
+        };
+        */
+
+        /*
+        expectFunction('setTimout').when(
+            missing,
+            function() {
+                console.log('setTimeout is missing');
+            }
+        ).when(
+            existing,
+            function() {
+                console.log('steTimeout is existing');
+            }
+        ).exec();
+
+        expectFunction(
+            expectObject('Array.prototype'),
+            'fill'
+        ).when(
+            at('Array.prototype', existing),
+            function() {
+                console.log('Array.prototype is existing');
+            }
+        ).when(
+            existing,
+            function() {
+                console.log('Array.prototype.fill is existing');
+            }
+        ).when(
+            at('Array.prototype', missing),
+            function() {
+                console.log('Array.prototype is missing');
+            }
+        ).exec();
+        */
+
+        // var iteratorSymbol = expectBuiltInSymbol('iterator');
+        // console.log(iteratorSymbol);
+
+        // troisième exemple avec trois expect
+        // si on veut bien il manque de vérifier que Array est un constructeur ici
+        // on en est pas là mais vérifier que Array.prototype existe
+        // est un peu inutile, cependent dans d'autre cas j'ai besoin de ce niveau de contrôle
+        // par contre on pourrait vraiment autoriser que d'écrire "Array.prototype"
+        // permette ensuite de faire when(at('Array', missing))
+        // et pourquoi on déplacerais pas la logique dans le when ??
+        // en gros on ne fait que dire où on attends la feature
+        // et when permettrais de préciser dans quel cas on fait quoi
+
+        // ce qui donnerais
+        // expect('setTimeout').when(
+        //     missing,
+        //     function(){}
+        // ).when(
+        //     notfunction,
+        //     function() {},
+        // );
+
+        // expect(window).when(
+        //     at('Array.prototype', existing),
+        //     function() {},
+        // ).when(
+        //     notfound, // notfound est différent de broken (broken signifique que le chemin est brisé avant fill)
+        //     function() {}
+        // ).when(
+        //     found,
+        //     function() {}
+        // );
+
+        // expect(window).when(
+        //     at('Symbol.iterator', symbol),
+        //     function() {}
+        // ).when(
+        //     at('Array.prototype', object),
+        //     function() {}
+        // ).when(
+        //     at('Array.prototype[Symbol.iteator]', method)
+        //     function() {}
+        // );
+
+        function contextualize() {
+            // http://esprima.org/demo/parse.html#
+            var propertyAccessParser = {
+                tokenize: (function() {
+                    function tokenizer(detectors) {
+                        return function(input) {
+                            var index = 0;
+                            var length = input.length;
+                            var tokens = [];
+                            var restToken = {
+                                type: 'rest',
+                                value: ''
+                            };
+
+                            while (index < length) {
+                                var char = input[index];
+
+                                var i = 0;
+                                var j = detectors.length;
+                                var detectedToken;
+                                while (i < j) {
+                                    detectedToken = detectors[i](char, index, input);
+                                    if (detectedToken) {
+                                        break;
+                                    }
+                                    i++;
+                                }
+
+                                if (detectedToken) {
+                                    if (restToken.value.length > 0) {
+                                        tokens.push(restToken);
+                                        restToken = {
+                                            type: 'rest',
+                                            value: ''
+                                        };
+                                    }
+                                    tokens.push(detectedToken);
+                                    index += detectedToken.value.length;
+                                } else {
+                                    restToken.value += char;
+                                    index += 1;
+                                }
+                            }
+
+                            if (restToken.value.length > 0) {
+                                tokens.push(restToken);
+                            }
+                            return tokens;
+                        };
+                    }
+                    function token(type, value) {
+                        return {
+                            type: type,
+                            value: value
+                        };
+                    }
+                    var detectors = [
+                        function(char) {
+                            if (char === '[') {
+                                return token('open-bracket', char);
+                            }
+                        },
+                        function(char) {
+                            if (char === ']') {
+                                return token('close-bracket', char);
+                            }
+                        },
+                        function(char) {
+                            if (char === '.') {
+                                return token('dot', char);
+                            }
+                        }
+                    ];
+
+                    var tokenize = tokenizer(detectors);
+
+                    return tokenize;
+                })(),
+
+                transform: (function() {
+                    return function(tokens) {
+                        var charIndex = 0;
+                        var i = 0;
+                        var j = tokens.length;
+                        var targets = [];
+                        var property;
+                        var target;
+                        var bracketOpened;
+
+                        function nextTarget() {
+                            target = {
+                                properties: []
+                            };
+                        }
+
+                        function nextProperty() {
+                            property = '';
+                        }
+
+                        function saveProperty() {
+                            if (!property) {
+                                throw new Error('empty propertyName not allowed');
+                            }
+                            target.properties.push(property);
+                        }
+
+                        function saveTarget() {
+                            if (!target) {
+                                throw new Error('no target to save');
+                            }
+                            targets.push(target);
+                        }
+
+                        nextTarget();
+                        nextProperty();
+                        bracketOpened = false;
+                        var type;
+                        while (i < j) {
+                            var token = tokens[i];
+                            var value = token.value;
+                            type = token.type;
+
+                            if (type === 'rest') {
+                                property = value;
+                            } else if (type === 'dot') {
+                                if (property.length === 0) {
+                                    throw new Error('missing name before .');
+                                }
+                                saveProperty();
+                                nextProperty();
+                            } else if (type === 'open-bracket') {
+                                if (property.length === 0) {
+                                    throw new Error('missing name before [');
+                                }
+                                if (bracketOpened) {
+                                    throw new Error('missing ] before [');
+                                }
+                                saveProperty();
+                                nextProperty();
+                                saveTarget();
+                                nextTarget();
+                                bracketOpened = true;
+                            } else if (type === 'close-bracket') {
+                                if (bracketOpened === false) {
+                                    throw new Error('missing [ before ]');
+                                }
+                                if (property.length === 0) {
+                                    throw new Error('missing name between []');
+                                }
+                                bracketOpened = false;
+                            }
+
+                            i++;
+                            charIndex += value.length;
+                        }
+                        if (type === 'rest') {
+                            saveProperty();
+                            saveTarget();
+                        } else if (bracketOpened) {
+                            throw new Error('missing ] before and of input');
+                        } else if (type === 'close-bracket') {
+                            saveProperty();
+                            saveTarget();
+                        } else if (type === 'dot') {
+                            throw new Error('missing name after .');
+                        }
+
+                        return targets;
+                    };
+                })(),
+
+                parse: function(input) {
+                    var tokens = this.tokenize(input);
+                    var result = this.transform(tokens);
+                    return result;
+                }
+            };
+
+            var cache = {};
+            var noValue = {noValue: true};
+            function readPath(value, parts) {
+                var i = 0;
+                var j = parts.length;
+
+                while (i < j) {
+                    var part = parts[i];
+                    if (part in value) {
+                        value = value[part];
+                    } else {
+                        value = noValue;
+                        break;
+                    }
+                    i++;
+                }
+                return value;
+            }
+
+            var context = {
+                act: function() {
+                    var action = {};
+
+                    action.dependents = [];
+                    action.dependencies = [];
+                    action.assertions = [];
+                    action.value = noValue;
+                    action.valid = true;
+                    action.failedAssertion = null;
+                    action.assert = function(test, type) {
+                        var assertion = {
+                            test: test,
+                            type: type,
+                            result: null
+                        };
+                        this.assertions.push(assertion);
+
+                        this.dependents.forEach(function(dependent) {
+                            dependent.assert(test, type);
+                        });
+
+                        if (this.valid) {
+                            // ne pas faire deux test du même type
+                            // genre constructor + string c'est impossible
+                            console.log('calling test on', this.value, 'for', type);
+                            var returnValue = test.call(this, this.value);
+
+                            var result = {
+                                passed: returnValue,
+                                on: this.value
+                            };
+                            assertion.result = result;
+
+                            if (returnValue) {
+                                this.valid = true;
+                            } else {
+                                this.valid = false;
+                                this.failedAssertion = assertion;
+                            }
+                        } else {
+                            // ignore l'assertion on a déjà fail quelque part
+                        }
+                    };
+                    action.instructions = [];
+                    action.when = function(condition, sequence) {
+                        var instruction = {
+                            condition: condition,
+                            sequence: sequence
+                        };
+                        this.instructions.push(instruction);
+                        return this;
+                    };
+                    action.exec = function() {
+                        var i = 0;
+                        var j = this.instructions.length;
+                        var someInstructionMatched = false;
+                        var result;
+                        while (i < j) {
+                            var instruction = this.instructions[i];
+                            if (instruction.condition.call(this, this.value)) {
+                                someInstructionMatched = true;
+                                result = instruction.sequence.call(this, this.value);
+                                // break;
+                            }
+                            i++;
+                        }
+                        if (someInstructionMatched) {
+                            return result;
+                        }
+                        console.error('no match');
+                    };
+                    action.adopt = function(action) {
+                        if (this.valid) {
+                            this.source = action.source;
+                            this.path = action.path;
+                            this.value = action.value;
+
+                            if (action.valid) {
+                                this.valid = true;
+                            } else {
+                                this.valid = false;
+                                this.failedAssertion = action.failedAssertion;
+                            }
+
+                            var assertions = action.assertions;
+                            var i = 0;
+                            var j = assertions.length;
+                            while (i < j) {
+                                this.assertions.push(assertions[i]);
+                                i++;
+                            }
+                        }
+                        console.log('adopting', action);
+                        action.dependents.push(this);
+                        return this;
+                    };
+
+                    return action;
+                },
+
+                when: function(condition, action) {
+                    return this.act().when(condition, action);
+                },
+
+                combine: function() {
+                    var actions = arguments;
+                    var i = 0;
+                    var j = arguments.length;
+                    var compositeAction = this.act();
+
+                    while (i < j) {
+                        var action = actions[i];
+                        compositeAction.adopt(action);
+                        i++;
+                    }
+
+                    return compositeAction;
+                },
+
+                read: function(object, path) {
+                    var action;
+                    if (path in cache) {
+                        action = cache[path];
+                    } else {
+                        var targets = propertyAccessParser.parse(path);
+                        // le fait qu'on cahce les assertions permet que les assertions soit partagées
+                        // si elels sont faites en amont
+                        // mais si je déclare 'Symbol.iterator' après
+                        // bah chuis niqué
+                        // et ça n'aurais pas 'effect sur Array.prototype[Symbol.iterator]'
+                        var actions = targets.map(function(target) {
+                            var action = this.act();
+                            action.value = readPath(object, target.properties);
+                            action.source = 'path';
+                            action.path = target.properties.join('.');
+                            action.assert(function(value) {
+                                return value !== noValue;
+                            }, 'presence');
+                            return action;
+                        }, this);
+                        action = this.combine.apply(this, actions);
+                        cache[path] = action;
+                    }
+
+                    return action;
+                }
+            };
+
+            Object.keys(context).forEach(function(key) {
+                if (typeof context[key] === 'function') {
+                    context[key] = context[key].bind(context);
+                }
+            });
+
+            return context;
+        }
+
+        var context = contextualize();
+        // var when = context.when;
+        var read = context.read;
+        var at = function(path) {
+            return read(window, path);
+        };
+        // var combine = context.combine;
+        var missing = function() {
+            return this.valid === false && this.failedAssertion.type === 'presence';
+        };
+
+        var method = function(action) {
+            // faut cast l'arg si c'est une value et pas une action
+            // dans ce cas action.source vaudra 'dynamic';
+            action.assert(function(value) {
+                return typeof value === 'function';
+            }, 'type:function');
+            return action;
+        };
+
+        // les action auront surement un nom hérité de la feature ça aidera au débug
+        // au lieu d'utiliser le path
+        // coneptuellement on est quasi bon
+        // faudrais juste spécifier quelque part c'est quoi les features exactement
+        // parce que pour le moment j'ai tout en tête mais vu le bordel dans le code
+        // faut êtr eplus précis qu'apporte contextualize()
+        var action = method(at('Array.prototype.doesnoexist')).when(
+            missing,
+            function() {
+                console.log('missing', this.path);
+            }
+        );
+        action.exec();
+
+        // var method = context.method;
+        // var symbol = context.symbol;
+
+        // var missing = context.missing;
+        // var or = context.or;
+
+        /*
+        combine(
+            symbol(at(window, 'Symbol.iterator')),
+            method(at(window, 'Array.prototype[Symbol.iterator]'))
+        ).when(
+            missing,
+            function() {}
+        );
+
+        // par contre comment se comporte combine ?
+        // je pense comme une suite d'assertion qui doit toute être true
+        // si une vaut false le résultat vaut false
+        combine(
+            symbol(at(window, 'Symbol.iterator')),
+            method(at(window, 'NodeList.keys')),
+            method(at(window, 'NodeList.values')),
+            method(at(window, 'NodeList.entries'))
+            method(at(window, 'NodeList[Symbol.iterator]'))),
+        ).when(
+            missing,
+            function() {}
+        );
+
+        when(
+            function timerbroken() {
+                return true;
+            },
+            function() {}
+        );
+
+        constructor(at(window, 'Promise')).when(
+            or(
+                missing,
+                function() {
+                    return true; // awlays polyfill
+                }
+            ),
+            function() {
+
+            }
+        );
+        */
+
+        // // et donc contextualize va permettre ce qui suit
+        // constructor(at('Array'));
+        // object(at('Array.prototype')); // hérite de Array
+        // method(at('Array.prototype.fill')); // hérité de Array et Array.prototype
+        // comme de toute façon aucune assertion n'est éxécute pour le moment
+        // il est tout e fait possible d'écrire ça
+        // le seul point délicat est sur la notation 'Array.prototype[Symbol.iterator]'
+        // ou il faudras détecter l'utilisation de [] et "évaluer" l'expression qui s'y trouve
+        // sauf si c'est une chaine de carac
+        // donc at retourne une assertion ayant pour valeur ce qu'on trouve à ce chemin
+        // et héritant des assertions de ce chemin
+        // method(), constructor() attendent des assertions (ou des valeurs converties alors en assertion)
+        // et ajoute un test correspondant
+        // when est une méthode dispo sur une assertion qui permet d'avoir du code qui se déclenche
+        // lorsqu'une assertion est dans un état spécifique (valid, invalid avec des sous état pour invalide comme missing)
+        // or est une fonction pure qui retourne true si une des fonctions en argument reoturne tru
+
+        // var arrayIterator = expectFunction(
+        //     expectObject('Array.prototype', expectBuiltInSymbol('iterator'))
+        // )
+        // .when(
+        //     at('Symbol.iterator', valid),
+        //     function() {
+        //         console.log('Symbol.iterator is valid');
+        //     }
+        // )
+        // .when(
+        //     at('Array.prototype', valid),
+        //     function() {
+        //         console.log('Array.prototype is valid');
+        //     }
+        // )
+        // .when(
+        //     valid,
+        //     function() {
+        //         console.log('Array.prototype[Symbol.iterator] is valid');
+        //     }
+        // )
+        // .when(
+        //     some(
+        //         existing,
+        //         at('Symbol.iterator', existing)
+        //     ),
+        //     function() {
+        //         console.log('Array.prototype[Symbol.iterator] is existing or Symbol.iterator is existing');
+        //     }
+        // );
+        // arrayIterator.exec();
+
+        // troisième exemple encore plus compliqué
+        /*
+        // version fonctionnelle
+        expectConstructor(
+            'NodeList',
+            expectMethod(expectBuiltInSymbol('iterator')),
+            expectMethod('keys'),
+            expectMethod('values'),
+            expectMethod('entries')
+        });
+        // version descriptive
+        {
+            path: 'NodeList',
+            type: 'constructor',
+            methods: [
+                'keys',
+                'values',
+                'entries',
+                {
+                    path: 'Symbol.iterator',
+                    type: 'symbol'
+                }
+            ]
+        };
+        .when(
+            some(
+                at('NodeList.keys', missing),
+                at('NodeList.values', missing),
+                at('NodeList.entries', missing),
+                at('NodeList[Symbol.iterator]', missing)
+            ),
+            function() {
+                console.log('polyfill')
+            }
+        );
+        */
+
+        // peut aussi s'écrire expectObject('Array.prototype', expectMethod('fill'))
+        // ou expectObject('Array.prototype').next(expectMethod('fill'))
+        // voir plus tard ptet expectMethod('Array.prototype.fill');
+        // expectObject('Array.prototype', expectMethod('fill'));
+
+        // eslint-disable-next-line eol-last, no-trailing-spaces
+    </script>
+</head>
+
+<body>
+    <main>
+    </main>
+</body>
+
+</html>
