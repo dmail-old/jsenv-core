@@ -186,6 +186,13 @@ je dis pourquoi pas
                 },
 
                 setVersion: function(version) {
+                    // some version number are too precise such as chome
+                    // which gives sthing like 50.0.0.1, strip the last number to be semver
+                    var parts = version.split('.');
+                    if (parts.length > 3) {
+                        version = parts.slice(0, 3).join('.');
+                    }
+
                     this.version = jsenv.createVersion(version);
                 },
 
@@ -1100,30 +1107,34 @@ je dis pourquoi pas
         var implementation = {};
         implementation.features = [];
 
-        implementation.add = function(featureName) {
-            var existingFeature = this.get(featureName);
+        implementation.add = function(featureName, featureVersion) {
+            featureVersion = featureVersion || '*';
+
+            var existingFeature = this.get(featureName, featureVersion);
             if (existingFeature) {
-                throw new Error('The feature ' + featureName + ' already exists');
+                throw new Error('The feature ' + existingFeature + ' already exists');
             }
-            var feature = new Feature(featureName);
-            this.features.push(feature);
-            return feature;
+            var versionnedFeature = new VersionnedFeature(featureName, featureVersion);
+            this.features.push(versionnedFeature);
+            return versionnedFeature;
         };
-        implementation.get = function(featureName) {
-            return find(this.features, function(feature) {
-                return feature.name === featureName;
+        implementation.get = function(featureName, featureVersion) {
+            featureVersion = featureVersion || '*';
+
+            var foundVersionnedFeature = find(this.features, function(versionnedFeature) {
+                return (
+                    versionnedFeature.name === featureName &&
+                    versionnedFeature.version.match(featureVersion)
+                );
             });
-        };
-        implementation.getStatus = function(featureName, versionName) {
-            var feature = this.get(featureName);
-            if (feature === null) {
-                return 'unknown';
-            }
-            versionName = versionName || '*';
-            return feature.getStatus(versionName);
+            return foundVersionnedFeature;
         };
         implementation.support = function() {
-            return this.getStatus.apply(this, arguments) === 'yes';
+            var versionnedFeature = this.get.apply(this, arguments);
+            if (versionnedFeature) {
+                return versionnedFeature.test();
+            }
+            return false;
         };
         function find(entries, fn) {
             var i = 0;
@@ -1144,106 +1155,48 @@ je dis pourquoi pas
             return foundIndex === -1 ? null : foundEntry;
         }
 
-        function Feature(name) {
-            this.versions = [];
-            this.name = name;
-        }
-        var featureProto = Feature.prototype;
-        featureProto.get = function(versionName) {
-            return find(this.versions, function(existingVersion) {
-                return existingVersion.match(versionName);
-            });
-        };
-        featureProto.add = function(versionName) {
-            var existingVersion = this.get(versionName);
-            if (existingVersion) {
-                throw new Error('The version ' + versionName + ' already exists');
-            }
-            var version = new FeatureVersion(versionName);
-            this.versions.push(version);
-            return version;
-        };
-        featureProto.getStatus = function(versionName) {
-            if (arguments.length === 0) {
-                versionName = '*';
-            }
-            var version = this.get(versionName);
-            if (version === null) {
-                return 'nomatch';
-            }
-            return version.getStatus();
-        };
-
         var env = this;
-        function FeatureVersion(version) {
+        function VersionnedFeature(name, version) {
+            this.name = name;
             this.version = env.createVersion(version);
+            this.branches = [];
         }
-        var featureVersionProto = FeatureVersion.prototype;
-        featureVersionProto.match = function(version) {
+        var VersionnedFeaturePrototype = VersionnedFeature.prototype;
+        VersionnedFeaturePrototype.toString = function() {
+            return this.name + '@' + this.version;
+        };
+        VersionnedFeaturePrototype.match = function(version) {
             return this.version.match(version);
         };
-        featureVersionProto.getStatus = function() {
-            var detector = this.detector;
-            if (detector) {
-                var detectorResult = detector();
-                if (typeof detectorResult === 'string') {
-                    return detectorResult;
-                }
-                if (detectorResult) {
-                    return 'yes';
-                }
-                return 'no';
-            }
-            return 'unspecified';
-        };
-        featureVersionProto.detect = function(firstArg) {
-            var detector;
-            if (typeof firstArg === 'boolean') {
-                detector = function() {
-                    return firstArg;
-                };
-            } else if (typeof firstArg === 'function') {
-                detector = firstArg;
-            } else {
-                throw new TypeError('feature version detect first arg must be a function or a boolean');
-            }
-            this.detector = detector;
-        };
-        featureVersionProto.detectMethod = function(object, methodName) {
-            return this.detect(function() {
-                return typeof object[methodName] === 'function';
-            });
-        };
-        featureVersionProto.detectObject = function(object, objectName) {
-            return this.detect(function() {
-                return typeof object[objectName] === 'object';
-            });
-        };
-        featureVersionProto.detectNumber = function(object, numberName) {
-            return this.detect(function() {
-                return typeof object[numberName] === 'number';
-            });
-        };
+        VersionnedFeaturePrototype.getStatus = function() {
+            var branches = this.branches;
+            var i = 0;
+            var j = branches.length;
+            var status = 'valid';
 
-        // some helpers
-        featureProto.detect = function(detector) {
-            return this.any().detect(detector);
-        };
-        featureProto.detectMethod = function(object, methodName) {
-            return this.any().detectMethod(object, methodName);
-        };
-        featureProto.detectObject = function(object, objectName) {
-            return this.any().detectObject(object, objectName);
-        };
-        featureProto.detectNumber = function(object, numberName) {
-            return this.any().detectNumber(object, numberName);
-        };
-        featureProto.any = function() {
-            var version = this.get('*');
-            if (!version) {
-                version = this.add('*');
+            while (i < j) {
+                var branch = branches[i];
+                try {
+                    if (branch.condition.call(this)) {
+                        status = branch.status;
+                    }
+                } catch (e) {
+                    status = 'errored';
+                }
+                i++;
             }
-            return version;
+
+            return status;
+        };
+        VersionnedFeaturePrototype.when = function(condition, status) {
+            this.branches.push({
+                condition: condition,
+                status: status
+            });
+            return this;
+        };
+        VersionnedFeaturePrototype.test = function() {
+            return this.getStatus() === 'valid';
         };
 
         return {
@@ -1251,483 +1204,405 @@ je dis pourquoi pas
         };
     });
 
-    jsenv.build(function contextualizer() {
-        function contextualizer() {
-            // http://esprima.org/demo/parse.html#
-            var propertyAccessParser = {
-                tokenize: (function() {
-                    function tokenizer(detectors) {
-                        return function(input) {
-                            var index = 0;
-                            var length = input.length;
-                            var tokens = [];
-                            var restToken = {
-                                type: 'rest',
-                                value: ''
-                            };
+    jsenv.build(function readAt() {
+        function readAt(object, path) {
+            return createGetter(path)(object);
+        }
 
-                            while (index < length) {
-                                var char = input[index];
-
-                                var i = 0;
-                                var j = detectors.length;
-                                var detectedToken;
-                                while (i < j) {
-                                    detectedToken = detectors[i](char, index, input);
-                                    if (detectedToken) {
-                                        break;
-                                    }
-                                    i++;
-                                }
-
-                                if (detectedToken) {
-                                    if (restToken.value.length > 0) {
-                                        tokens.push(restToken);
-                                        restToken = {
-                                            type: 'rest',
-                                            value: ''
-                                        };
-                                    }
-                                    tokens.push(detectedToken);
-                                    index += detectedToken.value.length;
-                                } else {
-                                    restToken.value += char;
-                                    index += 1;
-                                }
-                            }
-
-                            if (restToken.value.length > 0) {
-                                tokens.push(restToken);
-                            }
-                            return tokens;
-                        };
-                    }
-                    function token(type, value) {
-                        return {
-                            type: type,
-                            value: value
-                        };
-                    }
-                    var detectors = [
-                        function(char) {
-                            if (char === '[') {
-                                return token('open-bracket', char);
-                            }
-                        },
-                        function(char) {
-                            if (char === ']') {
-                                return token('close-bracket', char);
-                            }
-                        },
-                        function(char) {
-                            if (char === '.') {
-                                return token('dot', char);
-                            }
-                        }
-                    ];
-
-                    var tokenize = tokenizer(detectors);
-
-                    return tokenize;
-                })(),
-
-                transform: (function() {
-                    return function(tokens) {
-                        var charIndex = 0;
-                        var i = 0;
-                        var j = tokens.length;
-                        var targets = [];
-                        var property;
-                        var target;
-                        var bracketOpened;
-
-                        function nextTarget() {
-                            target = {
-                                properties: []
-                            };
-                        }
-
-                        function nextProperty() {
-                            property = '';
-                        }
-
-                        function saveProperty() {
-                            if (!property) {
-                                throw new Error('empty propertyName not allowed');
-                            }
-                            target.properties.push(property);
-                        }
-
-                        function saveTarget() {
-                            if (!target) {
-                                throw new Error('no target to save');
-                            }
-                            targets.push(target);
-                        }
-
-                        nextTarget();
-                        nextProperty();
-                        bracketOpened = false;
-                        var type;
-                        while (i < j) {
-                            var token = tokens[i];
-                            var value = token.value;
-                            type = token.type;
-
-                            if (type === 'rest') {
-                                property = value;
-                            } else if (type === 'dot') {
-                                if (property.length === 0) {
-                                    throw new Error('missing name before .');
-                                }
-                                saveProperty();
-                                nextProperty();
-                            } else if (type === 'open-bracket') {
-                                if (property.length === 0) {
-                                    throw new Error('missing name before [');
-                                }
-                                if (bracketOpened) {
-                                    throw new Error('missing ] before [');
-                                }
-                                saveProperty();
-                                nextProperty();
-                                saveTarget();
-                                nextTarget();
-                                bracketOpened = true;
-                            } else if (type === 'close-bracket') {
-                                if (bracketOpened === false) {
-                                    throw new Error('missing [ before ]');
-                                }
-                                if (property.length === 0) {
-                                    throw new Error('missing name between []');
-                                }
-                                bracketOpened = false;
-                            }
-
-                            i++;
-                            charIndex += value.length;
-                        }
-                        if (type === 'rest') {
-                            saveProperty();
-                            saveTarget();
-                        } else if (bracketOpened) {
-                            throw new Error('missing ] before and of input');
-                        } else if (type === 'close-bracket') {
-                            saveProperty();
-                            saveTarget();
-                        } else if (type === 'dot') {
-                            throw new Error('missing name after .');
-                        }
-
-                        return targets;
-                    };
-                })(),
-
-                parse: function(input) {
-                    var tokens = this.tokenize(input);
-                    var result = this.transform(tokens);
-                    return result;
-                }
-            };
-
-            var cache = {};
-            var noValue = {noValue: true};
-            function readPath(value, parts) {
-                var i = 0;
-                var j = parts.length;
-
-                while (i < j) {
-                    var part = parts[i];
-                    if (part in value) {
-                        value = value[part];
-                    } else {
-                        value = noValue;
-                        break;
-                    }
+        var noValue = {noValue: true};
+        function createGetter(path) {
+            var targets = parsePath(path);
+            var getter = function(object) {
+                var j = targets.length;
+                var value = object;
+                if (j > 0) {
+                    var i = 0;
+                    var target = targets[i];
                     i++;
+                    value = readPath(object, target.properties);
+                    if (value !== noValue) {
+                        while (i < j) {
+                            target = targets[i];
+                            var otherValue = readPath(object, target.properties);
+                            if (otherValue in value) {
+                                value = value[otherValue];
+                            } else {
+                                value = noValue;
+                                break;
+                            }
+                            i++;
+                        }
+                    }
                 }
                 return value;
-            }
-
-            var context = {
-                act: function() {
-                    var action = {};
-
-                    action.dependents = [];
-                    action.dependencies = [];
-                    action.assertions = [];
-                    action.value = noValue;
-                    action.valid = true;
-                    action.failedAssertion = null;
-                    action.tag = 'action';
-                    action.assert = function(test, type) {
-                        var assertion = {
-                            test: test,
-                            type: type,
-                            result: null
-                        };
-                        this.assertions.push(assertion);
-
-                        this.dependents.forEach(function(dependent) {
-                            dependent.assert(test, type);
-                        });
-
-                        if (this.valid) {
-                            // ne pas faire deux test du même type
-                            // genre constructor + string c'est impossible
-                            console.log('calling test on', this.value, 'for', type);
-                            var returnValue = test.call(this, this.value);
-
-                            var result = {
-                                passed: returnValue,
-                                on: this.value
-                            };
-                            assertion.result = result;
-
-                            if (returnValue) {
-                                this.valid = true;
-                            } else {
-                                this.valid = false;
-                                this.failedAssertion = assertion;
-                            }
-                        } else {
-                            // ignore l'assertion on a déjà fail quelque part
-                        }
-                        return this;
-                    };
-                    action.instructions = [];
-                    action.when = function(condition, sequence) {
-                        var instruction = {
-                            condition: condition,
-                            sequence: sequence
-                        };
-                        this.instructions.push(instruction);
-                        return this;
-                    };
-                    action.exec = function() {
-                        var i = 0;
-                        var j = this.instructions.length;
-                        var someInstructionMatched = false;
-                        var result;
-                        while (i < j) {
-                            var instruction = this.instructions[i];
-                            if (instruction.condition.call(this, this.value)) {
-                                someInstructionMatched = true;
-                                result = instruction.sequence.call(this, this.value);
-                                // break;
-                            }
-                            i++;
-                        }
-                        if (someInstructionMatched) {
-                            return result;
-                        }
-                        console.error('no match');
-                    };
-                    action.adopt = function(action) {
-                        if (this.valid) {
-                            this.source = action.source;
-                            this.path = action.path;
-                            this.value = action.value;
-
-                            if (action.valid) {
-                                this.valid = true;
-                            } else {
-                                this.valid = false;
-                                this.failedAssertion = action.failedAssertion;
-                            }
-
-                            var assertions = action.assertions;
-                            var i = 0;
-                            var j = assertions.length;
-                            while (i < j) {
-                                this.assertions.push(assertions[i]);
-                                i++;
-                            }
-                        }
-                        console.log('adopting', action);
-                        action.dependents.push(this);
-                        return this;
-                    };
-
-                    return action;
-                },
-
-                when: function(condition, action) {
-                    return this.act().when(condition, action);
-                },
-
-                combine: function() {
-                    var actions = arguments;
-                    var i = 0;
-                    var j = arguments.length;
-                    var compositeAction = this.act();
-
-                    while (i < j) {
-                        var action = actions[i];
-                        compositeAction.adopt(action);
-                        i++;
-                    }
-
-                    return compositeAction;
-                },
-
-                read: function(object, path) {
-                    var action;
-                    if (path in cache) {
-                        action = cache[path];
-                    } else {
-                        var targets = propertyAccessParser.parse(path);
-                        // le fait qu'on cahce les assertions permet que les assertions soit partagées
-                        // si elels sont faites en amont
-                        // mais si je déclare 'Symbol.iterator' après
-                        // bah chuis niqué
-                        // et ça n'aurais pas 'effect sur Array.prototype[Symbol.iterator]'
-                        var actions = targets.map(function(target) {
-                            var action = this.act();
-                            action.value = readPath(object, target.properties);
-                            action.source = 'path';
-                            action.path = target.properties.join('.');
-                            action.assert(function(value) {
-                                return value !== noValue;
-                            }, 'presence');
-                            return action;
-                        }, this);
-                        action = this.combine.apply(this, actions);
-                        cache[path] = action;
-                    }
-
-                    return action;
-                },
-
-                castAction: function(arg) {
-                    var action;
-                    if (typeof arg === 'object' && arg.tag === 'action') {
-                        action = arg;
-                    } else {
-                        action = this.act();
-                        action.source = 'dynamic';
-                        action.value = arg;
-                    }
-                    return action;
-                },
-
-                createAssertionFactory: function(test, type) {
-                    return function(arg) {
-                        var action;
-                        if (typeof arg === 'string') {
-                            action = this.read(window, arg);
-                        } else {
-                            action = this.castAction(arg);
-                        }
-                        action.assert(test, type);
-                        return action;
-                    }.bind(this);
-                },
-
-                createTypeAssertionFactory: function(name, test) {
-                    return this.createAssertionFactory(test, 'type:' + name);
-                }
             };
 
-            Object.keys(context).forEach(function(key) {
-                if (typeof context[key] === 'function') {
-                    context[key] = context[key].bind(context);
-                }
-            });
+            return getter;
+        }
 
-            return context;
+        var cache = {};
+        function parsePath(path) {
+            var targets;
+
+            if (path in cache) {
+                targets = cache[path];
+            } else {
+                targets = parse(path);
+                cache[path] = targets;
+            }
+            return targets;
+        }
+
+        // http://esprima.org/demo/parse.html#
+        var propertyAccessParser = {
+            tokenize: (function() {
+                function tokenizer(detectors) {
+                    return function(input) {
+                        var index = 0;
+                        var length = input.length;
+                        var tokens = [];
+                        var restToken = {
+                            type: 'rest',
+                            value: ''
+                        };
+
+                        while (index < length) {
+                            var char = input[index];
+
+                            var i = 0;
+                            var j = detectors.length;
+                            var detectedToken;
+                            while (i < j) {
+                                detectedToken = detectors[i](char, index, input);
+                                if (detectedToken) {
+                                    break;
+                                }
+                                i++;
+                            }
+
+                            if (detectedToken) {
+                                if (restToken.value.length > 0) {
+                                    tokens.push(restToken);
+                                    restToken = {
+                                        type: 'rest',
+                                        value: ''
+                                    };
+                                }
+                                tokens.push(detectedToken);
+                                index += detectedToken.value.length;
+                            } else {
+                                restToken.value += char;
+                                index += 1;
+                            }
+                        }
+
+                        if (restToken.value.length > 0) {
+                            tokens.push(restToken);
+                        }
+                        return tokens;
+                    };
+                }
+                function token(type, value) {
+                    return {
+                        type: type,
+                        value: value
+                    };
+                }
+                var detectors = [
+                    function(char) {
+                        if (char === '[') {
+                            return token('open-bracket', char);
+                        }
+                    },
+                    function(char) {
+                        if (char === ']') {
+                            return token('close-bracket', char);
+                        }
+                    },
+                    function(char) {
+                        if (char === '.') {
+                            return token('dot', char);
+                        }
+                    }
+                ];
+
+                var tokenize = tokenizer(detectors);
+
+                return tokenize;
+            })(),
+
+            transform: (function() {
+                return function(tokens) {
+                    var charIndex = 0;
+                    var i = 0;
+                    var j = tokens.length;
+                    var targets = [];
+                    var property;
+                    var target;
+                    var bracketOpened;
+
+                    function nextTarget() {
+                        target = {
+                            properties: []
+                        };
+                    }
+
+                    function nextProperty() {
+                        property = '';
+                    }
+
+                    function saveProperty() {
+                        if (!property) {
+                            throw new Error('empty propertyName not allowed');
+                        }
+                        target.properties.push(property);
+                    }
+
+                    function saveTarget() {
+                        if (!target) {
+                            throw new Error('no target to save');
+                        }
+                        targets.push(target);
+                    }
+
+                    nextTarget();
+                    nextProperty();
+                    bracketOpened = false;
+                    var type;
+                    while (i < j) {
+                        var token = tokens[i];
+                        var value = token.value;
+                        type = token.type;
+
+                        if (type === 'rest') {
+                            property = value;
+                        } else if (type === 'dot') {
+                            if (property.length === 0) {
+                                throw new Error('missing name before .');
+                            }
+                            saveProperty();
+                            nextProperty();
+                        } else if (type === 'open-bracket') {
+                            if (property.length === 0) {
+                                throw new Error('missing name before [');
+                            }
+                            if (bracketOpened) {
+                                throw new Error('missing ] before [');
+                            }
+                            saveProperty();
+                            nextProperty();
+                            saveTarget();
+                            nextTarget();
+                            bracketOpened = true;
+                        } else if (type === 'close-bracket') {
+                            if (bracketOpened === false) {
+                                throw new Error('missing [ before ]');
+                            }
+                            if (property.length === 0) {
+                                throw new Error('missing name between []');
+                            }
+                            bracketOpened = false;
+                        }
+
+                        i++;
+                        charIndex += value.length;
+                    }
+                    if (type === 'rest') {
+                        saveProperty();
+                        saveTarget();
+                    } else if (bracketOpened) {
+                        throw new Error('missing ] before and of input');
+                    } else if (type === 'close-bracket') {
+                        saveProperty();
+                        saveTarget();
+                    } else if (type === 'dot') {
+                        throw new Error('missing name after .');
+                    }
+
+                    return targets;
+                };
+            })(),
+
+            parse: function(input) {
+                var tokens = this.tokenize(input);
+                var result = this.transform(tokens);
+                return result;
+            }
+        };
+
+        function parse(path) {
+            return propertyAccessParser.parse(path);
+        }
+
+        function readPath(value, parts) {
+            var i = 0;
+            var j = parts.length;
+
+            while (i < j) {
+                var part = parts[i];
+                if (part in value) {
+                    value = value[part];
+                } else {
+                    value = noValue;
+                    break;
+                }
+                i++;
+            }
+            return value;
         }
 
         return {
-            contextualizer: contextualizer
+            readAt: readAt,
+            noValue: noValue
         };
     });
 
     jsenv.build(function makeImplementationScannable() {
-        // ne pas utiliser la méthode polyfillWhen sur la feature
-        // mais plutot enregister un moyen de check la feature et polyfill lorsque check retourne false
-        // il faut aussi ajouter une propriété path sur la feature pour qu'elle sache où elle est censé se trouver
-        // la plupart du code dans contextualizer va disparaitre puisque trop compoliqué au vu des besoins
-        // une fois qu'on respectera ça
-
         // y'auras aussi besoin de détecter certain truc qu'on transpile
         // https://github.com/75lb/feature-detect-es6/blob/master/lib/feature-detect-es6.js
 
-        // var implementation = jsenv.implementation;
+        /*
+        ça pourrait être pas mal aussi une api comme
+        registerAndPolyfill('global',
+            method('setImmediate'),
+            method({name: 'parseInt', test: function() {}}),
+            constructor({name: 'ArrayBuffer', polyfill: ''es6.typed.array-buffer''})
+        );
+
+        staticMethod()
+        method()
+        prototypeMethod()
+        number()
+
+        mais bon on va pas changer toutes les 2 seconde on reste sur ça pour le moment
+        */
+
+        var implementation = jsenv.implementation;
         var hyphenToCamel = jsenv.hyphenToCamel;
-        var context = jsenv.contextualizer.contextualize(jsenv.global);
-        var auto = {};
+        var readAt = jsenv.readAt;
+        var noValue = jsenv.noValue;
         var autoPrototype = {};
-        var autoEs7 = {};
-        var register = function() {
-
-        };
-        var missing = function() {
-            return function() {
-                var path = this.path;
-                return path;
+        var registerAndPolyfill = function(targetName) {
+            var i = 1;
+            var j = arguments.length;
+            var capitalizedTargetName = targetName[0].toUpperCase() + targetName.slice(1);
+            var prefix = function(featureName) {
+                if (targetName === 'global') {
+                    return featureName;
+                }
+                if (featureName) {
+                    return targetName + '-' + featureName;
+                }
+                return targetName;
             };
-        };
-        var registerAndPolyfillWhen = function(featureGroupPrefix, featureGroupPath, featureGroup) {
-            if (featureGroupPath === auto) {
-                featureGroupPath = hyphenToCamel(featureGroupPrefix);
+
+            while (i < j) {
+                var featureDescriptor = arguments[i];
+
+                var featureName;
+                var featureDescriptorName;
+                if ('name' in featureDescriptor) {
+                    featureDescriptorName = featureDescriptor.name;
+                    if (typeof featureDescriptorName === 'string') {
+                        featureName = featureDescriptorName;
+                    } else {
+                        throw new TypeError('feature descriptor name must be a string');
+                    }
+                } else {
+                    throw new Error('feature descriptor must have a name');
+                }
+                var prefixedFeatureName = prefix(featureName);
+
+                var featurePath;
+                var featureDescriptorPath;
+                if ('path' in featureDescriptor) {
+                    featureDescriptorPath = featureDescriptor.path;
+                    if (typeof featureDescriptorPath === 'string') {
+                        featurePath = featureDescriptorPath;
+                    } else if (featureDescriptorPath === autoPrototype) {
+                        featurePath = capitalizedTargetName;
+                        featurePath += '.prototype';
+                        if (featureName) {
+                            featurePath += '.' + hyphenToCamel(featureName);
+                        }
+                    }
+                } else {
+                    if (targetName === 'global') {
+                        featurePath = '';
+                    } else {
+                        featurePath = capitalizedTargetName;
+                    }
+                    if (featureName) {
+                        if (featurePath.length) {
+                            featurePath += '.';
+                        }
+                        if (featureDescriptor.type === 'constructor') {
+                            featurePath += featureName[0].toUpperCase() + hyphenToCamel(featureName.slice(1));
+                        } else {
+                            featurePath += hyphenToCamel(featureName);
+                        }
+                    }
+                }
+
+                var featureInvalidTest;
+                var featureDescriptorInvalid;
+                if ('invalid' in featureDescriptor) {
+                    featureDescriptorInvalid = featureDescriptor.invalid;
+                    if (typeof featureDescriptorInvalid === 'function') {
+                        featureInvalidTest = featureDescriptorInvalid;
+                    } else {
+                        throw new TypeError('feature descriptor invalid must be a function');
+                    }
+                } else {
+                    featureInvalidTest = null;
+                }
+
+                var featurePolyfill;
+                var featureDescriptorPolyfill;
+                if ('polyfill' in featureDescriptor) {
+                    featureDescriptorPolyfill = featureDescriptor.polyfill;
+                    if (typeof featureDescriptorPolyfill === 'string') {
+                        featurePolyfill = featureDescriptorPolyfill;
+                    } else {
+                        throw new TypeError('feature descriptor polyfill must be a string');
+                    }
+                } else {
+                    var featureSpec = 'spec' in featureDescriptor ? featureDescriptor.spec : 'es6';
+
+                    if (targetName === 'global') {
+                        featurePolyfill = featureSpec;
+                    } else {
+                        featurePolyfill = featureSpec + '.' + targetName;
+                    }
+
+                    if (featureName) {
+                        featurePolyfill += '.' + featureName;
+                    }
+                }
+
+                var feature = implementation.add(prefixedFeatureName);
+                feature.path = featurePath;
+                feature.polyfill = featurePolyfill;
+                feature.when(missing(), 'missing');
+                if (featureInvalidTest) {
+                    feature.when(featureInvalidTest, 'invalid');
+                }
+
+                console.log('register feature: ', {
+                    name: prefixedFeatureName,
+                    path: featurePath,
+                    polyfill: featurePolyfill
+                });
+
+                i++;
             }
-
-            featureGroup.forEach(function(featureValues) {
-                var featureName = featureValues[0];
-                var featureCondition = featureValues[1];
-                var featurePolyfill = featureValues[2];
-
-                var featureFullname;
-                if (typeof featureName === 'string') {
-                    featureFullname = featureGroupPrefix ? featureGroupPrefix + '-' + featureName : featureName;
-                } else {
-                    throw new TypeError('feature name must be a string');
-                }
-
-                var feature = register(featureFullname);
-
-                var polyfillCondition;
-                if (featureCondition === auto) {
-                    // missing en faison hypenToCamel
-                    polyfillCondition = missing();
-                } else if (featureCondition === autoPrototype) {
-                    // missing en faisant hypenToCamel et en mattant prototype devant
-                } else if (typeof featureCondition === 'string') {
-                    polyfillCondition = missing();
-                } else if (typeof featureCondition === 'function') {
-                    polyfillCondition = featureCondition;
-                } else {
-                    throw new TypeError('feature polyfilling condition must be a function');
-                }
-
-                var polyfillLocation;
-                if (featurePolyfill === auto) {
-                    polyfillLocation = 'es6';
-                    if (featureGroupPrefix) {
-                        polyfillLocation += '.' + featureGroupPrefix;
-                    }
-                    polyfillLocation += featureName;
-                } else if (featurePolyfill === autoEs7) {
-                    polyfillLocation = 'es7';
-                    if (featureGroupPrefix) {
-                        polyfillLocation += '.' + featureGroupPrefix;
-                    }
-                    polyfillLocation += featureName;
-                } else if (typeof featurePolyfill === 'string') {
-                    polyfillLocation = featurePolyfill;
-                } else {
-                    throw new TypeError('feature polyfilling location must be a string');
-                }
-
-                feature.polyfillWhen(polyfillCondition, polyfillLocation);
-            });
         };
-        var combine = context.combine;
-        var method = context.createTypeAssertionFactory('function', function(value) {
-            return typeof value === 'function';
-        });
-        var some = function() {
+        function missing() {
+            return function() {
+                return readAt(jsenv.global, this.path) === noValue;
+            };
+        }
+        function some() {
             var predicates = arguments;
             var j = predicates.length;
             return function() {
@@ -1743,440 +1618,463 @@ je dis pourquoi pas
                 }
                 return someIsValid;
             };
-        };
-
-        // globals
-        function checkParseInt() {
-            // https://github.com/zloirock/core-js/blob/v2.4.1/modules/_parse-int.js
-            var ws = '\x09\x0A\x0B\x0C\x0D\x20\xA0\u1680\u180E\u2000\u2001\u2002\u2003';
-            ws += '\u2004\u2005\u2006\u2007\u2008\u2009\u200A\u202F\u205F\u3000\u2028\u2029\uFEFF';
-
-            return (
-                parseInt(ws + '08') !== 8 ||
-                parseInt(ws + '0x16') !== 22
-            );
         }
-        function checkParseFloat() {
-            var ws = '\x09\x0A\x0B\x0C\x0D\x20\xA0\u1680\u180E\u2000\u2001\u2002\u2003';
-            ws += '\u2004\u2005\u2006\u2007\u2008\u2009\u200A\u202F\u205F\u3000\u2028\u2029\uFEFF';
+        // function every() {
+        //     var predicates = arguments;
+        //     var j = predicates.length;
+        //     if (j === 0) {
+        //         throw new Error('misisng arg to every');
+        //     }
+        //     return function() {
+        //         var everyAreValid = true;
+        //         var i = 0;
+        //         while (i < j) {
+        //             var predicate = predicates[i];
+        //             if (!predicate.apply(this, arguments)) {
+        //                 everyAreValid = false;
+        //                 break;
+        //             }
+        //             i++;
+        //         }
+        //         return everyAreValid;
+        //     };
+        // }
+        // jsenv.every = every;
 
-            // https://github.com/zloirock/core-js/blob/v2.4.1/modules/_parse-float.js
-            return 1 / parseFloat(ws + '-0') !== -Infinity;
-        }
-        var checkPromise = some(
-            missing(),
-            function() {
-                // agent must implement onunhandledrejection to consider promise implementation valid
-                if (jsenv.isBrowser()) {
-                    if ('onunhandledrejection' in jsenv.global) {
-                        return true;
-                    }
-                    return false;
+        registerAndPolyfill('global',
+            {name: 'asap', spec: 'es7'},
+            {name: 'map', type: 'constructor'},
+            {name: 'observable', type: 'constructor'},
+            {
+                name: 'parse-int',
+                invalid: function() {
+                    // https://github.com/zloirock/core-js/blob/v2.4.1/modules/_parse-int.js
+                    var ws = '\x09\x0A\x0B\x0C\x0D\x20\xA0\u1680\u180E\u2000\u2001\u2002\u2003';
+                    ws += '\u2004\u2005\u2006\u2007\u2008\u2009\u200A\u202F\u205F\u3000\u2028\u2029\uFEFF';
+
+                    return (
+                        parseInt(ws + '08') !== 8 ||
+                        parseInt(ws + '0x16') !== 22
+                    );
                 }
-                if (jsenv.isNode()) {
-                    // node version > 0.12.0 got the unhandledRejection hook
-                    // this way to detect feature is AWFUL but for now let's do this
-                    if (jsenv.agent.version.major > 0 || jsenv.agent.version.minor > 12) {
-                        // apprently node 6.1.0 unhandledRejection is not great too, to be tested
-                        if (jsenv.agent.version.major === 6 && jsenv.agent.version.minor === 1) {
-                            return false;
+            },
+            {
+                name: 'parse-float',
+                invalid: function() {
+                    var ws = '\x09\x0A\x0B\x0C\x0D\x20\xA0\u1680\u180E\u2000\u2001\u2002\u2003';
+                    ws += '\u2004\u2005\u2006\u2007\u2008\u2009\u200A\u202F\u205F\u3000\u2028\u2029\uFEFF';
+
+                    // https://github.com/zloirock/core-js/blob/v2.4.1/modules/_parse-float.js
+                    return 1 / parseFloat(ws + '-0') !== -Infinity;
+                }
+            },
+            {
+                name: 'promise',
+                type: 'constructor',
+                invalid: function() {
+                    // agent must implement onunhandledrejection to consider promise implementation valid
+                    if (jsenv.isBrowser()) {
+                        if ('onunhandledrejection' in jsenv.global) {
+                            return true;
                         }
-                        return true;
+                        return false;
+                    }
+                    if (jsenv.isNode()) {
+                        // node version > 0.12.0 got the unhandledRejection hook
+                        // this way to detect feature is AWFUL but for now let's do this
+                        if (jsenv.agent.version.major > 0 || jsenv.agent.version.minor > 12) {
+                            // apprently node 6.1.0 unhandledRejection is not great too, to be tested
+                            if (jsenv.agent.version.major === 6 && jsenv.agent.version.minor === 1) {
+                                return false;
+                            }
+                            return true;
+                        }
+                        return false;
                     }
                     return false;
                 }
-                return false;
-            }
-        );
-        var checkTimer = function() {
-            // faudrais check si y'a beosin de fix des truc sous IE9
-            // https://github.com/zloirock/core-js/blob/v2.4.1/modules/web.timers.js
-            return false;
-        };
-        registerAndPolyfillWhen(
-            '',
-            '',
-            [
-                ['asap', auto, autoEs7],
-                ['map', auto, auto],
-                ['observable', auto, autoEs7],
-                ['parseInt', checkParseInt, auto],
-                ['parseFloat', checkParseFloat, auto],
-                ['promise', checkPromise, auto],
-                ['set', auto, auto],
-                ['set-immediate', auto, 'web.immediate'],
-                ['set-interval', checkTimer, 'web.timers'],
-                ['set-timeout', checkTimer, 'web.timers'],
-                ['weak-map', auto, auto],
-                ['weak-set', auto, auto],
-
-                ['array-buffer', auto, 'es6.typed.array-buffer'],
-                ['data-view', auto, 'es6.typed.data-view'],
-                ['int8array', auto, 'es6.typed.data-view'],
-                ['uint8array', auto, 'es6.typed.uint8-array'],
-                ['uint8clamped-array', auto, 'es6.typed.uint8clamped-array'],
-                ['int16array', auto, 'es6.typed.int16array-array'],
-                ['uint16array', auto, 'es6.typed.uint16-array'],
-                ['int32array', auto, 'es6.typed.int32-array'],
-                ['uint32array', auto, 'es6.typed.uint32-array'],
-                ['float32array', auto, 'es6.typed.float32-array'],
-                ['float64array', auto, 'es6.typed.float64-array']
-            ]
-        );
-
-        // special features
-        var checkDomCollection = function() {
-            return function() {
-                if (jsenv.isBrowser()) {
-                    var domCollectionPath = this.path;
-
-                    return combine(
-                        method(domCollectionPath),
-                        method(domCollectionPath + '.keys'),
-                        method(domCollectionPath + '.values'),
-                        method(domCollectionPath + '.entries'),
-                        method(domCollectionPath + '[Symbol.iterator]')
-                    ).valid;
+            },
+            {name: 'set', type: 'constructor'},
+            {name: 'set-immediate', polyfill: 'web.immediate'},
+            {
+                name: 'set-interval',
+                invalid: function() {
+                    // faudrais check si y'a beosin de fix des truc sous IE9
+                    // https://github.com/zloirock/core-js/blob/v2.4.1/modules/web.timers.js
+                    return false;
                 }
+            },
+            {
+                name: 'set-timeout',
+                invalid: function() {
+                    // same as above
+                    return false;
+                }
+            },
+            {name: 'weak-map', type: 'constructor'},
+            {name: 'weak-set', type: 'constructor'},
+
+            {name: 'array-buffer', type: 'constructor', polyfill: 'es6.typed.array-buffer'},
+            {name: 'data-view', type: 'constructor', polyfill: 'es6.typed.data-view'},
+            {name: 'int8-array', type: 'constructor', polyfill: 'es6.typed.int8-array'},
+            {name: 'uint8-array', type: 'constructor', polyfill: 'es6.typed.uint8-array'},
+            {name: 'uint8-clamped-array', type: 'constructor', polyfill: 'es6.typed.uint8-clamped-array'},
+            {name: 'int16-array', type: 'constructor', polyfill: 'es6.typed.int16-array'},
+            {name: 'uint16-array', type: 'constructor', polyfill: 'es6.typed.uint16-array'},
+            {name: 'int32-array', type: 'constructor', polyfill: 'es6.typed.int32-array'},
+            {name: 'uint32-array', type: 'constructor', polyfill: 'es6.typed.uint32-array'},
+            {name: 'float32-array', type: 'constructor', polyfill: 'es6.typed.float32-array'},
+            {name: 'float64-array', type: 'constructor', polyfill: 'es6.typed.float64-array'}
+        );
+        function missingDomCollectionIteration() {
+            return function() {
                 return false;
             };
-        };
-        registerAndPolyfillWhen(
-            '',
-            '',
-            [
-                ['node-list-iteration', checkDomCollection(), 'web.dom.iterable'],
-                ['dom-token-list-iteration', checkDomCollection(), 'web.dom.iterable'],
-                ['media-list-iteration', checkDomCollection(), 'web.dom.iterable'],
-                ['style-sheet-list-iteration', checkDomCollection(), 'web.dom.iterable'],
-                ['css-rule-list-iteration', checkDomCollection(), 'web.dom.iterable']
-                // ['typed-array-includes', '???',  'es7.array.includes']
-            ]
+            // return function(domCollection) {
+            //     if (jsenv.isBrowser()) {
+            //         return combine(
+            //             method(domCollection),
+            //             method(domCollection + '.keys'),
+            //             method(domCollection + '.values'),
+            //             method(domCollection + '.entries'),
+            //             method(domCollection + '[Symbol.iterator]')
+            //         ).valid;
+            //     }
+            //     return false;
+            // };
+        }
+        registerAndPolyfill('global',
+            {
+                name: 'node-list-iteration',
+                path: 'NodeList',
+                invalid: missingDomCollectionIteration(),
+                polyfill: 'web.dom.iterable'
+            },
+            {
+                name: 'dom-token-list-iteration',
+                path: 'DOMTokenList',
+                invalid: missingDomCollectionIteration(),
+                polyfill: 'web.dom.iterable'
+            },
+            {
+                name: 'media-list-iteration',
+                path: 'MediaList',
+                invalid: missingDomCollectionIteration(),
+                polyfill: 'web.dom.iterable'
+            },
+            {
+                name: 'style-sheet-list-iteration',
+                path: 'StyleSheetList',
+                invalid: missingDomCollectionIteration(),
+                polyfill: 'web.dom.iterable'
+            },
+            {
+                name: 'css-rule-list-iteration',
+                path: 'CSSRuleList',
+                invalid: missingDomCollectionIteration(),
+                polyfill: 'web.dom.iterable'
+            }
         );
 
-        // array
         // map, join, filter y'a surement des fix, il ne suffit pas de vérifier que la méthode existe
-        registerAndPolyfillWhen(
-            'array',
-            auto,
-            [
-                ['copy-within', auto, auto],
-                ['every', auto, auto],
-                ['find', auto, auto],
-                ['find-index', auto, auto],
-                ['fill', auto, auto],
-                ['filter', auto, auto],
-                ['for-each', auto, auto],
-                ['from', auto, auto],
-                ['index-of', auto, auto],
-                ['iterator', 'Array.prototype[Symbol.iterator]', auto],
-                ['is-array', auto, auto],
-                ['join', auto, auto],
-                ['last-index-of', auto, auto],
-                ['map', auto, auto],
-                ['of', auto, auto],
-                ['reduce', auto, auto],
-                ['reduce-right', auto, auto],
-                ['slice', auto, auto],
-                ['some', auto, auto],
-                ['sort', auto, auto]
-                // ['species', '???', auto]
-            ]
+        registerAndPolyfill('array',
+            {name: 'copy-within'},
+            {name: 'every'},
+            {name: 'find'},
+            {name: 'find-index'},
+            {name: 'fill'},
+            {name: 'filter'},
+            {name: 'for-each'},
+            {name: 'from'},
+            {name: 'index-of'},
+            {name: 'iterator', path: 'Array.prototype[Symbol.iterator]'},
+            {name: 'is-array'},
+            {name: 'join'},
+            {name: 'last-index-of'},
+            {name: 'map'},
+            {name: 'of'},
+            {name: 'reduce'},
+            {name: 'reduce-right'},
+            {name: 'slice'},
+            {name: 'some'},
+            {name: 'sort'}
+            // ['species', '???', auto]
         );
 
-        // date
-        var checkDateToIsoString = function() {
-            // https://github.com/zloirock/core-js/blob/v2.4.1/modules/es6.date.to-iso-string.js
-            try {
-                // eslint-disable-next-line no-unused-expressions
-                if (new Date(-5e13 - 1).toISOString() !== '0385-07-25T07:06:39.999Z') {
-                    return false;
-                }
-            } catch (e) {
-                return false;
-            }
-
-            try {
-                // eslint-disable-next-line no-unused-expressions
-                new Date(NaN).toISOString();
-            } catch (e) {
-                return true;
-            }
-            return false;
-        };
-        var checkDateToJSON = function() {
-            // https://github.com/zloirock/core-js/blob/v2.4.1/modules/es6.date.to-json.js
-            try {
-                if (new Date(NaN).toJSON() !== null) {
-                    return false;
-                }
-                var fakeDate = {
-                    toISOString: function() {
-                        return 1;
+        registerAndPolyfill('date',
+            {name: 'now'},
+            {
+                name: 'to-iso-string',
+                path: 'Date.prototype.toISOString',
+                invalid: some(
+                    function() {
+                        // https://github.com/zloirock/core-js/blob/v2.4.1/modules/es6.date.to-iso-string.js
+                        try {
+                            return new Date(-5e13 - 1).toISOString() !== '0385-07-25T07:06:39.999Z';
+                        } catch (e) {
+                            return true;
+                        }
+                    },
+                    function() {
+                        try {
+                            // eslint-disable-next-line no-unused-expressions
+                            new Date(NaN).toISOString();
+                            return true;
+                        } catch (e) {
+                            return false;
+                        }
                     }
-                };
-                if (Date.prototype.toJSON.call(fakeDate) !== 1) {
-                    return false;
+                )
+            },
+            {
+                name: 'to-json',
+                path: 'Date.prototype.toJSON',
+                invalid: some(
+                    function() {
+                        // https://github.com/zloirock/core-js/blob/v2.4.1/modules/es6.date.to-json.js
+                        try {
+                            return new Date(NaN).toJSON() !== null;
+                        } catch (e) {
+                            return false;
+                        }
+                    },
+                    function() {
+                        try {
+                            var fakeDate = {
+                                toISOString: function() {
+                                    return 1;
+                                }
+                            };
+
+                            return Date.prototype.toJSON.call(fakeDate) !== 1;
+                        } catch (e) {
+                            return false;
+                        }
+                    }
+                )
+            },
+            {name: 'to-primitive', path: 'Date.prototype[Symbol.toPrimitive]'},
+            {
+                name: 'to-string',
+                invalid: function() {
+                    // https://github.com/zloirock/core-js/blob/v2.4.1/modules/es6.date.to-string.js
+                    return new Date(NaN).toString() !== 'Invalid Date';
                 }
-            } catch (e) {
-                return false;
             }
-            return true;
-        };
-        var checkDateToString = function() {
-            // https://github.com/zloirock/core-js/blob/v2.4.1/modules/es6.date.to-string.js
-            return new Date(NaN).toString() === 'Invalid Date';
-        };
-        registerAndPolyfillWhen(
-            'date',
-            auto,
-            [
-                ['now', auto, auto],
-                ['to-iso-string', checkDateToIsoString, auto],
-                ['to-json', checkDateToJSON, auto],
-                ['to-primitive', 'Date.prototype[Symbol.toPrimitive]', auto],
-                ['to-string', checkDateToString, auto]
-            ]
         );
 
-        // function
-        registerAndPolyfillWhen(
-            'function',
-            auto,
-            [
-                ['bind', autoPrototype, auto],
-                ['name', autoPrototype, auto],
-                ['has-instance', 'Function.prototype[Symbol.hasInstance]', auto]
-            ]
+        registerAndPolyfill('function',
+            {name: 'bind', path: autoPrototype},
+            {name: 'name', path: autoPrototype},
+            {name: 'has-instance', path: 'Function.prototype[Symbol.hasInstance]'}
         );
 
-        // object
-        var checkObjectToString = function() {
-            // si on a pas Symbol.toStringTag
-            // https://github.com/zloirock/core-js/blob/master/modules/es6.object.to-string.js
-            var test = {};
-            test[Symbol.toStringTag] = 'z';
-            return test.toString() === '[object z]';
-        };
-        registerAndPolyfillWhen(
-            'object',
-            auto,
-            [
-                ['assign', auto, auto],
-                ['create', auto, auto],
-                ['define-getter', 'Object.__defineGetter__', autoEs7],
-                ['define-property', auto, auto],
-                ['define-properties', auto, autoEs7],
-                ['define-setter', 'Object.__defineSetter__', autoEs7],
-                ['entries', auto, autoEs7],
-                ['freeze', auto, auto],
-                ['get-own-property-descriptor', auto, auto],
-                ['get-own-property-descriptors', auto, autoEs7],
-                ['get-own-property-names', auto, auto],
-                ['get-prototypeof', auto, auto],
-                ['is', auto, auto],
-                ['is-extensible', auto, auto],
-                ['is-frozen', auto, auto],
-                ['is-sealed', auto, auto],
-                ['lookup-getter', 'Object.__lookupGetter__', autoEs7],
-                ['lookup-setter', 'Object.__lookupSetter__', autoEs7],
-                ['prevent-extensions', auto, auto],
-                ['seal', auto, auto],
-                ['set-prototype-of', auto, auto],
-                ['to-string', checkObjectToString, auto],
-                ['values', auto, autoEs7]
-            ]
+        registerAndPolyfill('object',
+            {name: 'assign'},
+            {name: 'create'},
+            {name: 'define-getter', path: 'Object.__defineGetter__', spec: 'es7'},
+            {name: 'define-property'},
+            {name: 'define-properties', spec: 'es7'},
+            {name: 'define-setter', path: 'Object.__defineSetter__', spec: 'es7'},
+            {name: 'entries', spec: 'es7'},
+            {name: 'freeze'},
+            {name: 'get-own-property-descriptor'},
+            {name: 'get-own-property-descriptors', spec: 'es7'},
+            {name: 'get-own-property-names'},
+            {name: 'get-prototype-of'},
+            {name: 'is'},
+            {name: 'is-extensible'},
+            {name: 'is-frozen'},
+            {name: 'is-sealed'},
+            {name: 'lookup-getter', path: 'Object.__lookupGetter__', spec: 'es7'},
+            {name: 'lookup-setter', path: 'Object.__lookupSetter__', spec: 'es7'},
+            {name: 'prevent-extensions'},
+            {name: 'seal'},
+            {name: 'set-prototype-of'},
+            {
+                name: 'to-string',
+                invalid: function() {
+                    // si on a pas Symbol.toStringTag
+                    // https://github.com/zloirock/core-js/blob/master/modules/es6.object.to-string.js
+                    var test = {};
+                    test[Symbol.toStringTag] = 'z';
+                    return test.toString() !== '[object z]';
+                }
+            },
+            {name: 'values', spec: 'es7'}
         );
 
-        // symbol
-        registerAndPolyfillWhen(
-            'symbol',
-            auto,
-            [
-                ['', auto, auto],
-                ['async-iterator', auto, autoEs7],
-                ['has-instance', auto, auto],
-                ['iterator', auto, auto],
-                ['match', auto, auto],
-                ['observable', auto, autoEs7],
-                ['replace', auto, auto],
-                ['search', auto, auto],
-                ['split', auto, auto],
-                ['to-primitive', auto, auto]
-            ]
+        registerAndPolyfill('symbol',
+            {name: ''},
+            {name: 'async-iterator', spec: 'es7'},
+            {name: 'has-instance'},
+            {name: 'iterator'},
+            {name: 'match'},
+            {name: 'observable', spec: 'es7'},
+            {name: 'replace'},
+            {name: 'search'},
+            {name: 'split'},
+            {name: 'to-primitive'}
         );
 
-        // math
-        registerAndPolyfillWhen(
-            'math',
-            auto,
-            [
-                ['acosh', auto, auto],
-                ['asinh', auto, auto],
-                ['atanh', auto, auto],
-                ['cbrt', auto, auto],
-                ['clamp', auto, autoEs7],
-                ['clz32', auto, auto],
-                ['cosh', auto, auto],
-                ['deg-per-rad', 'DEG_PAR_RAD', 'es7.math.$0'],
-                ['degrees', auto, autoEs7],
-                ['expm1', auto, auto],
-                ['fround', auto, auto],
-                ['fscale', auto, autoEs7],
-                ['hypot', auto, auto],
-                ['iaddh', auto, autoEs7],
-                ['imul', auto, auto],
-                ['imulh', auto, auto],
-                ['isubh', auto, auto],
-                ['log10', auto, auto],
-                ['log1p', auto, auto],
-                ['log2', auto, auto],
-                ['radians', auto, autoEs7],
-                ['rad-per-deg', 'RAD_PAR_DEG', 'es7.math.rad-per-deg'],
-                ['scale', auto, autoEs7],
-                ['sign', auto, auto],
-                ['sinh', auto, auto],
-                ['tanh', auto, auto],
-                ['trunc', auto, auto],
-                ['umulh', auto, autoEs7]
-            ]
+        registerAndPolyfill('math',
+            {name: 'acosh'},
+            {name: 'asinh'},
+            {name: 'atanh'},
+            {name: 'cbrt'},
+            {name: 'clamp', spec: 'es7'},
+            {name: 'clz32'},
+            {name: 'cosh'},
+            {name: 'deg-per-rad', path: 'Math.DEG_PAR_RAD', spec: 'es7'},
+            {name: 'degrees', spec: 'es7'},
+            {name: 'expm1'},
+            {name: 'fround'},
+            {name: 'fscale', spec: 'es7'},
+            {name: 'hypot'},
+            {name: 'iaddh', spec: 'es7'},
+            {name: 'imul'},
+            {name: 'imulh', spec: 'es7'},
+            {name: 'isubh', spec: 'es7'},
+            {name: 'log10'},
+            {name: 'log1p'},
+            {name: 'log2'},
+            {name: 'radians', spec: 'es7'},
+            {name: 'rad-per-deg', path: 'Math.RAD_PAR_DEG', spec: 'es7'},
+            {name: 'scale', spec: 'es7'},
+            {name: 'sign'},
+            {name: 'sinh'},
+            {name: 'tanh'},
+            {name: 'trunc'},
+            {name: 'umulh', spec: 'es7'}
         );
 
-        // number
-        var checkNumberConstructor = function() {
-            // https://github.com/zloirock/core-js/blob/v2.4.1/modules/es6.number.constructor.js#L46
-            return (
-                Number(' 0o1') &&
-                Number('0b1') &&
-                !Number('+0x1')
-            );
-        };
-        registerAndPolyfillWhen(
-            'number',
-            auto,
-            [
-                ['constructor', checkNumberConstructor, auto],
-                ['epsilon', auto, auto],
-                ['is-finite', auto, auto],
-                ['is-integer', auto, auto],
-                ['is-nan', 'isNaN', auto],
-                ['is-safe-integer', auto, auto],
-                ['iterator', 'prototype[Symbol.iterator]', 'core.number.iterator'],
-                ['max-safe-integer', 'MAX_SAFE_INTEGER', auto],
-                ['min-safe-integer', 'MIN_SAFE_INTEGER', auto],
-                ['to-fixed', autoPrototype, auto],
-                ['parse-float', auto, auto],
-                ['parse-int', auto, auto]
-            ]
+        registerAndPolyfill('number',
+            {
+                name: 'constructor',
+                path: 'Number',
+                invalid: function() {
+                    // https://github.com/zloirock/core-js/blob/v2.4.1/modules/es6.number.constructor.js#L46
+                    return (
+                        !Number(' 0o1') ||
+                        !Number('0b1') ||
+                        Number('+0x1')
+                    );
+                }
+            },
+            {name: 'epsilon', path: 'Number.EPISLON'},
+            {name: 'is-finite'},
+            {name: 'is-integer'},
+            {name: 'is-nan', path: 'Number.isNaN'},
+            {name: 'is-safe-integer'},
+            {name: 'iterator', path: 'Number.prototype[Symbol.iterator]', polyfill: 'core.number.iterator'},
+            {name: 'max-safe-integer', path: 'Number.MAX_SAFE_INTEGER'},
+            {name: 'min-safe-integer', path: 'Number.MIN_SAFE_INTEGER'},
+            {name: 'to-fixed', path: autoPrototype},
+            {name: 'parse-float'},
+            {name: 'parse-int'}
         );
 
-        // reflect
-        registerAndPolyfillWhen(
-            'reflect',
-            auto,
-            [
-                ['apply', auto, auto],
-                ['construct', auto, auto],
-                ['define-property', auto, auto],
-                ['delete-property', 'isNaN', auto],
-                ['enumerate', auto, auto],
-                ['get', auto, auto],
-                ['get-own-property-descriptor', auto, auto],
-                ['get-prototype-of', auto, auto],
-                ['has', autoPrototype, auto],
-                ['own-keys', auto, auto],
-                ['prevent-extensions', auto, auto],
-                ['set', auto, auto],
-                ['set-prototype-of', auto, auto],
+        registerAndPolyfill('reflect',
+            {name: 'apply'},
+            {name: 'construct'},
+            {name: 'define-property'},
+            {name: 'delete-property'},
+            {name: 'enumerate'},
+            {name: 'get'},
+            {name: 'get-own-property-descriptor'},
+            {name: 'get-prototype-of'},
+            {name: 'has'},
+            {name: 'own-keys'},
+            {name: 'prevent-extensions'},
+            {name: 'set'},
+            {name: 'set-prototype-of'},
 
-                ['define-metadata', auto, autoEs7],
-                ['delete-metadata', auto, autoEs7],
-                ['get-metadata', autoPrototype, autoEs7],
-                ['get-metadata-keys', auto, autoEs7],
-                ['get-own-metadata', auto, autoEs7],
-                ['get-own-metadata-keys', auto, autoEs7],
-                ['has-metadata', auto, autoEs7],
-                ['has-own-metadata', auto, autoEs7],
-                ['metadata', auto, autoEs7]
-            ]
+            {name: 'define-metadata', spec: 'es7'},
+            {name: 'delete-metadata', spec: 'es7'},
+            {name: 'get-metadata', spec: 'es7'},
+            {name: 'get-metadata-keys', spec: 'es7'},
+            {name: 'get-own-metadata', spec: 'es7'},
+            {name: 'get-own-metadata-keys', spec: 'es7'},
+            {name: 'has-metadata', spec: 'es7'},
+            {name: 'has-own-metadata', spec: 'es7'},
+            {name: 'metadata', spec: 'es7'}
         );
 
-        // regexp
-        var checkRegExpConstructor = function() {
-            // https://github.com/zloirock/core-js/blob/v2.4.1/modules/es6.regexp.constructor.js
-            var re1 = /a/g;
-            var re2 = /a/g;
-            re2[Symbol.match] = false;
-            var re3 = RegExp(/a/g, 'i');
-            return (
-                RegExp(re1) === re1 &&
-                RegExp(re2) !== re2 &&
-                RegExp(re3).toString() === '/a/i'
-            );
-        };
-        var checkRegExpFlags = function() {
-            // https://github.com/zloirock/core-js/blob/v2.4.1/modules/es6.regexp.flags.js
-            return /./g.flags === 'g';
-        };
-        var checkRegExpToString = function() {
-            // https://github.com/zloirock/core-js/blob/master/modules/es6.regexp.to-string.js
-            var toString = RegExp.prototype.toString;
-            return (
-                toString.call({source: 'a', flags: 'b'}) === '/a/b' &&
-                toString.name === 'toString'
-            );
-        };
-        registerAndPolyfillWhen(
-            'regexp',
-            auto,
-            [
-                ['constructor', checkRegExpConstructor, auto],
-                ['escape', auto, auto],
-                ['flags', checkRegExpFlags, auto],
-                ['match', 'RegExp.prototype[Symbol.match]', auto],
-                ['replace', 'RegExp.prototype[Symbol.replace]', auto],
-                ['search', 'RegExp.prototype[Symbol.search]', auto],
-                ['split', 'RegExp.prototype[Symbol.split]', auto],
-                ['to-string', checkRegExpToString, auto]
-            ]
+        registerAndPolyfill('regexp',
+            {
+                name: 'constructor',
+                path: 'RegExp',
+                invalid: function() {
+                    // https://github.com/zloirock/core-js/blob/v2.4.1/modules/es6.regexp.constructor.js
+                    var re1 = /a/g;
+                    var re2 = /a/g;
+                    re2[Symbol.match] = false;
+                    var re3 = RegExp(re1, 'i');
+                    return (
+                        RegExp(re1) !== re1 ||
+                        RegExp(re2) === re2 ||
+                        RegExp(re3).toString() !== '/a/i'
+                    );
+                }
+            },
+            {name: 'escape', path: 'RegExp.escape'},
+            {
+                name: 'flags',
+                path: 'RegExp.prototype.flags',
+                invalid: function() {
+                    // https://github.com/zloirock/core-js/blob/v2.4.1/modules/es6.regexp.flags.js
+                    return /./g.flags !== 'g';
+                }
+            },
+            {name: 'match', path: 'RegExp.prototype[Symbol.match]'},
+            {name: 'replace', path: 'RegExp.prototype[Symbol.replace]'},
+            {name: 'search', path: 'RegExp.prototype[Symbol.search]'},
+            {name: 'split', path: 'RegExp.prototype[Symbol.split]'},
+            {
+                name: 'to-string',
+                path: 'RegExp.prototype.toString',
+                invalid: function() {
+                    // https://github.com/zloirock/core-js/blob/master/modules/es6.regexp.to-string.js
+                    var toString = RegExp.prototype.toString;
+                    return (
+                        toString.call({source: 'a', flags: 'b'}) !== '/a/b' ||
+                        toString.name !== 'toString'
+                    );
+                }
+            }
         );
 
-        // string
-        registerAndPolyfillWhen(
-            'string',
-            auto,
-            [
-                ['at', autoPrototype, autoEs7],
-                ['from-code-point', autoPrototype, auto],
-                ['code-point-at', autoPrototype, auto],
-                ['ends-with', autoPrototype, auto],
-                ['escape-html', auto, 'core.string.escape-html'],
-                ['includes', autoPrototype, auto],
-                ['iterator', 'String.prototype[Symbol.iterator]', auto],
-                ['match-all', 'String.prototype[Symbol.matchAll]', autoEs7],
-                ['pad-end', autoPrototype, autoEs7],
-                ['pad-start', autoPrototype, autoEs7],
-                ['raw', auto, auto],
-                ['repeat', autoPrototype, auto],
-                ['starts-with', autoPrototype, auto],
-                ['trim', autoPrototype, auto],
-                ['trim-end', autoPrototype, 'es7.string.trim-right'],
-                ['trim-start', autoPrototype, 'es7.string.trim-left'],
-                ['unescape-html', auto, 'core.string.unescape-html'],
+        registerAndPolyfill('string',
+            {name: 'at', path: autoPrototype, spec: 'es7'},
+            {name: 'from-code-point'},
+            {name: 'code-point-at', path: autoPrototype},
+            {name: 'ends-with', pah: autoPrototype},
+            {name: 'escape-html', polyfill: 'core.string.escape-html'},
+            {name: 'includes', path: autoPrototype},
+            {name: 'iterator', path: 'String.prototype[Symbol.iterator]'},
+            {name: 'match-all', path: 'String.prototype[Symbol.matchAll]', spec: 'es7'},
+            {name: 'pad-end', path: autoPrototype, spec: 'es7'},
+            {name: 'pad-start', path: autoPrototype, spec: 'es7'},
+            {name: 'raw'},
+            {name: 'repeat', path: autoPrototype},
+            {name: 'starts-with', path: autoPrototype},
+            {name: 'trim', path: autoPrototype},
+            {name: 'trim-end', path: autoPrototype, polyfill: 'es7.string.trim-right'},
+            {name: 'trim-start', path: autoPrototype, polyfill: 'es7.string.trim-left'},
+            {name: 'unescape-html', polyfill: 'core.string.unescape-html'},
 
-                ['anchor', autoPrototype, auto],
-                ['big', autoPrototype, auto],
-                ['blink', autoPrototype, auto],
-                ['fixed', autoPrototype, auto],
-                ['fontcolor', autoPrototype, auto],
-                ['fontsize', autoPrototype, auto],
-                ['italics', autoPrototype, auto],
-                ['link', autoPrototype, auto],
-                ['small', autoPrototype, auto],
-                ['strike', autoPrototype, auto],
-                ['sub', autoPrototype, auto],
-                ['sup', autoPrototype, auto]
-            ]
+            {name: 'anchor', path: autoPrototype},
+            {name: 'big', path: autoPrototype},
+            {name: 'blink', path: autoPrototype},
+            {name: 'fixed', path: autoPrototype},
+            {name: 'fontcolor', path: autoPrototype},
+            {name: 'fontsize', path: autoPrototype},
+            {name: 'italics', path: autoPrototype},
+            {name: 'link', path: autoPrototype},
+            {name: 'small', path: autoPrototype},
+            {name: 'strike', path: autoPrototype},
+            {name: 'sub', path: autoPrototype},
+            {name: 'sup', path: autoPrototype}
         );
     });
 
@@ -2187,10 +2085,10 @@ je dis pourquoi pas
         var implementation = this.implementation;
 
         implementation.include = function(featureName) {
-            implementation.getFeature(featureName).excluded = false;
+            implementation.get(featureName).excluded = false;
         };
         implementation.exclude = function(featureName) {
-            implementation.getFeature(featureName).excluded = true;
+            implementation.get(featureName).excluded = true;
         };
 
         implementation.list = function() {
@@ -2234,9 +2132,9 @@ je dis pourquoi pas
             var fallbackFiles = [];
 
             this.list().filter(function(requiredFeature) {
-                return requiredFeature.getStatus() !== 'yes';
+                return requiredFeature.test() === false;
             }).forEach(function(requiredIncorrectFeature) {
-                var fallback = requiredIncorrectFeature.fallback;
+                var fallback = requiredIncorrectFeature.polyfill;
                 if (!fallback) {
                     throw new Error(
                         'the feature ' + requiredIncorrectFeature.name + ' is missing but has no fallback'
