@@ -5,6 +5,17 @@
 https://github.com/zloirock/core-js#custom-build-from-external-scripts
 
 - babel en utilisant babel 6 et les plugins
+j'ai le concept mais une fois que j'ai ma function de transpilation avec les bons plugins
+qu'est ce que je fais ?
+je pense qu'il faut alors (puisque SystemJS est chargé)
+faire System.translate = ma fonction de transpilation
+
+y'a un cas spécial auquel il faudras penser : yield etc
+il ont besoin à la fois d'un polyfill (regenerator/runtime) et d'une transpilation)
+mais il s'agit d'une seule feature
+le code tel qu'il est actuellement prévoi l'un ou l'autre
+pour faire simple on a cas mettre les deux features et "forcer" l'utilisateur a savoir qu'il faut exclure/inclure les deux
+pour en profiter
 
 - une fois que ça marcheras faudra reporter ce comportement sur le browser qui demandera au serveur
 un build de polyfill et communiquera aussi les bables plugins dont il a besoin
