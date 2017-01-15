@@ -4,9 +4,14 @@ https://github.com/zloirock/core-js#custom-build-from-external-scripts
 
 -
 
-- ok le prochain move c'est qu'on liste les différences entre ce qu'on veut et ce qu'on a ICI même
-et qu'on génère un polyfill correspondant à ce qui est nécéssaire (ici pour nodejs)
-a priori il "suffit" de créer le code source puis de faire eval dessus (ouais on se prend pas la tête)
+- il faut ajouter au polyfill dynamique url, url-search-params
+voir si corejs promise fait le taff si oui pas besoin de l'ajouter
+donc on concat juste ces polyfill au code de corejs et ça devrait le faire
+pour systemjs on le garde à part pour le moment et on le load toujours avec require ou un <script>
+
+- une fois qu'on aura ça ça serais bien d'avoir une erreur si
+on a besoin d'une feature mais que son test() retourne false
+sans qu'un polyfill ne lui soit associé
 
 - une fois que ça marcheras faudra reporter ce comporte sur le browser qui demandera au serveur
 un build de polyfill
@@ -24,11 +29,25 @@ require('./index.js');
 
 var jsenv = global.jsenv;
 
+[
+    'math-clamp',
+    'math-deg-per-rad',
+    'math-degrees',
+    'math-fscale',
+    'math-radians',
+    'math-rad-per-deg',
+    'math-scale',
+    'string-escape-html',
+    'string-match-all',
+    'string-unescape-html'
+].forEach(function(excludedFeature) {
+    jsenv.implementation.exclude(excludedFeature, 'npm corejs@2.4.1 does not have thoose polyfill');
+});
+
 var requiredFeatures = jsenv.implementation.getRequiredFeatures();
 var requiredNativeFeatures = requiredFeatures.filter(function(feature) {
     return feature.type === 'native';
 });
-
 var nativeFeatureNamesNotHandledByCoreJS = [];
 var requiredNativeFeaturesHandledByCoreJS = requiredNativeFeatures.filter(function(nativeFeature) {
     return nativeFeatureNamesNotHandledByCoreJS.indexOf(nativeFeature.name) === -1;

@@ -52,28 +52,66 @@ je dis pourquoi pas
         jsenv.options = {};
 
         build(function version() {
-            function parseVersionPart(versionPart) {
-                var parsed;
-                if (versionPart === '*') {
-                    parsed = versionPart;
-                } else if (isNaN(versionPart)) {
-                    throw new Error('version part must be a number (not ' + versionPart + ')');
+            var anyChar = '*';
+            var hiddenChar = '?';
+
+            function VersionPart(value) {
+                if (value === anyChar) {
+                    this.value = value;
+                } else if (isNaN(value)) {
+                    // I dont wanna new Version to throw
+                    // in the worst case you end with a version like '?.?.?' but not an error
+                    this.error = new Error('version part must be a number or * (not ' + value + ')');
+                    this.value = hiddenChar;
                 } else {
-                    parsed = parseInt(versionPart);
+                    this.value = parseInt(value);
                 }
-
-                return parsed;
             }
+            VersionPart.prototype = {
+                isAny: function() {
+                    return this.value === anyChar;
+                },
 
-            function compareVersionPart(a, b) {
-                if (a === '*') {
-                    return true;
+                isHidden: function() {
+                    return this.value === hiddenChar;
+                },
+
+                isPrecise: function() {
+                    return this.isAny() === false && this.isHidden() === false;
+                },
+
+                match: function(other) {
+                    return (
+                        this.isAny() ||
+                        other.isAny() ||
+                        this.value === other.value
+                    );
+                },
+
+                above: function(other) {
+                    return (
+                        this.isPrecise() &&
+                        other.isPrecise() &&
+                        this.value > other.value
+                    );
+                },
+
+                below: function(other) {
+                    return (
+                        this.isPrecise() &&
+                        other.isPrecise() &&
+                        this.value < other.value
+                    );
+                },
+
+                valueOf: function() {
+                    return this.value;
+                },
+
+                toString: function() {
+                    return String(this.value);
                 }
-                if (b === '*') {
-                    return true;
-                }
-                return a === b;
-            }
+            };
 
             function Version(firstArg) {
                 var versionName = String(firstArg);
@@ -81,51 +119,99 @@ je dis pourquoi pas
                 var minor;
                 var patch;
 
-                if (versionName === '*') {
-                    major =
-                    minor =
-                    patch = '*';
+                if (versionName === anyChar) {
+                    major = new VersionPart(anyChar);
+                    minor = new VersionPart(anyChar);
+                    patch = new VersionPart(anyChar);
                 } else if (versionName.indexOf('.') === -1) {
-                    major = parseVersionPart(versionName);
-                    minor =
-                    patch = 0;
+                    major = new VersionPart(versionName);
+                    minor = new VersionPart(0);
+                    patch = new VersionPart(0);
                 } else {
                     var versionParts = versionName.split('.');
                     var versionPartCount = versionParts.length;
 
+                    // truncate too precise version
+                    if (versionPartCount > 3) {
+                        versionParts = versionParts.slice(0, 3);
+                        versionPartCount = 3;
+                        this.truncated = true;
+                    }
+
                     if (versionPartCount === 2) {
-                        major = parseVersionPart(versionParts[0]);
-                        minor = parseVersionPart(versionParts[1]);
-                        patch = 0;
+                        major = new VersionPart(versionParts[0]);
+                        minor = new VersionPart(versionParts[1]);
+                        patch = new VersionPart(0);
                     } else if (versionPartCount === 3) {
-                        major = parseVersionPart(versionParts[0]);
-                        minor = parseVersionPart(versionParts[1]);
-                        patch = parseVersionPart(versionParts[2]);
-                    } else {
-                        throw new Error('version must not have more than two "."');
+                        major = new VersionPart(versionParts[0]);
+                        minor = new VersionPart(versionParts[1]);
+                        patch = new VersionPart(versionParts[2]);
                     }
                 }
 
                 this.major = major;
                 this.minor = minor;
                 this.patch = patch;
+                this.raw = firstArg;
             }
+            Version.cast = function(firstArg) {
+                var version;
+                if (typeof firstArg === 'string') {
+                    version = new Version(firstArg);
+                } else if (Version.isPrototypeOf(firstArg)) {
+                    version = firstArg;
+                } else {
+                    throw new Error('version.match expect a string or a version object');
+                }
+                return version;
+            };
 
             Version.prototype = {
+                isPrecise: function() {
+                    return (
+                        this.major.isPrecise() &&
+                        this.minor.isPrecise() &&
+                        this.patch.isPrecise()
+                    );
+                },
+
+                isTrustable: function() {
+                    return (
+                        this.major.isHidden() === false &&
+                        this.minor.isHidden() === false &&
+                        this.patch.isHidden() === false
+                    );
+                },
+
                 match: function(firstArg) {
-                    var version;
-                    if (typeof firstArg === 'string') {
-                        version = new Version(firstArg);
-                    } else if (Version.isPrototypeOf(firstArg)) {
-                        version = firstArg;
-                    } else {
-                        throw new Error('version.match expect a string or a version object');
-                    }
+                    var version = Version.cast(firstArg);
 
                     return (
-                        compareVersionPart(this.patch, version.patch) &&
-                        compareVersionPart(this.minor, version.minor) &&
-                        compareVersionPart(this.major, version.major)
+                        this.major.match(version.major) &&
+                        this.minor.match(version.minor) &&
+                        this.patch.match(version.patch)
+                    );
+                },
+
+                above: function(firstArg, loose) {
+                    var version = Version.cast(firstArg);
+
+                    return (
+                        this.major.above(version.major) ||
+                        this.minor.above(version.minor) ||
+                        this.patch.above(version.patch) ||
+                        loose
+                    );
+                },
+
+                below: function(firstArg, loose) {
+                    var version = Version.cast(firstArg);
+
+                    return (
+                        this.major.below(version.major) ||
+                        this.minor.below(version.minor) ||
+                        this.patch.below(version.patch) ||
+                        loose
                     );
                 },
 
@@ -186,13 +272,6 @@ je dis pourquoi pas
                 },
 
                 setVersion: function(version) {
-                    // some version number are too precise such as chome
-                    // which gives sthing like 50.0.0.1, strip the last number to be semver
-                    var parts = version.split('.');
-                    if (parts.length > 3) {
-                        version = parts.slice(0, 3).join('.');
-                    }
-
                     this.version = jsenv.createVersion(version);
                 },
 
@@ -905,41 +984,6 @@ je dis pourquoi pas
             };
         });
 
-        // DEPRECATED (not used anymore)
-        // build(function include() {
-        //     var importMethod;
-
-        //     if (env.isBrowser()) {
-        //         importMethod = function(url) {
-        //             var script = document.createElement('script');
-        //             var promise = new Promise(function(resolve, reject) {
-        //                 script.onload = resolve;
-        //                 script.onerror = reject;
-        //             });
-
-        //             script.src = url;
-        //             script.type = 'text/javascript';
-        //             document.head.appendChild(script);
-
-        //             return promise;
-        //         };
-        //     } else {
-        //         importMethod = function(url) {
-        //             if (url.indexOf('file:///') === 0) {
-        //                 url = url.slice('file:///'.length);
-        //             }
-
-        //             return new Promise(function(resolve) {
-        //                 resolve(require(url));
-        //             });
-        //         };
-        //     }
-
-        //     return {
-        //         import: importMethod
-        //     };
-        // });
-
         return jsenv;
     }
 
@@ -978,9 +1022,6 @@ je dis pourquoi pas
 
         var implementation = jsenv.implementation;
 
-        if (implementation.support('set-immediate') === false) {
-            add('set-immediate-polyfill', 'src/polyfill/set-immediate/index.js');
-        }
         if (implementation.support('promise') === false) {
             add('promise-polyfill', 'src/polyfill/promise/index.js');
         }
@@ -1103,7 +1144,7 @@ je dis pourquoi pas
     jsenv.globalAssignment = jsenv.createCancellableAssignment(jsenv.global, jsenv.globalName);
     jsenv.globalAssignment.assign(jsenv);
 
-    jsenv.build(function() {
+    jsenv.build(function implementation() {
         var implementation = {};
         implementation.features = [];
 
@@ -1563,12 +1604,6 @@ je dis pourquoi pas
                     feature.when(featureInvalidTest, 'invalid');
                 }
 
-                // console.log('register feature: ', {
-                //     name: prefixedFeatureName,
-                //     path: featurePath,
-                //     polyfill: featurePolyfill
-                // });
-
                 i++;
             }
         };
@@ -1894,14 +1929,14 @@ je dis pourquoi pas
             {name: 'asinh'},
             {name: 'atanh'},
             {name: 'cbrt'},
-            // {name: 'clamp', spec: 'es7'},
+            {name: 'clamp', spec: 'es7'},
             {name: 'clz32'},
             {name: 'cosh'},
-            // {name: 'deg-per-rad', path: 'Math.DEG_PER_RAD', spec: 'es7'},
-            // {name: 'degrees', spec: 'es7'},
+            {name: 'deg-per-rad', path: 'Math.DEG_PER_RAD', spec: 'es7'},
+            {name: 'degrees', spec: 'es7'},
             {name: 'expm1'},
             {name: 'fround'},
-            // {name: 'fscale', spec: 'es7'},
+            {name: 'fscale', spec: 'es7'},
             {name: 'hypot'},
             {name: 'iaddh', spec: 'es7'},
             {name: 'imul'},
@@ -1910,9 +1945,9 @@ je dis pourquoi pas
             {name: 'log10'},
             {name: 'log1p'},
             {name: 'log2'},
-            // {name: 'radians', spec: 'es7'},
-            // {name: 'rad-per-deg', path: 'Math.RAD_PER_DEG', spec: 'es7'},
-            // {name: 'scale', spec: 'es7'},
+            {name: 'radians', spec: 'es7'},
+            {name: 'rad-per-deg', path: 'Math.RAD_PER_DEG', spec: 'es7'},
+            {name: 'scale', spec: 'es7'},
             {name: 'sign'},
             {name: 'sinh'},
             {name: 'tanh'},
@@ -2021,10 +2056,10 @@ je dis pourquoi pas
             {name: 'from-code-point'},
             {name: 'code-point-at', path: autoPrototype},
             {name: 'ends-with', path: autoPrototype},
-            // {name: 'escape-html'},
+            {name: 'escape-html'},
             {name: 'includes', path: autoPrototype},
             {name: 'iterator', path: 'String.prototype[Symbol.iterator]'},
-            // {name: 'match-all', path: 'String.prototype[Symbol.matchAll]', spec: 'es7'},
+            {name: 'match-all', path: 'String.prototype[Symbol.matchAll]', spec: 'es7'},
             {name: 'pad-end', path: autoPrototype, spec: 'es7'},
             {name: 'pad-start', path: autoPrototype, spec: 'es7'},
             {name: 'raw'},
@@ -2033,7 +2068,7 @@ je dis pourquoi pas
             {name: 'trim', path: autoPrototype},
             {name: 'trim-end', path: autoPrototype},
             {name: 'trim-start', path: autoPrototype},
-            // {name: 'unescape-html'},
+            {name: 'unescape-html'},
 
             {name: 'anchor', path: autoPrototype},
             {name: 'big', path: autoPrototype},
@@ -2059,8 +2094,10 @@ je dis pourquoi pas
         implementation.include = function(featureName) {
             implementation.get(featureName).excluded = false;
         };
-        implementation.exclude = function(featureName) {
-            implementation.get(featureName).excluded = true;
+        implementation.exclude = function(featureName, reason) {
+            var feature = implementation.get(featureName);
+            feature.excluded = true;
+            feature.exclusionReason = reason;
         };
 
         implementation.getRequiredFeatures = function() {
