@@ -14,6 +14,34 @@ donc maintenant ce qu'il faut faire c'est qu'au lieu de retourner en dur "it wor
 on va retourner le fichier correspondant pour chaque requête GET
 (éventuellement check le header accept qui est set par systemjs à "application/x-es-module, *\/*")
 et ne faire le truc avec babel que lorsque ce header est présent
+
+// https://polyfill.io/v2/docs/features/
+
+polyfill/
+a.js
+    object-assign + object-values
+b.js
+    empty
+
+meta.json
+    {
+        "a": {
+            features: [
+                'object-assign',
+                'object-values'
+            ],
+            agents: [
+                'firefox@30.0',
+                'chrome@45.0',
+                'node@7.0'
+            ]
+        },
+        "b": {
+            features: [],
+            agents: []
+        }
+    }
+
 */
 
 import require from '@node/require';

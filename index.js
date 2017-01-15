@@ -997,13 +997,13 @@ je dis pourquoi pas
             add('systemjs', 'node_modules/systemjs/index.js');
         }
 
-        if (implementation.support('es6') === false) {
-            if (jsenv.isBrowser()) {
-                add('es6-polyfills', 'node_modules/babel-polyfill/dist/polyfill.js');
-            } else {
-                add('es6-polyfills', 'node_modules/babel-polyfill/lib/index.js');
-            }
-        }
+        // if (implementation.support('es6') === false) {
+        //     if (jsenv.isBrowser()) {
+        //         add('es6-polyfills', 'node_modules/babel-polyfill/dist/polyfill.js');
+        //     } else {
+        //         add('es6-polyfills', 'node_modules/babel-polyfill/lib/index.js');
+        //     }
+        // }
 
         return files;
     }
@@ -1164,9 +1164,6 @@ je dis pourquoi pas
         var VersionnedFeaturePrototype = VersionnedFeature.prototype;
         VersionnedFeaturePrototype.toString = function() {
             return this.name + '@' + this.version;
-        };
-        VersionnedFeaturePrototype.match = function(version) {
-            return this.version.match(version);
         };
         VersionnedFeaturePrototype.getStatus = function() {
             var branches = this.branches;
@@ -1482,7 +1479,7 @@ je dis pourquoi pas
         var readAt = jsenv.readAt;
         var noValue = jsenv.noValue;
         var autoPrototype = {};
-        var registerAndPolyfill = function(targetName) {
+        var registerNativeFeatures = function(targetName) {
             var i = 1;
             var j = arguments.length;
             var capitalizedTargetName = targetName[0].toUpperCase() + targetName.slice(1);
@@ -1557,42 +1554,20 @@ je dis pourquoi pas
                     featureInvalidTest = null;
                 }
 
-                var featurePolyfill;
-                var featureDescriptorPolyfill;
-                if ('polyfill' in featureDescriptor) {
-                    featureDescriptorPolyfill = featureDescriptor.polyfill;
-                    if (typeof featureDescriptorPolyfill === 'string') {
-                        featurePolyfill = featureDescriptorPolyfill;
-                    } else {
-                        throw new TypeError('feature descriptor polyfill must be a string');
-                    }
-                } else {
-                    var featureSpec = 'spec' in featureDescriptor ? featureDescriptor.spec : 'es6';
-
-                    if (targetName === 'global') {
-                        featurePolyfill = featureSpec;
-                    } else {
-                        featurePolyfill = featureSpec + '.' + targetName;
-                    }
-
-                    if (featureName) {
-                        featurePolyfill += '.' + featureName;
-                    }
-                }
-
                 var feature = implementation.add(prefixedFeatureName);
                 feature.path = featurePath;
-                feature.polyfill = featurePolyfill;
+                feature.type = 'native';
+                feature.spec = 'spec' in featureDescriptor ? featureDescriptor.spec : 'es6';
                 feature.when(missing(), 'missing');
                 if (featureInvalidTest) {
                     feature.when(featureInvalidTest, 'invalid');
                 }
 
-                console.log('register feature: ', {
-                    name: prefixedFeatureName,
-                    path: featurePath,
-                    polyfill: featurePolyfill
-                });
+                // console.log('register feature: ', {
+                //     name: prefixedFeatureName,
+                //     path: featurePath,
+                //     polyfill: featurePolyfill
+                // });
 
                 i++;
             }
@@ -1641,10 +1616,10 @@ je dis pourquoi pas
         // }
         // jsenv.every = every;
 
-        registerAndPolyfill('global',
+        registerNativeFeatures('global',
             {name: 'asap', spec: 'es7'},
             {name: 'map', type: 'constructor'},
-            {name: 'observable', type: 'constructor'},
+            {name: 'observable', type: 'constructor', spec: 'es7'},
             {
                 name: 'parse-int',
                 invalid: function() {
@@ -1695,7 +1670,7 @@ je dis pourquoi pas
                 }
             },
             {name: 'set', type: 'constructor'},
-            {name: 'set-immediate', polyfill: 'web.immediate'},
+            {name: 'set-immediate'},
             {
                 name: 'set-interval',
                 invalid: function() {
@@ -1714,17 +1689,17 @@ je dis pourquoi pas
             {name: 'weak-map', type: 'constructor'},
             {name: 'weak-set', type: 'constructor'},
 
-            {name: 'array-buffer', type: 'constructor', polyfill: 'es6.typed.array-buffer'},
-            {name: 'data-view', type: 'constructor', polyfill: 'es6.typed.data-view'},
-            {name: 'int8-array', type: 'constructor', polyfill: 'es6.typed.int8-array'},
-            {name: 'uint8-array', type: 'constructor', polyfill: 'es6.typed.uint8-array'},
-            {name: 'uint8-clamped-array', type: 'constructor', polyfill: 'es6.typed.uint8-clamped-array'},
-            {name: 'int16-array', type: 'constructor', polyfill: 'es6.typed.int16-array'},
-            {name: 'uint16-array', type: 'constructor', polyfill: 'es6.typed.uint16-array'},
-            {name: 'int32-array', type: 'constructor', polyfill: 'es6.typed.int32-array'},
-            {name: 'uint32-array', type: 'constructor', polyfill: 'es6.typed.uint32-array'},
-            {name: 'float32-array', type: 'constructor', polyfill: 'es6.typed.float32-array'},
-            {name: 'float64-array', type: 'constructor', polyfill: 'es6.typed.float64-array'}
+            {name: 'array-buffer', type: 'constructor'},
+            {name: 'data-view', type: 'constructor'},
+            {name: 'int8-array', type: 'constructor'},
+            {name: 'uint8-array', type: 'constructor'},
+            {name: 'uint8-clamped-array', type: 'constructor'},
+            {name: 'int16-array', type: 'constructor'},
+            {name: 'uint16-array', type: 'constructor'},
+            {name: 'int32-array', type: 'constructor'},
+            {name: 'uint32-array', type: 'constructor'},
+            {name: 'float32-array', type: 'constructor'},
+            {name: 'float64-array', type: 'constructor'}
         );
         function missingDomCollectionIteration() {
             return function() {
@@ -1743,65 +1718,62 @@ je dis pourquoi pas
             //     return false;
             // };
         }
-        registerAndPolyfill('global',
-            {
-                name: 'node-list-iteration',
-                path: 'NodeList',
-                invalid: missingDomCollectionIteration(),
-                polyfill: 'web.dom.iterable'
-            },
-            {
-                name: 'dom-token-list-iteration',
-                path: 'DOMTokenList',
-                invalid: missingDomCollectionIteration(),
-                polyfill: 'web.dom.iterable'
-            },
-            {
-                name: 'media-list-iteration',
-                path: 'MediaList',
-                invalid: missingDomCollectionIteration(),
-                polyfill: 'web.dom.iterable'
-            },
-            {
-                name: 'style-sheet-list-iteration',
-                path: 'StyleSheetList',
-                invalid: missingDomCollectionIteration(),
-                polyfill: 'web.dom.iterable'
-            },
-            {
-                name: 'css-rule-list-iteration',
-                path: 'CSSRuleList',
-                invalid: missingDomCollectionIteration(),
-                polyfill: 'web.dom.iterable'
-            }
-        );
+        if (jsenv.isBrowser()) {
+            registerNativeFeatures('global',
+                {
+                    name: 'node-list-iteration',
+                    path: 'NodeList',
+                    invalid: missingDomCollectionIteration()
+                },
+                {
+                    name: 'dom-token-list-iteration',
+                    path: 'DOMTokenList',
+                    invalid: missingDomCollectionIteration()
+                },
+                {
+                    name: 'media-list-iteration',
+                    path: 'MediaList',
+                    invalid: missingDomCollectionIteration()
+                },
+                {
+                    name: 'style-sheet-list-iteration',
+                    path: 'StyleSheetList',
+                    invalid: missingDomCollectionIteration()
+                },
+                {
+                    name: 'css-rule-list-iteration',
+                    path: 'CSSRuleList',
+                    invalid: missingDomCollectionIteration()
+                }
+            );
+        }
 
         // map, join, filter y'a surement des fix, il ne suffit pas de vérifier que la méthode existe
-        registerAndPolyfill('array',
-            {name: 'copy-within'},
-            {name: 'every'},
-            {name: 'find'},
-            {name: 'find-index'},
-            {name: 'fill'},
-            {name: 'filter'},
-            {name: 'for-each'},
+        registerNativeFeatures('array',
+            {name: 'copy-within', path: autoPrototype},
+            {name: 'every', path: autoPrototype},
+            {name: 'find', path: autoPrototype},
+            {name: 'find-index', path: autoPrototype},
+            {name: 'fill', path: autoPrototype},
+            {name: 'filter', path: autoPrototype},
+            {name: 'for-each', path: autoPrototype},
             {name: 'from'},
-            {name: 'index-of'},
+            {name: 'index-of', path: autoPrototype},
             {name: 'iterator', path: 'Array.prototype[Symbol.iterator]'},
             {name: 'is-array'},
-            {name: 'join'},
-            {name: 'last-index-of'},
-            {name: 'map'},
+            {name: 'join', path: autoPrototype},
+            {name: 'last-index-of', path: autoPrototype},
+            {name: 'map', path: autoPrototype},
             {name: 'of'},
-            {name: 'reduce'},
-            {name: 'reduce-right'},
-            {name: 'slice'},
-            {name: 'some'},
-            {name: 'sort'}
+            {name: 'reduce', path: autoPrototype},
+            {name: 'reduce-right', path: autoPrototype},
+            {name: 'slice', path: autoPrototype},
+            {name: 'some', path: autoPrototype},
+            {name: 'sort', path: autoPrototype}
             // ['species', '???', auto]
         );
 
-        registerAndPolyfill('date',
+        registerNativeFeatures('date',
             {name: 'now'},
             {
                 name: 'to-iso-string',
@@ -1863,13 +1835,13 @@ je dis pourquoi pas
             }
         );
 
-        registerAndPolyfill('function',
+        registerNativeFeatures('function',
             {name: 'bind', path: autoPrototype},
             {name: 'name', path: autoPrototype},
             {name: 'has-instance', path: 'Function.prototype[Symbol.hasInstance]'}
         );
 
-        registerAndPolyfill('object',
+        registerNativeFeatures('object',
             {name: 'assign'},
             {name: 'create'},
             {name: 'define-getter', path: 'Object.__defineGetter__', spec: 'es7'},
@@ -1904,7 +1876,7 @@ je dis pourquoi pas
             {name: 'values', spec: 'es7'}
         );
 
-        registerAndPolyfill('symbol',
+        registerNativeFeatures('symbol',
             {name: ''},
             {name: 'async-iterator', spec: 'es7'},
             {name: 'has-instance'},
@@ -1917,19 +1889,19 @@ je dis pourquoi pas
             {name: 'to-primitive'}
         );
 
-        registerAndPolyfill('math',
+        registerNativeFeatures('math',
             {name: 'acosh'},
             {name: 'asinh'},
             {name: 'atanh'},
             {name: 'cbrt'},
-            {name: 'clamp', spec: 'es7'},
+            // {name: 'clamp', spec: 'es7'},
             {name: 'clz32'},
             {name: 'cosh'},
-            {name: 'deg-per-rad', path: 'Math.DEG_PAR_RAD', spec: 'es7'},
-            {name: 'degrees', spec: 'es7'},
+            // {name: 'deg-per-rad', path: 'Math.DEG_PER_RAD', spec: 'es7'},
+            // {name: 'degrees', spec: 'es7'},
             {name: 'expm1'},
             {name: 'fround'},
-            {name: 'fscale', spec: 'es7'},
+            // {name: 'fscale', spec: 'es7'},
             {name: 'hypot'},
             {name: 'iaddh', spec: 'es7'},
             {name: 'imul'},
@@ -1938,9 +1910,9 @@ je dis pourquoi pas
             {name: 'log10'},
             {name: 'log1p'},
             {name: 'log2'},
-            {name: 'radians', spec: 'es7'},
-            {name: 'rad-per-deg', path: 'Math.RAD_PAR_DEG', spec: 'es7'},
-            {name: 'scale', spec: 'es7'},
+            // {name: 'radians', spec: 'es7'},
+            // {name: 'rad-per-deg', path: 'Math.RAD_PER_DEG', spec: 'es7'},
+            // {name: 'scale', spec: 'es7'},
             {name: 'sign'},
             {name: 'sinh'},
             {name: 'tanh'},
@@ -1948,7 +1920,7 @@ je dis pourquoi pas
             {name: 'umulh', spec: 'es7'}
         );
 
-        registerAndPolyfill('number',
+        registerNativeFeatures('number',
             {
                 name: 'constructor',
                 path: 'Number',
@@ -1961,12 +1933,12 @@ je dis pourquoi pas
                     );
                 }
             },
-            {name: 'epsilon', path: 'Number.EPISLON'},
+            {name: 'epsilon', path: 'Number.EPSILON'},
             {name: 'is-finite'},
             {name: 'is-integer'},
             {name: 'is-nan', path: 'Number.isNaN'},
             {name: 'is-safe-integer'},
-            {name: 'iterator', path: 'Number.prototype[Symbol.iterator]', polyfill: 'core.number.iterator'},
+            {name: 'iterator', path: 'Number.prototype[Symbol.iterator]'},
             {name: 'max-safe-integer', path: 'Number.MAX_SAFE_INTEGER'},
             {name: 'min-safe-integer', path: 'Number.MIN_SAFE_INTEGER'},
             {name: 'to-fixed', path: autoPrototype},
@@ -1974,7 +1946,7 @@ je dis pourquoi pas
             {name: 'parse-int'}
         );
 
-        registerAndPolyfill('reflect',
+        registerNativeFeatures('reflect',
             {name: 'apply'},
             {name: 'construct'},
             {name: 'define-property'},
@@ -2000,7 +1972,7 @@ je dis pourquoi pas
             {name: 'metadata', spec: 'es7'}
         );
 
-        registerAndPolyfill('regexp',
+        registerNativeFeatures('regexp',
             {
                 name: 'constructor',
                 path: 'RegExp',
@@ -2044,24 +2016,24 @@ je dis pourquoi pas
             }
         );
 
-        registerAndPolyfill('string',
+        registerNativeFeatures('string',
             {name: 'at', path: autoPrototype, spec: 'es7'},
             {name: 'from-code-point'},
             {name: 'code-point-at', path: autoPrototype},
-            {name: 'ends-with', pah: autoPrototype},
-            {name: 'escape-html', polyfill: 'core.string.escape-html'},
+            {name: 'ends-with', path: autoPrototype},
+            // {name: 'escape-html'},
             {name: 'includes', path: autoPrototype},
             {name: 'iterator', path: 'String.prototype[Symbol.iterator]'},
-            {name: 'match-all', path: 'String.prototype[Symbol.matchAll]', spec: 'es7'},
+            // {name: 'match-all', path: 'String.prototype[Symbol.matchAll]', spec: 'es7'},
             {name: 'pad-end', path: autoPrototype, spec: 'es7'},
             {name: 'pad-start', path: autoPrototype, spec: 'es7'},
             {name: 'raw'},
             {name: 'repeat', path: autoPrototype},
             {name: 'starts-with', path: autoPrototype},
             {name: 'trim', path: autoPrototype},
-            {name: 'trim-end', path: autoPrototype, polyfill: 'es7.string.trim-right'},
-            {name: 'trim-start', path: autoPrototype, polyfill: 'es7.string.trim-left'},
-            {name: 'unescape-html', polyfill: 'core.string.unescape-html'},
+            {name: 'trim-end', path: autoPrototype},
+            {name: 'trim-start', path: autoPrototype},
+            // {name: 'unescape-html'},
 
             {name: 'anchor', path: autoPrototype},
             {name: 'big', path: autoPrototype},
@@ -2078,7 +2050,7 @@ je dis pourquoi pas
         );
     });
 
-    jsenv.build(function implementationList() {
+    jsenv.build(function implementationRequired() {
         // on pourrait imaginer authoriser des requirements avec des versions object-assign@1.0
         // voir même des arguments (eslint ou babel le permettent par ex)
 
@@ -2091,62 +2063,12 @@ je dis pourquoi pas
             implementation.get(featureName).excluded = true;
         };
 
-        implementation.list = function() {
+        implementation.getRequiredFeatures = function() {
             return implementation.features.filter(function(feature) {
                 return feature.excluded !== true;
-            });
-        };
-    });
-
-    jsenv.build(function implementationDiff() {
-        // on fera un truc comme ça
-        /* polyfill/
-            a.js
-                object-assign + object-values
-            b.js
-                empty
-
-            meta.json
-                {
-                    "a": {
-                        features: [
-                            'object-assign',
-                            'object-values'
-                        ],
-                        agents: [
-                            'firefox@30.0',
-                            'chrome@45.0',
-                            'node@7.0'
-                        ]
-                    },
-                    "b": {
-                        features: [],
-                        agents: []
-                    }
-                }
-        */
-
-        var implementation = this.implementation;
-
-        implementation.diff = function() {
-            var fallbackFiles = [];
-
-            this.list().filter(function(requiredFeature) {
+            }).filter(function(requiredFeature) {
                 return requiredFeature.test() === false;
-            }).forEach(function(requiredIncorrectFeature) {
-                var fallback = requiredIncorrectFeature.polyfill;
-                if (!fallback) {
-                    throw new Error(
-                        'the feature ' + requiredIncorrectFeature.name + ' is missing but has no fallback'
-                    );
-                }
-
-                if (fallbackFiles.indexOf(fallback) === -1) {
-                    fallbackFiles.push(fallback);
-                }
             });
-
-            return fallbackFiles;
         };
     });
 
