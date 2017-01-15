@@ -1020,31 +1020,11 @@ je dis pourquoi pas
             });
         }
 
-        var implementation = jsenv.implementation;
-
-        if (implementation.support('promise') === false) {
-            add('promise-polyfill', 'src/polyfill/promise/index.js');
-        }
-        if (implementation.support('url') === false) {
-            add('url-polyfill', 'src/polyfill/url/index.js');
-        }
-        if (implementation.support('url-search-params') === false) {
-            add('url-search-params-polyfill', 'src/polyfill/url-search-params/index.js');
-        }
-
         if (jsenv.isBrowser()) {
             add('systemjs', 'node_modules/systemjs/dist/system.js');
         } else {
             add('systemjs', 'node_modules/systemjs/index.js');
         }
-
-        // if (implementation.support('es6') === false) {
-        //     if (jsenv.isBrowser()) {
-        //         add('es6-polyfills', 'node_modules/babel-polyfill/dist/polyfill.js');
-        //     } else {
-        //         add('es6-polyfills', 'node_modules/babel-polyfill/lib/index.js');
-        //     }
-        // }
 
         return files;
     }
@@ -1721,6 +1701,8 @@ je dis pourquoi pas
                     return false;
                 }
             },
+            {name: 'url', path: 'URL'},
+            {name: 'url-search-params', path: 'URLSearchParams'},
             {name: 'weak-map', type: 'constructor'},
             {name: 'weak-set', type: 'constructor'},
 
