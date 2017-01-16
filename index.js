@@ -25,13 +25,14 @@ je dis pourquoi pas
 */
 
 (function() {
-    function buildJSEnv(jsenv) {
-        function assign(object, properties) {
-            for (var key in properties) { // eslint-disable-line
-                object[key] = properties[key];
-            }
+    function assign(object, properties) {
+        for (var key in properties) { // eslint-disable-line
+            object[key] = properties[key];
         }
+        return object;
+    }
 
+    function buildJSEnv(jsenv) {
         function build(data) {
             var properties;
 
@@ -1097,7 +1098,96 @@ je dis pourquoi pas
         return jsenv;
     }
 
+    function forEach(array, fn, bind) {
+        var i = 0;
+        var j = array.length;
+        while (i < j) {
+            fn.call(bind, array[i], i, array);
+            i++;
+        }
+    }
+
+    function map(array, fn, bind) {
+        var result = [];
+        forEach(array, function(entry, i) {
+            result[i] = fn.call(bind, entry, i, array);
+        });
+        return result;
+    }
+
+    function find(array, fn, bind) {
+        var found = null;
+        forEach(array, function(entry, index) {
+            if (fn.call(bind, entry, index, array)) {
+                found = entry;
+            }
+        });
+        return found;
+    }
+
+    var arrayHelpers = {};
+    arrayHelpers.find = find;
+    arrayHelpers.map = map;
+    arrayHelpers.forEach = forEach;
+
+    var Predicate = {};
+
+    Predicate.not = function(predicate) {
+        return function() {
+            return !predicate.apply(this, arguments);
+        };
+    };
+    Predicate.some = function() {
+        var predicates = arguments;
+        var j = predicates.length;
+        return function() {
+            var someIsValid = false;
+            var i = 0;
+            while (i < j) {
+                var predicate = predicates[i];
+                if (predicate.apply(this, arguments)) {
+                    someIsValid = true;
+                    break;
+                }
+                i++;
+            }
+            return someIsValid;
+        };
+    };
+    Predicate.every = function() {
+        var predicates = arguments;
+        var j = predicates.length;
+        if (j === 0) {
+            throw new Error('misisng arg to every');
+        }
+        return function() {
+            var everyAreValid = true;
+            var i = 0;
+            while (i < j) {
+                var predicate = predicates[i];
+                if (!predicate.apply(this, arguments)) {
+                    everyAreValid = false;
+                    break;
+                }
+                i++;
+            }
+            return everyAreValid;
+        };
+    };
+    Predicate.fails = function(fn) {
+        return function() {
+            try {
+                fn.apply(this, arguments);
+                return false;
+            } catch (e) {
+                return true;
+            }
+        };
+    };
+
     var jsenv = createJSEnv();
+    jsenv.helpers = arrayHelpers;
+
     /*
     why put a variable on the global scope ?
     Considering that in the browser you will put a script tag, you need a pointer on env somewhere
@@ -1181,40 +1271,142 @@ je dis pourquoi pas
             this.name = name;
             this.version = env.createVersion(version);
             this.branches = [];
+            this.excluded = false;
+            this.dependents = [];
+            this.dependencies = [];
         }
         var VersionnedFeaturePrototype = VersionnedFeature.prototype;
         VersionnedFeaturePrototype.toString = function() {
             return this.name + '@' + this.version;
         };
-        VersionnedFeaturePrototype.getStatus = function() {
-            var branches = this.branches;
+        VersionnedFeaturePrototype.relyOn = function() {
+            forEach(arguments, function(arg) {
+                var dependentFeature;
+                if (typeof arg === 'string') {
+                    dependentFeature = implementation.get(arg);
+                    if (!dependentFeature) {
+                        throw new Error('cannot find dependency ' + arg + ' of ' + this.name);
+                    }
+                } else {
+                    dependentFeature = arg;
+                }
+                this.dependencies.push(dependentFeature);
+                dependentFeature.dependents.push(this);
+            }, this);
+        };
+        VersionnedFeaturePrototype.exclude = function(reason) {
+            this.excluded = true;
+            this.exclusionReason = reason;
+            forEach(this.dependents, function(dependent) {
+                dependent.exclude(reason);
+            });
+        };
+        VersionnedFeaturePrototype.include = function(reason) {
+            this.excluded = false;
+            this.exclusionReason = null;
+            this.inclusionReason = reason;
+            forEach(this.dependencies, function(dependency) {
+                dependency.include(reason);
+            });
+        };
+        VersionnedFeaturePrototype.isExcluded = function() {
+            return this.excluded === true;
+        };
+        VersionnedFeaturePrototype.ensure = function() {
             var i = 0;
-            var j = branches.length;
-            var status = 'valid';
+            var j = arguments.length;
 
             while (i < j) {
-                var branch = branches[i];
-                try {
-                    if (branch.condition.call(this)) {
-                        status = branch.status;
-                    }
-                } catch (e) {
-                    status = 'errored';
+                var arg = arguments[i];
+                var dependentFeatureDescriptor;
+
+                if (typeof arg === 'function') {
+                    dependentFeatureDescriptor = {
+                        name: jsenv.camelToHypen(arg.name),
+                        test: arg
+                    };
+                } else if (typeof arg === 'object') {
+                    dependentFeatureDescriptor = arg;
                 }
+
+                dependentFeatureDescriptor.name = this.name + '-' + dependentFeatureDescriptor.name;
+                var dependentFeature = implementation.add(dependentFeatureDescriptor.name);
+                // assign(dependentFeature, dependentFeatureDescriptor);
+
+                dependentFeature.relyOn(this);
+                if ('dependencies' in dependentFeatureDescriptor) {
+                    forEach(dependentFeatureDescriptor.dependencies, function(dependencyName) { // eslint-disable-line
+                        dependentFeature.relyOn(dependencyName);
+                    });
+                }
+
                 i++;
             }
 
-            return status;
-        };
-        VersionnedFeaturePrototype.when = function(condition, status) {
-            this.branches.push({
-                condition: condition,
-                status: status
-            });
             return this;
         };
-        VersionnedFeaturePrototype.test = function() {
-            return this.getStatus() === 'valid';
+        VersionnedFeaturePrototype.getStatus = function(callback) {
+            var feature = this;
+            var exec = feature.exec;
+
+            var returnValue;
+            var throwedValue;
+            var hasThrowed = false;
+            var hasReturned = false;
+            var settle = function(valid, reason, detail) {
+                var arity = arguments.length;
+
+                if (arity === 0 && feature.hasOwnProperty('status') === false) {
+                    feature.status = 'unknown';
+                }
+                if (arity > 0 && feature.hasOwnProperty('status') === false) {
+                    feature.status = valid ? 'valid' : 'invalid';
+                }
+                if (arity > 1 && feature.hasOwnProperty('statusReason') === false) {
+                    feature.statusReason = reason;
+                }
+                if (arity > 2 && feature.hasOwnProperty('statusDetail') === false) {
+                    feature.statusReason = detail;
+                }
+
+                callback(feature);
+            };
+
+            // async stuff
+            if (exec.length > 0) {
+                try {
+                    exec.call(
+                        feature,
+                        settle
+                    );
+
+                    var asyncTestMaxDuration = 100;
+                    setTimeout(function() {
+                        settle(false, 'timeout', asyncTestMaxDuration);
+                    }, asyncTestMaxDuration);
+                } catch (e) {
+                    hasThrowed = true;
+                    throwedValue = e;
+                }
+            } else {
+                try {
+                    returnValue = exec.call(feature);
+                    hasReturned = true;
+                } catch (e) {
+                    hasThrowed = true;
+                    throwedValue = e;
+                }
+            }
+
+            if (hasThrowed) {
+                feature.status = 'invalid';
+                feature.statusReason = 'throwed';
+                settle(throwedValue);
+            } else if (hasReturned) {
+                settle(Boolean(returnValue), 'return', returnValue);
+            }
+
+            return this;
         };
 
         return {
@@ -1475,16 +1667,12 @@ je dis pourquoi pas
         };
     });
 
-    jsenv.build(function makeImplementationScannable() {
-        // y'auras aussi besoin de détecter certain truc qu'on transpile
-        // https://github.com/75lb/feature-detect-es6/blob/master/lib/feature-detect-es6.js
-
-        /*
-        ça pourrait être pas mal aussi une api comme
-        registerAndPolyfill('global',
-            method('setImmediate'),
-            method({name: 'parseInt', test: function() {}}),
-            constructor({name: 'ArrayBuffer', polyfill: ''es6.typed.array-buffer''})
+    /*
+    ça pourrait être pas mal aussi une api comme
+    registerAndPolyfill('global',
+        method('setImmediate'),
+        method({name: 'parseInt', test: function() {}}),
+        constructor({name: 'ArrayBuffer', polyfill: ''es6.typed.array-buffer''})
         );
 
         staticMethod()
@@ -1493,14 +1681,15 @@ je dis pourquoi pas
         number()
 
         mais bon on va pas changer toutes les 2 seconde on reste sur ça pour le moment
-        */
-
+    */
+    jsenv.build(function registerStandardFeatures() {
+        /*
         var implementation = jsenv.implementation;
         var hyphenToCamel = jsenv.hyphenToCamel;
         var readAt = jsenv.readAt;
         var noValue = jsenv.noValue;
         var autoPrototype = {};
-        var registerNativeFeatures = function(targetName) {
+        var registerStandardFeatures = function(targetName) {
             var i = 1;
             var j = arguments.length;
             var capitalizedTargetName = targetName[0].toUpperCase() + targetName.slice(1);
@@ -1562,106 +1751,124 @@ je dis pourquoi pas
                     }
                 }
 
-                var featureInvalidTest;
-                var featureDescriptorInvalid;
-                if ('invalid' in featureDescriptor) {
-                    featureDescriptorInvalid = featureDescriptor.invalid;
-                    if (typeof featureDescriptorInvalid === 'function') {
-                        featureInvalidTest = featureDescriptorInvalid;
+                var featureValidTest;
+                var featureDescriptorValid;
+                if ('valid' in featureDescriptor) {
+                    featureDescriptorValid = featureDescriptor.valid;
+                    if (typeof featureDescriptorValid === 'function') {
+                        featureValidTest = featureDescriptorValid;
                     } else {
-                        throw new TypeError('feature descriptor invalid must be a function');
+                        throw new TypeError('feature descriptor valid must be a function');
                     }
                 } else {
-                    featureInvalidTest = null;
+                    featureValidTest = null;
                 }
 
                 var feature = implementation.add(prefixedFeatureName);
                 feature.path = featurePath;
-                feature.type = 'native';
+                feature.type = 'standard';
                 feature.spec = 'spec' in featureDescriptor ? featureDescriptor.spec : 'es6';
                 feature.when(missing(), 'missing');
-                if (featureInvalidTest) {
-                    feature.when(featureInvalidTest, 'invalid');
+                if (featureValidTest) {
+                    feature.when(Predicate.not(featureValidTest), 'invalid');
                 }
 
                 i++;
             }
         };
-        function missing() {
+        function missing(path) {
             return function() {
-                return readAt(jsenv.global, this.path) === noValue;
-            };
-        }
-        function some() {
-            var predicates = arguments;
-            var j = predicates.length;
-            return function() {
-                var someIsValid = false;
-                var i = 0;
-                while (i < j) {
-                    var predicate = predicates[i];
-                    if (predicate.apply(this, arguments)) {
-                        someIsValid = true;
-                        break;
-                    }
-                    i++;
+                if (readAt(jsenv.global, path) === noValue) {
+                    return 'missing';
                 }
-                return someIsValid;
+                return true;
             };
         }
-        // function every() {
-        //     var predicates = arguments;
-        //     var j = predicates.length;
-        //     if (j === 0) {
-        //         throw new Error('misisng arg to every');
-        //     }
-        //     return function() {
-        //         var everyAreValid = true;
-        //         var i = 0;
-        //         while (i < j) {
-        //             var predicate = predicates[i];
-        //             if (!predicate.apply(this, arguments)) {
-        //                 everyAreValid = false;
-        //                 break;
-        //             }
-        //             i++;
-        //         }
-        //         return everyAreValid;
-        //     };
-        // }
-        // jsenv.every = every;
+        function registerStandard(featureName, featureData) {
 
-        registerNativeFeatures('global',
+        }
+        function presence() {
+            return function() {
+                var value = readAt(jsenv.global, this.path);
+                if (value === noValue) {
+                    return 'missing';
+                }
+                this.value = value;
+                return true;
+            }
+        }
+
+        // et au lieu d'avoir des noms on nomme juste les fonctions
+        // et come ça on passe une liste des fonctions qui servet à savoir dan squel état est la feature
+        // sachant que detect va par défaut utiliser le nom de la feature
+        // attention il manque un truc important :
+        // lorsque la feature a des dépendances (je pense qu'on l'exprime alors en 2nd arg de registerStandard)
+        registerStandard('asap').expect(
+            presence,
+            function calledBeforeSetTimeout(resolve, reject) {
+                // certains tests peuvent être asynchrones
+                // dans ce cas jai un souci parce que je peut pas compter sur les promesses
+                // et en plus ça va forcer la plupart de mes fonctions à devenir asychrone
+                // c'est pas forcément un souci mais ça a des impacts énorme
+                // comment savoir si le test est synchrone ? arguments.length > 0
+
+                var asap = this.value;
+                var setTimeoutCalledBeforeAsap = false;
+                setTimeout(function() {
+                    setTimeoutCalledBeforeAsap = true;
+                }, 1);
+                asap(function() {
+                    if (setTimeoutCalledBeforeAsap) {
+                        reject();
+                    } else {
+                        resolve();
+                    }
+                });
+            }
+        );
+
+        registerSyntax('const').expect(
+            presence,
+            {
+                name: 'scoped-for-of',
+                dependencies: ['for-of'],
+                test: function() {
+                    return true;
+                }
+            }
+        );
+
+        registerStandardFeatures('global',
             {name: 'asap', spec: 'es7'},
             {name: 'map', type: 'constructor'},
             {name: 'observable', type: 'constructor', spec: 'es7'},
             {
                 name: 'parse-int',
-                invalid: function() {
+                valid: function() {
                     // https://github.com/zloirock/core-js/blob/v2.4.1/modules/_parse-int.js
                     var ws = '\x09\x0A\x0B\x0C\x0D\x20\xA0\u1680\u180E\u2000\u2001\u2002\u2003';
                     ws += '\u2004\u2005\u2006\u2007\u2008\u2009\u200A\u202F\u205F\u3000\u2028\u2029\uFEFF';
 
                     return (
-                        parseInt(ws + '08') !== 8 ||
-                        parseInt(ws + '0x16') !== 22
+                        parseInt(ws + '08') === 8 &&
+                        parseInt(ws + '0x16') === 22
                     );
                 }
             },
             {
                 name: 'parse-float',
-                invalid: function() {
+                valid: function() {
                     var ws = '\x09\x0A\x0B\x0C\x0D\x20\xA0\u1680\u180E\u2000\u2001\u2002\u2003';
                     ws += '\u2004\u2005\u2006\u2007\u2008\u2009\u200A\u202F\u205F\u3000\u2028\u2029\uFEFF';
 
                     // https://github.com/zloirock/core-js/blob/v2.4.1/modules/_parse-float.js
-                    return 1 / parseFloat(ws + '-0') !== -Infinity;
+                    return 1 / parseFloat(ws + '-0') === -Infinity;
                 }
             },
             {
                 name: 'promise',
                 type: 'constructor',
-                invalid: function() {
+                valid: function() {
                     // agent must implement onunhandledrejection to consider promise implementation valid
                     if (jsenv.isBrowser()) {
                         if ('onunhandledrejection' in jsenv.global) {
@@ -1688,17 +1895,17 @@ je dis pourquoi pas
             {name: 'set-immediate'},
             {
                 name: 'set-interval',
-                invalid: function() {
+                valid: function() {
                     // faudrais check si y'a beosin de fix des truc sous IE9
                     // https://github.com/zloirock/core-js/blob/v2.4.1/modules/web.timers.js
-                    return false;
+                    return true;
                 }
             },
             {
                 name: 'set-timeout',
-                invalid: function() {
+                valid: function() {
                     // same as above
-                    return false;
+                    return true;
                 }
             },
             {name: 'url', path: 'URL'},
@@ -1718,7 +1925,7 @@ je dis pourquoi pas
             {name: 'float32-array', type: 'constructor'},
             {name: 'float64-array', type: 'constructor'}
         );
-        function missingDomCollectionIteration() {
+        function validDomCollectionIteration() {
             return function() {
                 return false;
             };
@@ -1736,37 +1943,37 @@ je dis pourquoi pas
             // };
         }
         if (jsenv.isBrowser()) {
-            registerNativeFeatures('global',
+            registerStandardFeatures('global',
                 {
                     name: 'node-list-iteration',
                     path: 'NodeList',
-                    invalid: missingDomCollectionIteration()
+                    valid: validDomCollectionIteration()
                 },
                 {
                     name: 'dom-token-list-iteration',
                     path: 'DOMTokenList',
-                    invalid: missingDomCollectionIteration()
+                    valid: validDomCollectionIteration()
                 },
                 {
                     name: 'media-list-iteration',
                     path: 'MediaList',
-                    invalid: missingDomCollectionIteration()
+                    valid: validDomCollectionIteration()
                 },
                 {
                     name: 'style-sheet-list-iteration',
                     path: 'StyleSheetList',
-                    invalid: missingDomCollectionIteration()
+                    valid: validDomCollectionIteration()
                 },
                 {
                     name: 'css-rule-list-iteration',
                     path: 'CSSRuleList',
-                    invalid: missingDomCollectionIteration()
+                    valid: validDomCollectionIteration()
                 }
             );
         }
 
         // map, join, filter y'a surement des fix, il ne suffit pas de vérifier que la méthode existe
-        registerNativeFeatures('array',
+        registerStandardFeatures('array',
             {name: 'copy-within', path: autoPrototype},
             {name: 'every', path: autoPrototype},
             {name: 'find', path: autoPrototype},
@@ -1790,75 +1997,57 @@ je dis pourquoi pas
             // ['species', '???', auto]
         );
 
-        registerNativeFeatures('date',
+        registerStandardFeatures('date',
             {name: 'now'},
             {
                 name: 'to-iso-string',
                 path: 'Date.prototype.toISOString',
-                invalid: some(
+                valid: Predicate.every(
                     function() {
                         // https://github.com/zloirock/core-js/blob/v2.4.1/modules/es6.date.to-iso-string.js
-                        try {
-                            return new Date(-5e13 - 1).toISOString() !== '0385-07-25T07:06:39.999Z';
-                        } catch (e) {
-                            return true;
-                        }
+                        return new Date(-5e13 - 1).toISOString() === '0385-07-25T07:06:39.999Z';
                     },
-                    function() {
-                        try {
-                            // eslint-disable-next-line no-unused-expressions
-                            new Date(NaN).toISOString();
-                            return true;
-                        } catch (e) {
-                            return false;
-                        }
-                    }
+                    Predicate.fails(function() {
+                        // eslint-disable-next-line no-unused-expressions
+                        new Date(NaN).toISOString();
+                    })
                 )
             },
             {
                 name: 'to-json',
                 path: 'Date.prototype.toJSON',
-                invalid: some(
+                valid: Predicate.every(
                     function() {
                         // https://github.com/zloirock/core-js/blob/v2.4.1/modules/es6.date.to-json.js
-                        try {
-                            return new Date(NaN).toJSON() !== null;
-                        } catch (e) {
-                            return false;
-                        }
+                        return new Date(NaN).toJSON() === null;
                     },
                     function() {
-                        try {
-                            var fakeDate = {
-                                toISOString: function() {
-                                    return 1;
-                                }
-                            };
-
-                            return Date.prototype.toJSON.call(fakeDate) !== 1;
-                        } catch (e) {
-                            return false;
-                        }
+                        var fakeDate = {
+                            toISOString: function() {
+                                return 1;
+                            }
+                        };
+                        return Date.prototype.toJSON.call(fakeDate) === 1;
                     }
                 )
             },
             {name: 'to-primitive', path: 'Date.prototype[Symbol.toPrimitive]'},
             {
                 name: 'to-string',
-                invalid: function() {
+                valid: function() {
                     // https://github.com/zloirock/core-js/blob/v2.4.1/modules/es6.date.to-string.js
-                    return new Date(NaN).toString() !== 'Invalid Date';
+                    return new Date(NaN).toString() === 'Invalid Date';
                 }
             }
         );
 
-        registerNativeFeatures('function',
+        registerStandardFeatures('function',
             {name: 'bind', path: autoPrototype},
             {name: 'name', path: autoPrototype},
             {name: 'has-instance', path: 'Function.prototype[Symbol.hasInstance]'}
         );
 
-        registerNativeFeatures('object',
+        registerStandardFeatures('object',
             {name: 'assign'},
             {name: 'create'},
             {name: 'define-getter', path: 'Object.__defineGetter__', spec: 'es7'},
@@ -1882,18 +2071,18 @@ je dis pourquoi pas
             {name: 'set-prototype-of'},
             {
                 name: 'to-string',
-                invalid: function() {
+                valid: function() {
                     // si on a pas Symbol.toStringTag
                     // https://github.com/zloirock/core-js/blob/master/modules/es6.object.to-string.js
                     var test = {};
                     test[Symbol.toStringTag] = 'z';
-                    return test.toString() !== '[object z]';
+                    return test.toString() === '[object z]';
                 }
             },
             {name: 'values', spec: 'es7'}
         );
 
-        registerNativeFeatures('symbol',
+        registerStandardFeatures('symbol',
             {name: ''},
             {name: 'async-iterator', spec: 'es7'},
             {name: 'has-instance'},
@@ -1906,7 +2095,7 @@ je dis pourquoi pas
             {name: 'to-primitive'}
         );
 
-        registerNativeFeatures('math',
+        registerStandardFeatures('math',
             {name: 'acosh'},
             {name: 'asinh'},
             {name: 'atanh'},
@@ -1937,16 +2126,16 @@ je dis pourquoi pas
             {name: 'umulh', spec: 'es7'}
         );
 
-        registerNativeFeatures('number',
+        registerStandardFeatures('number',
             {
                 name: 'constructor',
                 path: 'Number',
-                invalid: function() {
+                valid: function() {
                     // https://github.com/zloirock/core-js/blob/v2.4.1/modules/es6.number.constructor.js#L46
                     return (
-                        !Number(' 0o1') ||
-                        !Number('0b1') ||
-                        Number('+0x1')
+                        Number(' 0o1') &&
+                        Number('0b1') &&
+                        !Number('+0x1')
                     );
                 }
             },
@@ -1963,7 +2152,7 @@ je dis pourquoi pas
             {name: 'parse-int'}
         );
 
-        registerNativeFeatures('reflect',
+        registerStandardFeatures('reflect',
             {name: 'apply'},
             {name: 'construct'},
             {name: 'define-property'},
@@ -1989,20 +2178,20 @@ je dis pourquoi pas
             {name: 'metadata', spec: 'es7'}
         );
 
-        registerNativeFeatures('regexp',
+        registerStandardFeatures('regexp',
             {
                 name: 'constructor',
                 path: 'RegExp',
-                invalid: function() {
+                valid: function() {
                     // https://github.com/zloirock/core-js/blob/v2.4.1/modules/es6.regexp.constructor.js
                     var re1 = /a/g;
                     var re2 = /a/g;
                     re2[Symbol.match] = false;
                     var re3 = RegExp(re1, 'i');
                     return (
-                        RegExp(re1) !== re1 ||
-                        RegExp(re2) === re2 ||
-                        RegExp(re3).toString() !== '/a/i'
+                        RegExp(re1) === re1 &&
+                        RegExp(re2) !== re2 &&
+                        RegExp(re3).toString() === '/a/i'
                     );
                 }
             },
@@ -2010,9 +2199,9 @@ je dis pourquoi pas
             {
                 name: 'flags',
                 path: 'RegExp.prototype.flags',
-                invalid: function() {
+                valid: function() {
                     // https://github.com/zloirock/core-js/blob/v2.4.1/modules/es6.regexp.flags.js
-                    return /./g.flags !== 'g';
+                    return /./g.flags === 'g';
                 }
             },
             {name: 'match', path: 'RegExp.prototype[Symbol.match]'},
@@ -2022,18 +2211,18 @@ je dis pourquoi pas
             {
                 name: 'to-string',
                 path: 'RegExp.prototype.toString',
-                invalid: function() {
+                valid: function() {
                     // https://github.com/zloirock/core-js/blob/master/modules/es6.regexp.to-string.js
                     var toString = RegExp.prototype.toString;
                     return (
-                        toString.call({source: 'a', flags: 'b'}) !== '/a/b' ||
-                        toString.name !== 'toString'
+                        toString.call({source: 'a', flags: 'b'}) === '/a/b' &&
+                        toString.name === 'toString'
                     );
                 }
             }
         );
 
-        registerNativeFeatures('string',
+        registerStandardFeatures('string',
             {name: 'at', path: autoPrototype, spec: 'es7'},
             {name: 'from-code-point'},
             {name: 'code-point-at', path: autoPrototype},
@@ -2065,6 +2254,456 @@ je dis pourquoi pas
             {name: 'sub', path: autoPrototype},
             {name: 'sup', path: autoPrototype}
         );
+        */
+    });
+
+    jsenv.build(function registerSyntaxFeatures() {
+        /*
+        this is all about mapping
+        https://github.com/babel/babel-preset-env/blob/master/data/plugin-features.js
+        with
+        https://github.com/kangax/compat-table/blob/gh-pages/data-es5.js
+        https://github.com/kangax/compat-table/blob/gh-pages/data-es6.js
+        */
+
+        // function testSyntax() {
+        //     var syntaxTestDescriptors = arguments;
+        //     var syntaxTests = map(syntaxTestDescriptors, function(syntaxDescriptor) {
+        //         return function() {
+        //             var feature = this;
+        //             var valid;
+
+        //             if ('relyOn' in syntaxDescriptor) {
+        //                 var dependencyNames = syntaxDescriptor.relyOn;
+        //                 var someDependencyIsExcluded = dependencyNames.some(function(dependencyName) {
+        //                     return jsenv.implementation.get(dependencyName).isExcluded();
+        //                 });
+
+        //                 if (someDependencyIsExcluded) {
+        //                     valid = true;
+        //                 }
+        //             }
+
+        //             if (valid === undefined) {
+        //                 if ('code' in syntaxDescriptor) {
+        //                     var result;
+        //                     try {
+        //                         result = eval(syntaxDescriptor.code); // eslint-disable-line
+        //                     } catch (e) {
+        //                         valid = false;
+        //                     }
+
+        //                     if (valid === undefined) {
+        //                         if ('valid' in syntaxDescriptor) {
+        //                             valid = syntaxDescriptor.valid(result);
+        //                         } else {
+        //                             valid = Boolean(result);
+        //                         }
+        //                     }
+        //                 }
+        //             }
+
+        //             if (valid === undefined) {
+        //                 valid = true;
+        //             }
+        //             feature.validityReason = syntaxDescriptor.name;
+        //             return valid;
+        //         };
+        //     });
+
+        //     return Predicate.every.apply(null, syntaxTests);
+        // }
+
+        // var implementation = jsenv.implementation;
+        // var registerSyntaxFeature = function(featureName, syntaxTest) {
+        //     var feature = implementation.add(featureName);
+        //     feature.type = 'syntax';
+        //     feature.transpiled = false;
+        //     feature.when(function() {
+        //         return this.transpiled;
+        //     }, 'valid');
+
+        //     feature.when(Predicate.not(syntaxTest), 'invalid');
+
+        //     return feature;
+        // };
+
+        // function extract(fn) {
+        //     return fn.toString().match(/[^]*\/\*([^]*)\*\/\}$/)[1];
+        // }
+
+        var registerSyntaxFeature = function() {};
+        var testSyntax = function() {};
+        var extract = function() {};
+
+        /*
+        registerSyntaxFeature('arrow-functions', testSyntax(
+            {
+                name: '0 parameters',
+                code: '() => 5',
+                valid: function(fn) {
+                    return fn === 5;
+                }
+            },
+            {
+                name: 'lexical "super" binding in constructors',
+                relyOn: ['class'], // no need to check this if we don't use class
+                code: '\
+                    var scope = {};\
+                    class B {\
+                      constructor (arg) {\
+                        scope.received = arg;\
+                      }\
+                    }\
+                    \
+                    class C extends B {\
+                      constructor (arg) {\
+                        var callSuper = () => super(arg);\
+                        callSuper();\
+                      }\
+                    }\
+                    scope;\
+                ',
+                valid: function(scope) {
+                    return (
+                        new scope.C('foo') instanceof scope.C &&
+                        scope.received === 'foo'
+                    );
+                }
+            }
+        ));
+        registerSyntaxFeature('block-level-function-declaration', testSyntax(
+            {
+                code: extract(function() {
+                    'use strict';
+                    if (f() !== 1) return false;
+                    function f() { return 1; }
+                    {
+                      if (f() !== 2) return false;
+                      function f() { return 2; }
+                      if (f() !== 2) return false;
+                    }
+                    if (f() !== 1) return false;
+                    return true;
+                })
+            }
+        ));
+        */
+
+        registerSyntaxFeature('const', testSyntax(
+            {
+                name: 'basic support',
+                code: 'const foo = 123; foo;',
+                valid: function(foo) {
+                    return foo === 123;
+                }
+            },
+            {
+                name: 'block-scoped',
+                code: 'const bar = 123; { const bar = 456; } bar;',
+                valid: function(bar) {
+                    return bar === 123;
+                }
+            },
+            {
+                name: 'cannot be in statements',
+                code: extract(function() {/*
+                    const bar = 1;
+                    try {
+                      Function("if(true) const baz = 1;")();
+                    } catch(e) {
+                      return true;
+                    }
+                */})
+            },
+            {
+                name: 'redefining a const is an error',
+                code: extract(function() {/*
+                    const baz = 1;
+                    try {
+                      Function("const foo = 1; foo = 2;")();
+                    } catch(e) {
+                      return true;
+                    }
+                */})
+            },
+            {
+                name: 'for loop statement scope',
+                code: 'const baz = 1; for(const baz = 0; false;) {}; baz;',
+                valid: function(baz) {
+                    return baz === 1;
+                }
+            },
+            {
+                name: 'for-in loop iteration scope',
+                code: extract(function() {/*
+                    var scopes = [];
+                    for(const i in { a:1, b:1 }) {
+                      scopes.push(function(){ return i; });
+                    }
+                    scopes;
+                */}),
+                valid: function(scopes) {
+                    return (
+                        scopes[0]() === "a" &&
+                        scopes[1]() === "b"
+                    );
+                }
+            },
+            {
+                name: 'for-of loop iteration scope',
+                code: extract(function() {/*
+                    var scopes = [];
+                    for(const i of ['a','b']) {
+                      scopes.push(function(){ return i; });
+                    }
+                    scopes;
+                */}),
+                valid: function(scopes) {
+                    return (
+                        scopes[0]() === "a" &&
+                        scopes[1]() === "b"
+                    );
+                }
+            },
+            {
+                name: 'temporal dead zone',
+                code: extract(function() {/*
+                    var passed = (function(){ try { qux; } catch(e) { return true; }}());
+                    function fn() { passed &= qux === 456; }
+                    const qux = 456;
+                    fn();
+                    return passed;
+                */})
+            }
+        ));
+        registerSyntaxFeature('let', testSyntax(
+            {
+                name: 'basic support',
+                code: 'let foo = 123; foo;',
+                valid: function(foo) {
+                    return foo === 123;
+                }
+            },
+            {
+                name: 'is block-scoped',
+                code: 'let bar = 123; { let bar = 456; } bar;',
+                valid: function(bar) {
+                    return bar === 123;
+                }
+            },
+            {
+                name: 'cannot be in statements',
+                code: extract(function() {/*
+                    let bar = 1;
+                    try {
+                      Function("if(true) let baz = 1;")();
+                    } catch(e) {
+                      return true;
+                    }
+                */})
+            },
+            {
+                name: 'for loop statement scope',
+                code: 'let baz = 1; for(let baz = 0; false;) {}; baz;',
+                valid: function(baz) {
+                    return baz === 1;
+                }
+            },
+            {
+                name: 'temporal dead zone',
+                code: extract(function() {/*
+                    var passed = (function(){ try {  qux; } catch(e) { return true; }}());
+                    function fn() { passed &= qux === 456; }
+                    let qux = 456;
+                    fn();
+                    return passed;
+                */})
+            },
+            {
+                name: 'for/for-in loop iteration scope',
+                code: extract(function() {/*
+                    let scopes = [];
+                    for(let i = 0; i < 2; i++) {
+                      scopes.push(function(){ return i; });
+                    }
+                    for(let i in { a:1, b:1 }) {
+                      scopes.push(function(){ return i; });
+                    }
+                    return scopes;
+                */}),
+                valid: function(scopes) {
+                    return (
+                        scopes[0]() === 0 &&
+                        scopes[1]() === 1 &&
+                        scopes[2]() === 'a' &&
+                        scopes[3]() === 'b'
+                    );
+                }
+            }
+        ));
+    });
+
+    jsenv.build(function registerFeatures() {
+        function presence() {
+            var value = jsenv.readAt(jsenv.global, this.path);
+            if (value === jsenv.noValue) {
+                this.status = 'invalid';
+                this.statusReason = 'missing';
+            } else {
+                this.status = 'valid';
+                this.value = value;
+            }
+        }
+
+        function registerStandard() {
+            var standardFeature = registerFeature.apply(this, arguments);
+
+            standardFeature.expect = function(path) {
+                this.path = path;
+                this.exec = presence;
+                return this;
+            };
+
+            return standardFeature;
+        }
+
+        function registerFeature(featureName, secondArg) {
+            var featureDescriptor;
+            if (arguments.length === 1) {
+                featureDescriptor = {};
+            } else if (typeof secondArg === 'object') {
+                featureDescriptor = secondArg;
+            } else {
+                throw new TypeError('registerFeature 2nd argument must be an object');
+            }
+
+            var feature = jsenv.implementation.add(featureName);
+            assign(feature, featureDescriptor);
+            return feature;
+        }
+
+        function syntax(firstArg, codeReturnValueTest) {
+            var code;
+            if (typeof firstArg === 'function') {
+                code = firstArg.toString().match(/[^]*\/\*([^]*)\*\/\}$/)[1];
+            } else if (typeof firstArg === 'string') {
+                code = firstArg;
+            } else {
+                throw new TypeError('syntax first argument must be a string or a function');
+            }
+
+            return function(settle) {
+                var returnValue = eval(code); // eslint-disable-line
+
+                if (codeReturnValueTest) {
+                    if (codeReturnValueTest.length < 2) {
+                        returnValue = codeReturnValueTest.call(this, returnValue);
+                        settle(Boolean(returnValue), 'returned', returnValue);
+                    } else {
+                        codeReturnValueTest.call(this, returnValue, settle);
+                    }
+                } else {
+                    settle(Boolean(returnValue), 'returned', returnValue);
+                }
+            };
+        }
+
+        function registerSyntax() {
+            var syntaxFeature = registerFeature.apply(this, arguments);
+
+            syntaxFeature.expect = function() {
+                this.exec = syntax.apply(this, arguments);
+                return this;
+            };
+
+            return syntaxFeature;
+        }
+
+        registerStandard('promise').expect('Promise').ensure(
+            function unhandledRejectionHook(settle) {
+                var promiseRejectionEvent;
+                var unhandledRejection = function(e) {
+                    promiseRejectionEvent = e;
+                };
+
+                if (jsenv.isBrowser()) {
+                    if ('onunhandledrejection' in window === false) {
+                        return settle(false);
+                    }
+                    window.onunhandledrejection = unhandledRejection;
+                } else if (jsenv.isNode()) {
+                    process.on('unhandledRejection', unhandledRejection);
+                } else {
+                    return settle(false);
+                }
+
+                var promise = Promise.reject('foo');
+                setTimeout(function() {
+                    settle(
+                        promiseRejectionEvent &&
+                        promiseRejectionEvent.promise === promise &&
+                        promiseRejectionEvent.reason === 'foo'
+                    );
+                }, 10); // engine has 10ms to trigger the event
+            },
+            function rejectionHandledHook(settle) {
+                var promiseRejectionEvent;
+                var rejectionHandled = function(e) {
+                    promiseRejectionEvent = e;
+                };
+
+                if (jsenv.isBrowser()) {
+                    if ('onrejectionhandled' in window === false) {
+                        return settle(false);
+                    }
+                    window.onrejectionhandled = rejectionHandled;
+                } else if (jsenv.isNode()) {
+                    process.on('rejectionHandled', rejectionHandled);
+                } else {
+                    return settle(false);
+                }
+
+                var promise = Promise.reject('foo');
+                setTimeout(function() {
+                    promise.catch(function() {});
+                    setTimeout(function() {
+                        settle(
+                            promiseRejectionEvent &&
+                            promiseRejectionEvent.promise === promise &&
+                            promiseRejectionEvent.reason === 'foo'
+                        );
+                    }, 10); // engine has 10ms to trigger the event
+                });
+            }
+        );
+
+        registerSyntax('const').expect(
+            'const foo = 123; foo;',
+            function(foo) {
+                return foo === 123;
+            }
+        ).ensure(
+            {
+                name: 'scoped-for-of',
+                dependencies: ['for-of'],
+                test: syntax(
+                    function() {/*
+                        var scopes = [];
+                        for(const i of ['a','b']) {
+                          scopes.push(function(){ return i; });
+                        }
+                        scopes;
+                    */},
+                    function(scopes) {
+                        return (
+                            scopes[0]() === "a" &&
+                            scopes[1]() === "b"
+                        );
+                    }
+                )
+            }
+        );
     });
 
     jsenv.build(function implementationRequired() {
@@ -2074,20 +2713,10 @@ je dis pourquoi pas
         var implementation = this.implementation;
 
         implementation.include = function(featureName) {
-            implementation.get(featureName).excluded = false;
+            implementation.get(featureName).include();
         };
         implementation.exclude = function(featureName, reason) {
-            var feature = implementation.get(featureName);
-            feature.excluded = true;
-            feature.exclusionReason = reason;
-        };
-
-        implementation.getRequiredFeatures = function() {
-            return implementation.features.filter(function(feature) {
-                return feature.excluded !== true;
-            }).filter(function(requiredFeature) {
-                return requiredFeature.test() === false;
-            });
+            implementation.get(featureName).exclude(reason);
         };
     });
 

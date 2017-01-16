@@ -10,6 +10,16 @@ qu'est ce que je fais ?
 je pense qu'il faut alors (puisque SystemJS est chargé)
 faire System.translate = ma fonction de transpilation
 
+ah et aussi : c'est pas aussi simple que juste avoir une liste de true/false
+certain plugin nécéssite la présence d'autres et il "faudrais" l'exprimer pour que si
+on exclue une dépendance on dise ouais mais sans ça tu peux pas avoir ça
+ou alors avec ça il faut absolument ça
+
+poster une issue sur systemjs a propos de la dépréciation du fetch hook
+car cela me permettait d'autoriser http sous node
+https://github.com/systemjs/systemjs/blob/0.20/src/fetch.js
+pour translate ça semble bon : https://github.com/ModuleLoader/es-module-loader/issues/525#issuecomment-272708053
+
 y'a un cas spécial auquel il faudras penser : yield etc
 il ont besoin à la fois d'un polyfill (regenerator/runtime) et d'une transpilation)
 mais il s'agit d'une seule feature
@@ -24,6 +34,43 @@ lorsqu'on demande if-modified-since)
 
 - à un moment il faudrais mettre en cache les builds de polyfill pour éviter de les reconstruire tout le temps
 mais on retarde ça le plus possible parce que ça a des impacts (comment invalider ce cache etc) et c'est dispensable
+
+*/
+
+/*
+// bon l'idée c'est bel et bien d'avoir une liste de features dont on souhaite se servir
+// et un test associé.
+// lorsque ce test ne passe pas
+// il peut ou non y avoir un moyen d'y remédier (polyfill/transpile)
+// etc mais aussi n'y avoir aucun moyen
+// c'est pourquoi chaque polyfill/transpile doit préciser quel cas il couvre
+
+idéallement il faudrais donc une feature et associer à celle ci un test
+un status expliquant pourquoi la feature est invalide serais aussi du meilleur gout
+on aurait un seul status valid/invalid
+et un status : 'missing', 'errored' et d'autre nom n'existant pas encore
+selon pourquoi la feature est invalide on peut préciser un status
+
+les polyfill vont ensuite dire moi je gère lorsque missing ou invalide voir errored dans certains cas
+et laisser passer d'autres cas ou le polyfill ne peut pas fix le problème
+
+pareil pour la transpilation qui va réagir sur certains status et dire ok je m'en charge
+par contre le fait qu'une feature puisse avoir plusieurs test ne me plait pas
+enfin je sais pas trop à voir à l'suage
+
+en gros when() disparait
+ne reste que status = 'valid' | 'invalid'
+statusReason = 'missing' | 'errored' | 'unspecified' | 'anystring'
+statusReasonData (pour errored)
+
+faudrais aussi que les polyfill soit plus intelligent
+et éviter de se testers lorsqu'une dépendance fail
+autrement dit getStatus peut retourner invalid avec pour reason 'dependency-is-invalid' et reasonData la dependency
+cela rendra les polyfills plus intelligent
+
+- maintenant que feature.getStatus est asynchrone y'a des choses à revoir
+getRequiredFeatures et d'autres choses doivent maintenant être asynchrone
+à partir du moment où on commence à tester
 
 */
 
@@ -52,6 +99,7 @@ var featuresHandledByFile = {
     'url-search-params': __dirname + '/src/polyfill/url-search-params/index.js'
 };
 // other features are handled is a less abvious way by corejs (see coreJSHandler below)
+// explicit is better than implicit so not ideal but prevent tons of code, keep as it is for now
 
 function coreJSHandler(requiredFeatures) {
     var handled = [];
@@ -69,7 +117,7 @@ function coreJSHandler(requiredFeatures) {
         compile: function() {
             var buildCoreJS = require('core-js-builder');
 
-            var nativeFeatureForcedCoreJSMapping = {
+            var standardFeatureForcedCoreJSMapping = {
                 'set-immediate': 'web.immediate',
 
                 'array-buffer': 'es6.typed.array-buffer',
@@ -104,19 +152,19 @@ function coreJSHandler(requiredFeatures) {
                 'symbol-to-primitive': 'es6.symbol'
             };
 
-            handled.forEach(function(nativeFeature) {
-                var featureName = nativeFeature.name;
-                if (featureName in nativeFeatureForcedCoreJSMapping === false) {
-                    nativeFeatureForcedCoreJSMapping[featureName] = getCoreJSModuleNameOfNativeFeature(nativeFeature);
+            handled.forEach(function(standardFeature) {
+                var featureName = standardFeature.name;
+                if (featureName in standardFeatureForcedCoreJSMapping === false) {
+                    standardFeatureForcedCoreJSMapping[featureName] = getSupposedCoreJSModuleName(standardFeature);
                 }
             });
-            function getCoreJSModuleNameOfNativeFeature(nativeFeature) {
+            function getSupposedCoreJSModuleName(standardFeature) {
                 var coreJsModuleName;
-                var featureSpec = nativeFeature.spec;
+                var featureSpec = standardFeature.spec;
 
                 coreJsModuleName = featureSpec;
 
-                var featureName = nativeFeature.name;
+                var featureName = standardFeature.name;
                 var dashIndex = featureName.indexOf('-');
                 var beforeFirstDash = dashIndex === -1 ? featureName : featureName.slice(0, dashIndex);
 
@@ -145,8 +193,8 @@ function coreJSHandler(requiredFeatures) {
                 return coreJsModuleName;
             }
 
-            var requiredCoreJSModules = handled.map(function(nativeFeature) {
-                return nativeFeatureForcedCoreJSMapping[nativeFeature.name];
+            var requiredCoreJSModules = handled.map(function(standardFeature) {
+                return standardFeatureForcedCoreJSMapping[standardFeature.name];
             }).filter(function(value, index, list) {
                 return list.indexOf(value) === index;
             });
@@ -224,24 +272,79 @@ function compile(features) {
     });
 }
 
-var requiredFeatures = jsenv.implementation.getRequiredFeatures();
-var requiredNativeFeatures = requiredFeatures.filter(function(feature) {
-    return feature.type === 'native';
-});
+function getRequiredFeatures() {
+    return jsenv.implementation.features.filter(function(feature) {
+        return feature.excluded !== true;
+    }).filter(function(requiredFeature) {
+        return requiredFeature.test() === false;
+    });
+}
 
-compile(requiredNativeFeatures).then(function(source) {
+var requiredFeatures = getRequiredFeatures();
+
+var requiredStandardFeatures = requiredFeatures.filter(function(feature) {
+    return feature.type === 'standard';
+});
+compile(requiredStandardFeatures).then(function(source) {
     fs.writeFileSync('polyfill-all.js', source);
     eval(source); // eslint-disable-line
 
-    var failedFeaturesPolyfill = requiredNativeFeatures.filter(function(nativeFeature) {
-        return nativeFeature.test() === false;
-    }).map(function(nativeFeature) {
-        return nativeFeature.name;
+    var failedFeaturesPolyfill = requiredStandardFeatures.filter(function(standardFeature) {
+        return standardFeature.test() === false;
+    }).map(function(standardFeature) {
+        return standardFeature.name;
     });
     if (failedFeaturesPolyfill.length) {
         console.log('following features failed polyfill', failedFeaturesPolyfill);
     }
 });
+
+var requiredSyntaxFeatures = requiredFeatures.filter(function(feature) {
+    return feature.type === 'syntax';
+});
+
+function babelHandler(requiredFeatures) {
+    var plugins = [
+        {
+            name: 'transform-es2015-block-scoping',
+            features: [
+                'const',
+                'const-block-scoped',
+                'const-not-in-statement',
+                'const-throw-on-redefine',
+                'const-scope-for',
+                'const-scope-for-in',
+                'const-scope-for-of',
+                'const-temporal-dead-zone',
+                'let'
+            ]
+        }
+    ];
+    var requiredPlugins = [];
+
+    requiredFeatures.forEach(function(requiredFeature) {
+        console.log('feature', requiredFeature.name, 'is required because', requiredFeature.validityReason);
+
+        var requiredFeatureName = requiredFeature.name;
+        var pluginForThatFeature = jsenv.helpers.find(plugins, function(plugin) {
+            return plugin.features.some(function(pluginFeatureName) {
+                return pluginFeatureName === requiredFeatureName;
+            });
+        });
+
+        if (pluginForThatFeature) {
+            var requiredPluginName = pluginForThatFeature.name;
+            if (requiredPlugins.indexOf(requiredPluginName) === -1) {
+                requiredPlugins.push(requiredPluginName);
+            }
+        }
+    });
+    console.log('the required babel plugins', requiredPlugins);
+}
+function transpile(requiredFeatures) {
+    return babelHandler(requiredFeatures);
+}
+transpile(requiredSyntaxFeatures);
 
 // console.log('required core js modules', requiredCoreJSModules);
 
