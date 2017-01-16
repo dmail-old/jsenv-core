@@ -45,306 +45,286 @@ mais on retarde ça le plus possible parce que ça a des impacts (comment invali
 // etc mais aussi n'y avoir aucun moyen
 // c'est pourquoi chaque polyfill/transpile doit préciser quel cas il couvre
 
-idéallement il faudrais donc une feature et associer à celle ci un test
-un status expliquant pourquoi la feature est invalide serais aussi du meilleur gout
-on aurait un seul status valid/invalid
-et un status : 'missing', 'errored' et d'autre nom n'existant pas encore
-selon pourquoi la feature est invalide on peut préciser un status
-
-les polyfill vont ensuite dire moi je gère lorsque missing ou invalide voir errored dans certains cas
-et laisser passer d'autres cas ou le polyfill ne peut pas fix le problème
-
-pareil pour la transpilation qui va réagir sur certains status et dire ok je m'en charge
-par contre le fait qu'une feature puisse avoir plusieurs test ne me plait pas
-enfin je sais pas trop à voir à l'suage
-
-en gros when() disparait
-ne reste que status = 'valid' | 'invalid'
-statusReason = 'missing' | 'errored' | 'unspecified' | 'anystring'
-statusReasonData (pour errored)
-
-faudrais aussi que les polyfill soit plus intelligent
-et éviter de se testers lorsqu'une dépendance fail
-autrement dit getStatus peut retourner invalid avec pour reason 'dependency-is-invalid' et reasonData la dependency
-cela rendra les polyfills plus intelligent
-
 - maintenant que feature.getStatus est asynchrone y'a des choses à revoir
 getRequiredFeatures et d'autres choses doivent maintenant être asynchrone
 à partir du moment où on commence à tester
 
+- au lieu d'avoir les dependances listé directement dans le package.json
+ça serais une tuerie d'avoir une liste de package et ce qu'ils sont censé
+corrigé de sorte que seulement si on en a besoin on installe core-js babel plugin etc
+faudrais bien penser à lancer les tests en parallèle, pas le choix sinon ils vont être bcp trop long
+et puis tfaçon c'ets des tests genre est ce que ça marche ou pas mais
+on veut la liste de ce qui marche pas et pas s'arrêter au premier qui marche pas
+sauf qu'avec les dépendances on peut pas vraiment les faire en parallèlee....
+oh misère!
+du coup faudrais que ceux étant dépendant attendent ok pourquoi pas
+
 */
 
-var fs = require('fs');
+// var fs = require('fs');
 require('./index.js');
 var jsenv = global.jsenv;
 
 // exclude some features
-[
-    'math-clamp',
-    'math-deg-per-rad',
-    'math-degrees',
-    'math-fscale',
-    'math-radians',
-    'math-rad-per-deg',
-    'math-scale',
-    'string-escape-html',
-    'string-match-all',
-    'string-unescape-html'
-].forEach(function(excludedFeature) {
-    jsenv.implementation.exclude(excludedFeature, 'npm corejs@2.4.1 does not have thoose polyfill');
-});
+// [
+//     'math-clamp',
+//     'math-deg-per-rad',
+//     'math-degrees',
+//     'math-fscale',
+//     'math-radians',
+//     'math-rad-per-deg',
+//     'math-scale',
+//     'string-escape-html',
+//     'string-match-all',
+//     'string-unescape-html'
+// ].forEach(function(excludedFeature) {
+//     jsenv.implementation.exclude(excludedFeature, 'npm corejs@2.4.1 does not have thoose polyfill');
+// });
 // handle thoose features using known file path
-var featuresHandledByFile = {
-    url: __dirname + '/src/polyfill/url/index.js',
-    'url-search-params': __dirname + '/src/polyfill/url-search-params/index.js'
-};
+// var featuresHandledByFile = {
+//     url: __dirname + '/src/polyfill/url/index.js',
+//     'url-search-params': __dirname + '/src/polyfill/url-search-params/index.js'
+// };
 // other features are handled is a less abvious way by corejs (see coreJSHandler below)
 // explicit is better than implicit so not ideal but prevent tons of code, keep as it is for now
 
-function coreJSHandler(requiredFeatures) {
-    var handled = [];
-    var unhandled = [];
-    requiredFeatures.forEach(function(feature) {
-        if (feature.name in featuresHandledByFile) {
-            unhandled.push(feature);
-        } else {
-            handled.push(feature);
-        }
-    });
+// function coreJSHandler(requiredFeatures) {
+//     var handled = [];
+//     var unhandled = [];
+//     requiredFeatures.forEach(function(feature) {
+//         if (feature.name in featuresHandledByFile) {
+//             unhandled.push(feature);
+//         } else {
+//             handled.push(feature);
+//         }
+//     });
 
-    return {
-        unhandled: unhandled,
-        compile: function() {
-            var buildCoreJS = require('core-js-builder');
+//     return {
+//         unhandled: unhandled,
+//         compile: function() {
+//             var buildCoreJS = require('core-js-builder');
 
-            var standardFeatureForcedCoreJSMapping = {
-                'set-immediate': 'web.immediate',
+//             var standardFeatureForcedCoreJSMapping = {
+//                 'set-immediate': 'web.immediate',
 
-                'array-buffer': 'es6.typed.array-buffer',
-                'data-view': 'es6.typed.data-view',
-                'int8-array': 'es6.typed.int8-array',
-                'uint8-array': 'es6.typed.uint8-array',
-                'uint8-clamped-array': 'es6.typed.uint8-clamped-array',
-                'int16-array': 'es6.typed.int16-array',
-                'uint16-array': 'es6.typed.uint16-array',
-                'int32-array': 'es6.typed.int32-array',
-                'uint32-array': 'es6.typed.uint32-array',
-                'float32-array': 'es6.typed.float32-array',
-                'float64-array': 'es6.typed.float64-array',
+//                 'array-buffer': 'es6.typed.array-buffer',
+//                 'data-view': 'es6.typed.data-view',
+//                 'int8-array': 'es6.typed.int8-array',
+//                 'uint8-array': 'es6.typed.uint8-array',
+//                 'uint8-clamped-array': 'es6.typed.uint8-clamped-array',
+//                 'int16-array': 'es6.typed.int16-array',
+//                 'uint16-array': 'es6.typed.uint16-array',
+//                 'int32-array': 'es6.typed.int32-array',
+//                 'uint32-array': 'es6.typed.uint32-array',
+//                 'float32-array': 'es6.typed.float32-array',
+//                 'float64-array': 'es6.typed.float64-array',
 
-                'node-list-iteration': 'web.dom.iterable',
-                'dom-token-list-iteration': 'web.dom.iterable',
-                'media-list-iteration': 'web.dom.iterable',
-                'style-sheet-list-iteration': 'web.dom.iterable',
-                'css-rule-list-iteration': 'web.dom.iterable',
+//                 'node-list-iteration': 'web.dom.iterable',
+//                 'dom-token-list-iteration': 'web.dom.iterable',
+//                 'media-list-iteration': 'web.dom.iterable',
+//                 'style-sheet-list-iteration': 'web.dom.iterable',
+//                 'css-rule-list-iteration': 'web.dom.iterable',
 
-                'number-iterator': 'core.number.iterator',
-                'regexp-escape': 'core.regexp.escape',
-                'string-escape-html': 'core.string.escape-html',
-                'string-trim-end': 'es7.string.trim-right',
-                'string-trim-start': 'es7.string.trim-left',
-                'string-unescape-html': 'core.string.unescape-html',
-                'symbol-has-instance': 'es6.symbol',
-                'symbol-match': 'es6.symbol',
-                'symbol-replace': 'es6.symbol',
-                'symbol-search': 'es6.symbol',
-                'symbol-split': 'es6.symbol',
-                'symbol-to-primitive': 'es6.symbol'
-            };
+//                 'number-iterator': 'core.number.iterator',
+//                 'regexp-escape': 'core.regexp.escape',
+//                 'string-escape-html': 'core.string.escape-html',
+//                 'string-trim-end': 'es7.string.trim-right',
+//                 'string-trim-start': 'es7.string.trim-left',
+//                 'string-unescape-html': 'core.string.unescape-html',
+//                 'symbol-has-instance': 'es6.symbol',
+//                 'symbol-match': 'es6.symbol',
+//                 'symbol-replace': 'es6.symbol',
+//                 'symbol-search': 'es6.symbol',
+//                 'symbol-split': 'es6.symbol',
+//                 'symbol-to-primitive': 'es6.symbol'
+//             };
 
-            handled.forEach(function(standardFeature) {
-                var featureName = standardFeature.name;
-                if (featureName in standardFeatureForcedCoreJSMapping === false) {
-                    standardFeatureForcedCoreJSMapping[featureName] = getSupposedCoreJSModuleName(standardFeature);
-                }
-            });
-            function getSupposedCoreJSModuleName(standardFeature) {
-                var coreJsModuleName;
-                var featureSpec = standardFeature.spec;
+//             handled.forEach(function(standardFeature) {
+//                 var featureName = standardFeature.name;
+//                 if (featureName in standardFeatureForcedCoreJSMapping === false) {
+//                     standardFeatureForcedCoreJSMapping[featureName] = getSupposedCoreJSModuleName(standardFeature);
+//                 }
+//             });
+//             function getSupposedCoreJSModuleName(standardFeature) {
+//                 var coreJsModuleName;
+//                 var featureSpec = standardFeature.spec;
 
-                coreJsModuleName = featureSpec;
+//                 coreJsModuleName = featureSpec;
 
-                var featureName = standardFeature.name;
-                var dashIndex = featureName.indexOf('-');
-                var beforeFirstDash = dashIndex === -1 ? featureName : featureName.slice(0, dashIndex);
+//                 var featureName = standardFeature.name;
+//                 var dashIndex = featureName.indexOf('-');
+//                 var beforeFirstDash = dashIndex === -1 ? featureName : featureName.slice(0, dashIndex);
 
-                if (
-                    beforeFirstDash === 'array' ||
-                    beforeFirstDash === 'date' ||
-                    beforeFirstDash === 'function' ||
-                    beforeFirstDash === 'object' ||
-                    beforeFirstDash === 'symbol' ||
-                    beforeFirstDash === 'math' ||
-                    beforeFirstDash === 'number' ||
-                    beforeFirstDash === 'reflect' ||
-                    beforeFirstDash === 'regexp' ||
-                    beforeFirstDash === 'string'
-                ) {
-                    coreJsModuleName += '.' + beforeFirstDash;
+//                 if (
+//                     beforeFirstDash === 'array' ||
+//                     beforeFirstDash === 'date' ||
+//                     beforeFirstDash === 'function' ||
+//                     beforeFirstDash === 'object' ||
+//                     beforeFirstDash === 'symbol' ||
+//                     beforeFirstDash === 'math' ||
+//                     beforeFirstDash === 'number' ||
+//                     beforeFirstDash === 'reflect' ||
+//                     beforeFirstDash === 'regexp' ||
+//                     beforeFirstDash === 'string'
+//                 ) {
+//                     coreJsModuleName += '.' + beforeFirstDash;
 
-                    var afterFirstDash = dashIndex === -1 ? '' : featureName.slice(dashIndex + 1);
-                    if (afterFirstDash) {
-                        coreJsModuleName += '.' + afterFirstDash;
-                    }
-                } else {
-                    coreJsModuleName += '.' + featureName;
-                }
+//                     var afterFirstDash = dashIndex === -1 ? '' : featureName.slice(dashIndex + 1);
+//                     if (afterFirstDash) {
+//                         coreJsModuleName += '.' + afterFirstDash;
+//                     }
+//                 } else {
+//                     coreJsModuleName += '.' + featureName;
+//                 }
 
-                return coreJsModuleName;
-            }
+//                 return coreJsModuleName;
+//             }
 
-            var requiredCoreJSModules = handled.map(function(standardFeature) {
-                return standardFeatureForcedCoreJSMapping[standardFeature.name];
-            }).filter(function(value, index, list) {
-                return list.indexOf(value) === index;
-            });
+//             var requiredCoreJSModules = handled.map(function(standardFeature) {
+//                 return standardFeatureForcedCoreJSMapping[standardFeature.name];
+//             }).filter(function(value, index, list) {
+//                 return list.indexOf(value) === index;
+//             });
 
-            return buildCoreJS({
-                modules: requiredCoreJSModules,
-                librabry: false,
-                umd: true
-            });
-        }
-    };
-}
+//             return buildCoreJS({
+//                 modules: requiredCoreJSModules,
+//                 librabry: false,
+//                 umd: true
+//             });
+//         }
+//     };
+// }
 
-function fileHandler(requiredFeatures) {
-    var unhandled = [];
-    var handled = [];
-    requiredFeatures.forEach(function(feature) {
-        if (feature.name in featuresHandledByFile) {
-            handled.push(feature);
-        } else {
-            unhandled.push(feature);
-        }
-    });
+// function fileHandler(requiredFeatures) {
+//     var unhandled = [];
+//     var handled = [];
+//     requiredFeatures.forEach(function(feature) {
+//         if (feature.name in featuresHandledByFile) {
+//             handled.push(feature);
+//         } else {
+//             unhandled.push(feature);
+//         }
+//     });
 
-    return {
-        unhandled: unhandled,
-        compile: function() {
-            var fileContentPromises = handled.map(function(feature) {
-                return featuresHandledByFile[feature.name];
-            }).map(function(filePath) {
-                return new Promise(function(resolve, reject) {
-                    fs.readFile(filePath, function(error, buffer) {
-                        if (error) {
-                            reject(error);
-                        } else {
-                            resolve(buffer.toString());
-                        }
-                    });
-                });
-            });
+//     return {
+//         unhandled: unhandled,
+//         compile: function() {
+//             var fileContentPromises = handled.map(function(feature) {
+//                 return featuresHandledByFile[feature.name];
+//             }).map(function(filePath) {
+//                 return new Promise(function(resolve, reject) {
+//                     fs.readFile(filePath, function(error, buffer) {
+//                         if (error) {
+//                             reject(error);
+//                         } else {
+//                             resolve(buffer.toString());
+//                         }
+//                     });
+//                 });
+//             });
 
-            return Promise.all(fileContentPromises).then(function(sources) {
-                return sources.join('\n\n');
-            });
-        }
-    };
-}
+//             return Promise.all(fileContentPromises).then(function(sources) {
+//                 return sources.join('\n\n');
+//             });
+//         }
+//     };
+// }
 
-function compile(features) {
-    var unhandledFeatures = features;
-    var compilers = [];
+// function compile(features) {
+//     var unhandledFeatures = features;
+//     var compilers = [];
 
-    [
-        coreJSHandler,
-        fileHandler
-    ].forEach(function(handler) {
-        var result = handler(unhandledFeatures);
-        unhandledFeatures = result.unhandled;
-        compilers.push(result.compile);
-    });
+//     [
+//         coreJSHandler,
+//         fileHandler
+//     ].forEach(function(handler) {
+//         var result = handler(unhandledFeatures);
+//         unhandledFeatures = result.unhandled;
+//         compilers.push(result.compile);
+//     });
 
-    if (unhandledFeatures.length) {
-        var unhandledFeatureNames = unhandledFeatures.map(function(unhandledFeature) {
-            return unhandledFeature.name;
-        });
-        throw new Error('unhandled features: ' + unhandledFeatureNames);
-    }
+//     if (unhandledFeatures.length) {
+//         var unhandledFeatureNames = unhandledFeatures.map(function(unhandledFeature) {
+//             return unhandledFeature.name;
+//         });
+//         throw new Error('unhandled features: ' + unhandledFeatureNames);
+//     }
 
-    var compilePromises = compilers.map(function(compile) {
-        return compile();
-    });
+//     var compilePromises = compilers.map(function(compile) {
+//         return compile();
+//     });
 
-    return Promise.all(compilePromises).then(function(sources) {
-        return sources.join('\n\n');
-    });
-}
+//     return Promise.all(compilePromises).then(function(sources) {
+//         return sources.join('\n\n');
+//     });
+// }
 
-function getRequiredFeatures() {
-    return jsenv.implementation.features.filter(function(feature) {
-        return feature.excluded !== true;
-    }).filter(function(requiredFeature) {
-        return requiredFeature.test() === false;
-    });
-}
-
-var requiredFeatures = getRequiredFeatures();
-
-var requiredStandardFeatures = requiredFeatures.filter(function(feature) {
-    return feature.type === 'standard';
-});
-compile(requiredStandardFeatures).then(function(source) {
-    fs.writeFileSync('polyfill-all.js', source);
-    eval(source); // eslint-disable-line
-
-    var failedFeaturesPolyfill = requiredStandardFeatures.filter(function(standardFeature) {
-        return standardFeature.test() === false;
-    }).map(function(standardFeature) {
-        return standardFeature.name;
-    });
-    if (failedFeaturesPolyfill.length) {
-        console.log('following features failed polyfill', failedFeaturesPolyfill);
-    }
+jsenv.implementation.getInvalidFeatures(function(invalidFeatures) {
+    console.log('invalid features', invalidFeatures);
 });
 
-var requiredSyntaxFeatures = requiredFeatures.filter(function(feature) {
-    return feature.type === 'syntax';
-});
+// var requiredStandardFeatures = requiredFeatures.filter(function(feature) {
+//     return feature.type === 'standard';
+// });
+// compile(requiredStandardFeatures).then(function(source) {
+//     fs.writeFileSync('polyfill-all.js', source);
+//     eval(source); // eslint-disable-line
 
-function babelHandler(requiredFeatures) {
-    var plugins = [
-        {
-            name: 'transform-es2015-block-scoping',
-            features: [
-                'const',
-                'const-block-scoped',
-                'const-not-in-statement',
-                'const-throw-on-redefine',
-                'const-scope-for',
-                'const-scope-for-in',
-                'const-scope-for-of',
-                'const-temporal-dead-zone',
-                'let'
-            ]
-        }
-    ];
-    var requiredPlugins = [];
+//     var failedFeaturesPolyfill = requiredStandardFeatures.filter(function(standardFeature) {
+//         return standardFeature.test() === false;
+//     }).map(function(standardFeature) {
+//         return standardFeature.name;
+//     });
+//     if (failedFeaturesPolyfill.length) {
+//         console.log('following features failed polyfill', failedFeaturesPolyfill);
+//     }
+// });
+// var requiredSyntaxFeatures = requiredFeatures.filter(function(feature) {
+//     return feature.type === 'syntax';
+// });
 
-    requiredFeatures.forEach(function(requiredFeature) {
-        console.log('feature', requiredFeature.name, 'is required because', requiredFeature.validityReason);
+// function babelHandler(requiredFeatures) {
+//     var plugins = [
+//         {
+//             name: 'transform-es2015-block-scoping',
+//             features: [
+//                 'const',
+//                 'const-block-scoped',
+//                 'const-not-in-statement',
+//                 'const-throw-on-redefine',
+//                 'const-scope-for',
+//                 'const-scope-for-in',
+//                 'const-scope-for-of',
+//                 'const-temporal-dead-zone',
+//                 'let'
+//             ]
+//         }
+//     ];
+//     var requiredPlugins = [];
 
-        var requiredFeatureName = requiredFeature.name;
-        var pluginForThatFeature = jsenv.helpers.find(plugins, function(plugin) {
-            return plugin.features.some(function(pluginFeatureName) {
-                return pluginFeatureName === requiredFeatureName;
-            });
-        });
+//     requiredFeatures.forEach(function(requiredFeature) {
+//         console.log('feature', requiredFeature.name, 'is required because', requiredFeature.validityReason);
 
-        if (pluginForThatFeature) {
-            var requiredPluginName = pluginForThatFeature.name;
-            if (requiredPlugins.indexOf(requiredPluginName) === -1) {
-                requiredPlugins.push(requiredPluginName);
-            }
-        }
-    });
-    console.log('the required babel plugins', requiredPlugins);
-}
-function transpile(requiredFeatures) {
-    return babelHandler(requiredFeatures);
-}
-transpile(requiredSyntaxFeatures);
+//         var requiredFeatureName = requiredFeature.name;
+//         var pluginForThatFeature = jsenv.helpers.find(plugins, function(plugin) {
+//             return plugin.features.some(function(pluginFeatureName) {
+//                 return pluginFeatureName === requiredFeatureName;
+//             });
+//         });
+
+//         if (pluginForThatFeature) {
+//             var requiredPluginName = pluginForThatFeature.name;
+//             if (requiredPlugins.indexOf(requiredPluginName) === -1) {
+//                 requiredPlugins.push(requiredPluginName);
+//             }
+//         }
+//     });
+//     console.log('the required babel plugins', requiredPlugins);
+// }
+// function transpile(requiredFeatures) {
+//     return babelHandler(requiredFeatures);
+// }
+// transpile(requiredSyntaxFeatures);
 
 // console.log('required core js modules', requiredCoreJSModules);
 

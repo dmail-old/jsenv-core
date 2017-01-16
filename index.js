@@ -1243,7 +1243,7 @@ je dis pourquoi pas
         implementation.support = function() {
             var versionnedFeature = this.get.apply(this, arguments);
             if (versionnedFeature) {
-                return versionnedFeature.test();
+                return versionnedFeature.isValid();
             }
             return false;
         };
@@ -1270,12 +1270,12 @@ je dis pourquoi pas
         function VersionnedFeature(name, version) {
             this.name = name;
             this.version = env.createVersion(version);
-            this.branches = [];
             this.excluded = false;
             this.dependents = [];
             this.dependencies = [];
         }
         var VersionnedFeaturePrototype = VersionnedFeature.prototype;
+        VersionnedFeaturePrototype.status = 'unspecified';
         VersionnedFeaturePrototype.toString = function() {
             return this.name + '@' + this.version;
         };
@@ -1290,6 +1290,11 @@ je dis pourquoi pas
                 } else {
                     dependentFeature = arg;
                 }
+
+                if (this.dependents.indexOf(dependentFeature) > -1) {
+                    throw new Error('cyclic dependency between ' + dependentFeature.name + ' and ' + this.name);
+                }
+
                 this.dependencies.push(dependentFeature);
                 dependentFeature.dependents.push(this);
             }, this);
@@ -1312,6 +1317,16 @@ je dis pourquoi pas
         VersionnedFeaturePrototype.isExcluded = function() {
             return this.excluded === true;
         };
+        VersionnedFeaturePrototype.isIncluded = function() {
+            return this.excluded !== true;
+        };
+        // isValid & isInvalid or not opposite because status may be 'unspecified'
+        VersionnedFeaturePrototype.isValid = function() {
+            return this.status === 'valid';
+        };
+        VersionnedFeaturePrototype.isInvalid = function() {
+            return this.status === 'invalid';
+        };
         VersionnedFeaturePrototype.ensure = function() {
             var i = 0;
             var j = arguments.length;
@@ -1329,8 +1344,8 @@ je dis pourquoi pas
                     dependentFeatureDescriptor = arg;
                 }
 
-                dependentFeatureDescriptor.name = this.name + '-' + dependentFeatureDescriptor.name;
-                var dependentFeature = implementation.add(dependentFeatureDescriptor.name);
+                var dependentFeatureName = this.name + '-' + dependentFeatureDescriptor.name;
+                var dependentFeature = implementation.add(dependentFeatureName);
                 // assign(dependentFeature, dependentFeatureDescriptor);
 
                 dependentFeature.relyOn(this);
@@ -1339,71 +1354,88 @@ je dis pourquoi pas
                         dependentFeature.relyOn(dependencyName);
                     });
                 }
+                if ('test' in dependentFeatureDescriptor) {
+                    dependentFeature.test = dependentFeatureDescriptor.test;
+                }
 
                 i++;
             }
 
             return this;
         };
-        VersionnedFeaturePrototype.getStatus = function(callback) {
+        VersionnedFeaturePrototype.updateStatus = function(callback) {
             var feature = this;
-            var exec = feature.exec;
-
-            var returnValue;
-            var throwedValue;
-            var hasThrowed = false;
-            var hasReturned = false;
             var settle = function(valid, reason, detail) {
-                var arity = arguments.length;
+                if (feature.hasOwnProperty('status') === false) {
+                    var arity = arguments.length;
 
-                if (arity === 0 && feature.hasOwnProperty('status') === false) {
-                    feature.status = 'unknown';
-                }
-                if (arity > 0 && feature.hasOwnProperty('status') === false) {
-                    feature.status = valid ? 'valid' : 'invalid';
-                }
-                if (arity > 1 && feature.hasOwnProperty('statusReason') === false) {
-                    feature.statusReason = reason;
-                }
-                if (arity > 2 && feature.hasOwnProperty('statusDetail') === false) {
-                    feature.statusReason = detail;
-                }
+                    if (arity === 0) {
+                        feature.status = 'unspecified';
+                    }
+                    if (arity > 0 && feature.hasOwnProperty('status') === false) {
+                        feature.status = valid ? 'valid' : 'invalid';
+                    }
+                    if (arity > 1 && feature.hasOwnProperty('statusReason') === false) {
+                        feature.statusReason = reason;
+                    }
+                    if (arity > 2 && feature.hasOwnProperty('statusDetail') === false) {
+                        feature.statusDetail = detail;
+                    }
 
-                callback(feature);
+                    callback(feature);
+                }
             };
 
-            // async stuff
-            if (exec.length > 0) {
-                try {
-                    exec.call(
-                        feature,
-                        settle
-                    );
-
-                    var asyncTestMaxDuration = 100;
-                    setTimeout(function() {
-                        settle(false, 'timeout', asyncTestMaxDuration);
-                    }, asyncTestMaxDuration);
-                } catch (e) {
-                    hasThrowed = true;
-                    throwedValue = e;
-                }
+            var dependencies = feature.dependencies;
+            var invalidDependency = find(dependencies, function(dependency) {
+                return dependency.stats === 'invalid';
+            });
+            if (invalidDependency) {
+                settle(false, 'dependency-is-invalid', invalidDependency);
             } else {
-                try {
-                    returnValue = exec.call(feature);
-                    hasReturned = true;
-                } catch (e) {
-                    hasThrowed = true;
-                    throwedValue = e;
-                }
-            }
+                var test = feature.test;
 
-            if (hasThrowed) {
-                feature.status = 'invalid';
-                feature.statusReason = 'throwed';
-                settle(throwedValue);
-            } else if (hasReturned) {
-                settle(Boolean(returnValue), 'return', returnValue);
+                if (!test) {
+                    throw new Error('feature ' + this.name + ' has no test');
+                }
+                var returnValue;
+                var throwedValue;
+                var hasThrowed = false;
+                var hasReturned = false;
+
+                // async stuff
+                if (test.length > 0) {
+                    try {
+                        test.call(
+                            feature,
+                            settle
+                        );
+
+                        var asyncTestMaxDuration = 100;
+                        setTimeout(function() {
+                            settle(false, 'timeout', asyncTestMaxDuration);
+                        }, asyncTestMaxDuration);
+                    } catch (e) {
+                        hasThrowed = true;
+                        throwedValue = e;
+                    }
+                } else {
+                    try {
+                        returnValue = test.call(feature);
+                        hasReturned = true;
+                    } catch (e) {
+                        hasThrowed = true;
+                        throwedValue = e;
+                    }
+                }
+
+                if (hasThrowed) {
+                    feature.status = 'invalid';
+                    feature.statusReason = 'throwed';
+                    settle(throwedValue);
+                } else if (hasReturned) {
+                    settle(Boolean(returnValue), 'return', returnValue);
+                }
             }
 
             return this;
@@ -2561,7 +2593,7 @@ je dis pourquoi pas
 
             standardFeature.expect = function(path) {
                 this.path = path;
-                this.exec = presence;
+                this.test = presence;
                 return this;
             };
 
@@ -2613,7 +2645,7 @@ je dis pourquoi pas
             var syntaxFeature = registerFeature.apply(this, arguments);
 
             syntaxFeature.expect = function() {
-                this.exec = syntax.apply(this, arguments);
+                this.test = syntax.apply(this, arguments);
                 return this;
             };
 
@@ -2686,7 +2718,7 @@ je dis pourquoi pas
         ).ensure(
             {
                 name: 'scoped-for-of',
-                dependencies: ['for-of'],
+                // dependencies: ['for-of'],
                 test: syntax(
                     function() {/*
                         var scopes = [];
@@ -2717,6 +2749,85 @@ je dis pourquoi pas
         };
         implementation.exclude = function(featureName, reason) {
             implementation.get(featureName).exclude(reason);
+        };
+
+        function groupNodesByDependencyDepth(nodes) {
+            var unresolvedNodes = nodes.slice();
+            var i = 0;
+            var j = unresolvedNodes.length;
+            var resolvedNodes = [];
+            var groups = [];
+            var group;
+
+            while (true) { // eslint-disable-line
+                group = [];
+                i = 0;
+                while (i < j) {
+                    var unresolvedNode = unresolvedNodes[i];
+                    var everyDependencyIsResolved = unresolvedNode.dependencies.every(function(dependency) {
+                        return resolvedNodes.indexOf(dependency) > -1;
+                    });
+                    if (everyDependencyIsResolved) {
+                        group.push(unresolvedNode);
+                        unresolvedNodes.splice(i, 1);
+                        j--;
+                    } else {
+                        i++;
+                    }
+                }
+
+                if (group.length) {
+                    groups.push(group);
+                    resolvedNodes.push.apply(resolvedNodes, group);
+                } else {
+                    break;
+                }
+            }
+
+            return groups;
+        }
+
+        implementation.groupFeatures = function() {
+            return groupNodesByDependencyDepth(implementation.features);
+        };
+
+        implementation.getInvalidFeatures = function(callback) {
+            var includedFeatures = implementation.features.filter(function(feature) {
+                return feature.isIncluded();
+            });
+            var groups = groupNodesByDependencyDepth(includedFeatures);
+            var groupIndex = -1;
+            var groupCount = groups.length;
+            var done = function() {
+                var invalidFeatures = includedFeatures.filter(function(feature) {
+                    return feature.isInvalid();
+                });
+                callback(invalidFeatures);
+            };
+
+            function nextGroup() {
+                groupIndex++;
+                if (groupIndex === groupCount) {
+                    done();
+                } else {
+                    var group = groups[groupIndex];
+                    var i = 0;
+                    var j = group.length;
+                    var readyCount = 0;
+
+                    while (i < j) {
+                        var feature = group[i];
+                        feature.updateStatus(function() { // eslint-disable-line
+                            readyCount++;
+                            if (readyCount === j - 1) {
+                                nextGroup();
+                            }
+                        });
+                        i++;
+                    }
+                }
+            }
+            nextGroup();
         };
     });
 

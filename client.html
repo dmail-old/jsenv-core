@@ -8,42 +8,14 @@
     <script type="text/javascript">
         /* eslint-env browser */
 
-        // j'ai un souci ici: global.jsenv.generate va import setup.js
-        // qui a besoin de babel
-        // donc, a priori le serveur devrait déjà me fournir les fichier transpilé
-        // sinon je vais être embété
-        // il faut donc ptet que mon point d'entrée déjà soit kk chose comme
-        // http://localhost/setup.js pour charger les fichier en utilisant le serveur
-        // c'est effectivement la première chose à faire
-        // et donc la première fonctionnalité du serveur doit être de ofurnir ces fichiers avec la bonne transpilation
-        // pour cela le client doit absolument transmettre au serveur l'info
-        // qui dit de quelle transpilation il a besoin
-        // pour le moment on ignore mais cela signifique que
-        // il faudra pour modifier la requête http que fais SystemJS pour récup les fichier js
-        // un moyen simple de faire pourrais être un cookie
-        // à noter: pour nodejs ce ne seras pas si simple
-        // car systemjs ne permet pas de load des url de la form http:// dans nodejs
-        // uniquement file:///
-
-        // il faut enlever la transpilation à la volée avec browser.js de babel
-        // on fait confiance au serveur pour ça ?$
-        // not really needed
-        // window.jsenv.System.translate = function(load) {
-        //     return load.source;
-        // };
-
-        console.log(
-            window.jsenv.implementation.diff()
-        );
+        window.jsenv.implementation.getInvalidFeatures(function(invalidFeatures) {
+            console.log('invalid features', invalidFeatures);
+        });
 
         // window.jsenv.import('http://localhost/polyfill.js').then(function() {
         //     console.log('here', arguments);
         // });
 
-        // global.jsenv.generate().then(function(env) {
-        //     // got my env ready
-        //     console.log('env', env);
-        // });
         // eslint-disable-next-line eol-last, no-trailing-spaces
     </script>
 </head>
