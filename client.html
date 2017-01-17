@@ -8,8 +8,8 @@
     <script type="text/javascript">
         /* eslint-env browser */
 
-        window.jsenv.implementation.getInvalidFeatures(function(invalidFeatures) {
-            console.log('invalid features', invalidFeatures);
+        window.jsenv.implementation.groupFeatures(function(groups) {
+            console.log('feature groups', groups);
         });
 
         // window.jsenv.import('http://localhost/polyfill.js').then(function() {

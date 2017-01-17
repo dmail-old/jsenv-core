@@ -159,7 +159,7 @@ je dis pourquoi pas
                 var version;
                 if (typeof firstArg === 'string') {
                     version = new Version(firstArg);
-                } else if (Version.isPrototypeOf(firstArg)) {
+                } else if (firstArg instanceof Version) {
                     version = firstArg;
                 } else {
                     throw new Error('version.match expect a string or a version object');
@@ -168,6 +168,7 @@ je dis pourquoi pas
             };
 
             Version.prototype = {
+                constructor: Version,
                 isPrecise: function() {
                     return (
                         this.major.isPrecise() &&
@@ -764,22 +765,6 @@ je dis pourquoi pas
             };
         });
 
-        build(function caseTransform() {
-            return {
-                hyphenToCamel: function(string) {
-                    return string.replace(/-([a-z])/g, function(g) {
-                        return g[1].toUpperCase();
-                    });
-                },
-
-                camelToHypen: function(string) {
-                    return string.replace(/([a-z][A-Z])/g, function(g) {
-                        return g[0] + '-' + g[1].toLowerCase();
-                    });
-                }
-            };
-        });
-
         build(function coreModules() {
             function createModuleExportingDefault(defaultExportsValue) {
                 /* eslint-disable quote-props */
@@ -929,7 +914,7 @@ je dis pourquoi pas
                     // but warn about the fact that doing this is discouraged because
                     // it bind your code to global.System which prevent your code from beign runned multiple times
                     // in the same process with different env
-                    if (jsenv.implementation.support('object-get-own-property-descriptor')) {
+                    if (Object.defineProperty) {
                         var accessed = false;
                         var self = this;
 
@@ -1098,43 +1083,95 @@ je dis pourquoi pas
         return jsenv;
     }
 
-    function forEach(array, fn, bind) {
+    var Iterable = {};
+    Iterable.forEach = function forEach(iterable, fn, bind) {
         var i = 0;
-        var j = array.length;
+        var j = iterable.length;
         while (i < j) {
-            fn.call(bind, array[i], i, array);
+            fn.call(bind, iterable[i], i, iterable);
             i++;
         }
-    }
-
-    function map(array, fn, bind) {
-        var result = [];
-        forEach(array, function(entry, i) {
-            result[i] = fn.call(bind, entry, i, array);
+        return iterable;
+    };
+    Iterable.map = function map(iterable, fn, bind) {
+        var mappedIterable = [];
+        Iterable.forEach(iterable, function(entry, i) {
+            mappedIterable[i] = fn.call(bind, entry, i, iterable);
         });
-        return result;
-    }
-
-    function find(array, fn, bind) {
-        var found = null;
-        forEach(array, function(entry, index) {
-            if (fn.call(bind, entry, index, array)) {
-                found = entry;
+        return mappedIterable;
+    };
+    Iterable.filter = function filter(iterable, fn, bind) {
+        var filteredIterable = [];
+        Iterable.forEach(iterable, function(entry, index, iterable) {
+            if (fn.call(bind, entry, index, iterable)) {
+                filteredIterable.push(entry);
             }
         });
-        return found;
-    }
+        return filteredIterable;
+    };
+    Iterable.find = function find(iterable, fn, bind) {
+        var i = 0;
+        var j = iterable.length;
+        var foundIndex = -1;
+        var foundEntry;
 
-    var arrayHelpers = {};
-    arrayHelpers.find = find;
-    arrayHelpers.map = map;
-    arrayHelpers.forEach = forEach;
+        while (i < j) {
+            var entry = iterable[i];
+            if (fn.call(bind, entry, i, iterable)) {
+                foundIndex = i;
+                foundEntry = entry;
+                break;
+            }
+            i++;
+        }
+
+        return foundIndex === -1 ? null : foundEntry;
+    };
+    Iterable.includes = function includes(iterable, item) {
+        return iterable.indexOf(item) > -1;
+    };
+    Iterable.every = function every(iterable, fn, bind) {
+        var everyEntryIsTruthy = true;
+        var i = 0;
+        var j = iterable.length;
+        while (i < j) {
+            if (Boolean(fn.call(bind, iterable[i], i, iterable)) === false) {
+                everyEntryIsTruthy = false;
+                break;
+            }
+            i++;
+        }
+        return everyEntryIsTruthy;
+    };
+    Iterable.bisect = function bisect(iterable, fn, bind) {
+        var firstHalf = [];
+        var secondHalf = [];
+
+        Iterable.forEach(iterable, function(entry, index) {
+            if (fn.call(bind, entry, index, iterable)) {
+                firstHalf.push(entry);
+            } else {
+                secondHalf.push(entry);
+            }
+        });
+
+        return [firstHalf, secondHalf];
+    };
 
     var Predicate = {};
-
     Predicate.not = function(predicate) {
         return function() {
             return !predicate.apply(this, arguments);
+        };
+    };
+    Predicate.fails = function(fn) {
+        return function() {
+            try {
+                fn.apply(this, arguments);
+                return false;
+            } catch (e) {
+                return true;
+            }
         };
     };
     Predicate.some = function() {
@@ -1174,19 +1211,10 @@ je dis pourquoi pas
             return everyAreValid;
         };
     };
-    Predicate.fails = function(fn) {
-        return function() {
-            try {
-                fn.apply(this, arguments);
-                return false;
-            } catch (e) {
-                return true;
-            }
-        };
-    };
 
     var jsenv = createJSEnv();
-    jsenv.helpers = arrayHelpers;
+    jsenv.Iterable = Iterable;
+    jsenv.Predicate = Predicate;
 
     /*
     why put a variable on the global scope ?
@@ -1218,26 +1246,32 @@ je dis pourquoi pas
         var implementation = {};
         implementation.features = [];
 
-        implementation.add = function(featureName, featureVersion) {
-            featureVersion = featureVersion || '*';
+        implementation.createFeature = function() {
+            return new VersionnedFeature();
+        };
+        implementation.add = function(feature) {
+            if (feature.name === '') {
+                throw new Error('cannot add a feature with empty name');
+            }
 
-            var existingFeature = this.get(featureName, featureVersion);
+            var existingFeature = implementation.find(feature);
             if (existingFeature) {
                 throw new Error('The feature ' + existingFeature + ' already exists');
             }
-            var versionnedFeature = new VersionnedFeature(featureName, featureVersion);
-            this.features.push(versionnedFeature);
-            return versionnedFeature;
+            this.features.push(feature);
+            return feature;
+        };
+        implementation.find = function(searchedFeature) {
+            return Iterable.find(this.features, function(feature) {
+                return feature.match(searchedFeature);
+            });
         };
         implementation.get = function(featureName, featureVersion) {
-            featureVersion = featureVersion || '*';
-
-            var foundVersionnedFeature = find(this.features, function(versionnedFeature) {
-                return (
-                    versionnedFeature.name === featureName &&
-                    versionnedFeature.version.match(featureVersion)
-                );
-            });
+            var searchedFeature = new VersionnedFeature(featureName, featureVersion || '*');
+            var foundVersionnedFeature = implementation.find(searchedFeature);
+            if (!foundVersionnedFeature) {
+                throw new Error('feature not found ' + searchedFeature);
+            }
             return foundVersionnedFeature;
         };
         implementation.support = function() {
@@ -1247,40 +1281,35 @@ je dis pourquoi pas
             }
             return false;
         };
-        function find(entries, fn) {
-            var i = 0;
-            var j = entries.length;
-            var foundIndex = -1;
-            var foundEntry;
-
-            while (i < j) {
-                var entry = entries[i];
-                if (fn(entry)) {
-                    foundIndex = i;
-                    foundEntry = entry;
-                    break;
-                }
-                i++;
-            }
-
-            return foundIndex === -1 ? null : foundEntry;
-        }
 
         var env = this;
-        function VersionnedFeature(name, version) {
-            this.name = name;
-            this.version = env.createVersion(version);
+        function VersionnedFeature() {
             this.excluded = false;
             this.dependents = [];
             this.dependencies = [];
+
+            var arity = arguments.length;
+            if (arity > 0) {
+                this.name = arguments[0];
+            } else {
+                this.name = '';
+            }
+            if (arity > 1) {
+                this.setVersion(arguments[1]);
+            } else {
+                this.setVersion('*');
+            }
         }
         var VersionnedFeaturePrototype = VersionnedFeature.prototype;
+        VersionnedFeaturePrototype.setVersion = function(version) {
+            this.version = env.createVersion(version);
+        };
         VersionnedFeaturePrototype.status = 'unspecified';
         VersionnedFeaturePrototype.toString = function() {
             return this.name + '@' + this.version;
         };
         VersionnedFeaturePrototype.relyOn = function() {
-            forEach(arguments, function(arg) {
+            Iterable.forEach(arguments, function(arg) {
                 var dependentFeature;
                 if (typeof arg === 'string') {
                     dependentFeature = implementation.get(arg);
@@ -1291,7 +1320,7 @@ je dis pourquoi pas
                     dependentFeature = arg;
                 }
 
-                if (this.dependents.indexOf(dependentFeature) > -1) {
+                if (Iterable.includes(this.dependents, dependentFeature)) {
                     throw new Error('cyclic dependency between ' + dependentFeature.name + ' and ' + this.name);
                 }
 
@@ -1302,17 +1331,19 @@ je dis pourquoi pas
         VersionnedFeaturePrototype.exclude = function(reason) {
             this.excluded = true;
             this.exclusionReason = reason;
-            forEach(this.dependents, function(dependent) {
+            Iterable.forEach(this.dependents, function(dependent) {
                 dependent.exclude(reason);
             });
+            return this;
         };
         VersionnedFeaturePrototype.include = function(reason) {
             this.excluded = false;
             this.exclusionReason = null;
             this.inclusionReason = reason;
-            forEach(this.dependencies, function(dependency) {
+            Iterable.forEach(this.dependencies, function(dependency) {
                 dependency.include(reason);
             });
+            return this;
         };
         VersionnedFeaturePrototype.isExcluded = function() {
             return this.excluded === true;
@@ -1327,68 +1358,39 @@ je dis pourquoi pas
         VersionnedFeaturePrototype.isInvalid = function() {
             return this.status === 'invalid';
         };
-        VersionnedFeaturePrototype.ensure = function() {
-            var i = 0;
-            var j = arguments.length;
-
-            while (i < j) {
-                var arg = arguments[i];
-                var dependentFeatureDescriptor;
-
-                if (typeof arg === 'function') {
-                    dependentFeatureDescriptor = {
-                        name: jsenv.camelToHypen(arg.name),
-                        test: arg
-                    };
-                } else if (typeof arg === 'object') {
-                    dependentFeatureDescriptor = arg;
-                }
-
-                var dependentFeatureName = this.name + '-' + dependentFeatureDescriptor.name;
-                var dependentFeature = implementation.add(dependentFeatureName);
-                // assign(dependentFeature, dependentFeatureDescriptor);
-
-                dependentFeature.relyOn(this);
-                if ('dependencies' in dependentFeatureDescriptor) {
-                    forEach(dependentFeatureDescriptor.dependencies, function(dependencyName) { // eslint-disable-line
-                        dependentFeature.relyOn(dependencyName);
-                    });
-                }
-                if ('test' in dependentFeatureDescriptor) {
-                    dependentFeature.test = dependentFeatureDescriptor.test;
-                }
-
-                i++;
-            }
-
-            return this;
+        VersionnedFeaturePrototype.match = function(other) {
+            return (
+                this === other || (
+                    this.name === other.name &&
+                    this.version.match(other.version)
+                )
+            );
         };
         VersionnedFeaturePrototype.updateStatus = function(callback) {
             var feature = this;
+            var settled = false;
             var settle = function(valid, reason, detail) {
-                if (feature.hasOwnProperty('status') === false) {
+                if (settled === false) {
                     var arity = arguments.length;
 
                     if (arity === 0) {
                         feature.status = 'unspecified';
-                    }
-                    if (arity > 0 && feature.hasOwnProperty('status') === false) {
+                        feature.statusReason = undefined;
+                        feature.statusDetail = undefined;
+                    } else {
                         feature.status = valid ? 'valid' : 'invalid';
-                    }
-                    if (arity > 1 && feature.hasOwnProperty('statusReason') === false) {
                         feature.statusReason = reason;
-                    }
-                    if (arity > 2 && feature.hasOwnProperty('statusDetail') === false) {
                         feature.statusDetail = detail;
                     }
 
+                    settled = true;
                     callback(feature);
                 }
             };
 
             var dependencies = feature.dependencies;
-            var invalidDependency = find(dependencies, function(dependency) {
-                return dependency.stats === 'invalid';
+            var invalidDependency = Iterable.find(dependencies, function(dependency) {
+                return dependency.isInvalid();
             });
             if (invalidDependency) {
                 settle(false, 'dependency-is-invalid', invalidDependency);
@@ -1396,7 +1398,7 @@ je dis pourquoi pas
                 var test = feature.test;
 
                 if (!test) {
-                    throw new Error('feature ' + this.name + ' has no test');
+                    throw new Error('feature ' + this + ' has no test');
                 }
                 var returnValue;
                 var throwedValue;
@@ -1430,9 +1432,7 @@ je dis pourquoi pas
                 }
 
                 if (hasThrowed) {
-                    feature.status = 'invalid';
-                    feature.statusReason = 'throwed';
-                    settle(throwedValue);
+                    settle(false, 'throwed', throwedValue);
                 } else if (hasReturned) {
                     settle(Boolean(returnValue), 'return', returnValue);
                 }
@@ -1440,396 +1440,17 @@ je dis pourquoi pas
 
             return this;
         };
+        // VersionnedFeaturePrototype.freezeStatus = function() {
+        //     this.statusFrozen = true;
+        // };
 
         return {
             implementation: implementation
         };
     });
 
-    jsenv.build(function readAt() {
-        function readAt(object, path) {
-            return createGetter(path)(object);
-        }
-
-        var noValue = {noValue: true};
-        function createGetter(path) {
-            var targets = parsePath(path);
-            var getter = function(object) {
-                var j = targets.length;
-                var value = object;
-                if (j > 0) {
-                    var i = 0;
-                    var target = targets[i];
-                    i++;
-                    value = readPath(object, target.properties);
-                    if (value !== noValue) {
-                        while (i < j) {
-                            target = targets[i];
-                            var otherValue = readPath(object, target.properties);
-                            if (otherValue in value) {
-                                value = value[otherValue];
-                            } else {
-                                value = noValue;
-                                break;
-                            }
-                            i++;
-                        }
-                    }
-                }
-                return value;
-            };
-
-            return getter;
-        }
-
-        var cache = {};
-        function parsePath(path) {
-            var targets;
-
-            if (path in cache) {
-                targets = cache[path];
-            } else {
-                targets = parse(path);
-                cache[path] = targets;
-            }
-            return targets;
-        }
-
-        // http://esprima.org/demo/parse.html#
-        var propertyAccessParser = {
-            tokenize: (function() {
-                function tokenizer(detectors) {
-                    return function(input) {
-                        var index = 0;
-                        var length = input.length;
-                        var tokens = [];
-                        var restToken = {
-                            type: 'rest',
-                            value: ''
-                        };
-
-                        while (index < length) {
-                            var char = input[index];
-
-                            var i = 0;
-                            var j = detectors.length;
-                            var detectedToken;
-                            while (i < j) {
-                                detectedToken = detectors[i](char, index, input);
-                                if (detectedToken) {
-                                    break;
-                                }
-                                i++;
-                            }
-
-                            if (detectedToken) {
-                                if (restToken.value.length > 0) {
-                                    tokens.push(restToken);
-                                    restToken = {
-                                        type: 'rest',
-                                        value: ''
-                                    };
-                                }
-                                tokens.push(detectedToken);
-                                index += detectedToken.value.length;
-                            } else {
-                                restToken.value += char;
-                                index += 1;
-                            }
-                        }
-
-                        if (restToken.value.length > 0) {
-                            tokens.push(restToken);
-                        }
-                        return tokens;
-                    };
-                }
-                function token(type, value) {
-                    return {
-                        type: type,
-                        value: value
-                    };
-                }
-                var detectors = [
-                    function(char) {
-                        if (char === '[') {
-                            return token('open-bracket', char);
-                        }
-                    },
-                    function(char) {
-                        if (char === ']') {
-                            return token('close-bracket', char);
-                        }
-                    },
-                    function(char) {
-                        if (char === '.') {
-                            return token('dot', char);
-                        }
-                    }
-                ];
-
-                var tokenize = tokenizer(detectors);
-
-                return tokenize;
-            })(),
-
-            transform: (function() {
-                return function(tokens) {
-                    var charIndex = 0;
-                    var i = 0;
-                    var j = tokens.length;
-                    var targets = [];
-                    var property;
-                    var target;
-                    var bracketOpened;
-
-                    function nextTarget() {
-                        target = {
-                            properties: []
-                        };
-                    }
-
-                    function nextProperty() {
-                        property = '';
-                    }
-
-                    function saveProperty() {
-                        if (!property) {
-                            throw new Error('empty propertyName not allowed');
-                        }
-                        target.properties.push(property);
-                    }
-
-                    function saveTarget() {
-                        if (!target) {
-                            throw new Error('no target to save');
-                        }
-                        targets.push(target);
-                    }
-
-                    nextTarget();
-                    nextProperty();
-                    bracketOpened = false;
-                    var type;
-                    while (i < j) {
-                        var token = tokens[i];
-                        var value = token.value;
-                        type = token.type;
-
-                        if (type === 'rest') {
-                            property = value;
-                        } else if (type === 'dot') {
-                            if (property.length === 0) {
-                                throw new Error('missing name before .');
-                            }
-                            saveProperty();
-                            nextProperty();
-                        } else if (type === 'open-bracket') {
-                            if (property.length === 0) {
-                                throw new Error('missing name before [');
-                            }
-                            if (bracketOpened) {
-                                throw new Error('missing ] before [');
-                            }
-                            saveProperty();
-                            nextProperty();
-                            saveTarget();
-                            nextTarget();
-                            bracketOpened = true;
-                        } else if (type === 'close-bracket') {
-                            if (bracketOpened === false) {
-                                throw new Error('missing [ before ]');
-                            }
-                            if (property.length === 0) {
-                                throw new Error('missing name between []');
-                            }
-                            bracketOpened = false;
-                        }
-
-                        i++;
-                        charIndex += value.length;
-                    }
-                    if (type === 'rest') {
-                        saveProperty();
-                        saveTarget();
-                    } else if (bracketOpened) {
-                        throw new Error('missing ] before and of input');
-                    } else if (type === 'close-bracket') {
-                        saveProperty();
-                        saveTarget();
-                    } else if (type === 'dot') {
-                        throw new Error('missing name after .');
-                    }
-
-                    return targets;
-                };
-            })(),
-
-            parse: function(input) {
-                var tokens = this.tokenize(input);
-                var result = this.transform(tokens);
-                return result;
-            }
-        };
-
-        function parse(path) {
-            return propertyAccessParser.parse(path);
-        }
-
-        function readPath(value, parts) {
-            var i = 0;
-            var j = parts.length;
-
-            while (i < j) {
-                var part = parts[i];
-                if (part in value) {
-                    value = value[part];
-                } else {
-                    value = noValue;
-                    break;
-                }
-                i++;
-            }
-            return value;
-        }
-
-        return {
-            readAt: readAt,
-            noValue: noValue
-        };
-    });
-
-    /*
-    ça pourrait être pas mal aussi une api comme
-    registerAndPolyfill('global',
-        method('setImmediate'),
-        method({name: 'parseInt', test: function() {}}),
-        constructor({name: 'ArrayBuffer', polyfill: ''es6.typed.array-buffer''})
-        );
-
-        staticMethod()
-        method()
-        prototypeMethod()
-        number()
-
-        mais bon on va pas changer toutes les 2 seconde on reste sur ça pour le moment
-    */
     jsenv.build(function registerStandardFeatures() {
         /*
-        var implementation = jsenv.implementation;
-        var hyphenToCamel = jsenv.hyphenToCamel;
-        var readAt = jsenv.readAt;
-        var noValue = jsenv.noValue;
-        var autoPrototype = {};
-        var registerStandardFeatures = function(targetName) {
-            var i = 1;
-            var j = arguments.length;
-            var capitalizedTargetName = targetName[0].toUpperCase() + targetName.slice(1);
-            var prefix = function(featureName) {
-                if (targetName === 'global') {
-                    return featureName;
-                }
-                if (featureName) {
-                    return targetName + '-' + featureName;
-                }
-                return targetName;
-            };
-
-            while (i < j) {
-                var featureDescriptor = arguments[i];
-
-                var featureName;
-                var featureDescriptorName;
-                if ('name' in featureDescriptor) {
-                    featureDescriptorName = featureDescriptor.name;
-                    if (typeof featureDescriptorName === 'string') {
-                        featureName = featureDescriptorName;
-                    } else {
-                        throw new TypeError('feature descriptor name must be a string');
-                    }
-                } else {
-                    throw new Error('feature descriptor must have a name');
-                }
-                var prefixedFeatureName = prefix(featureName);
-
-                var featurePath;
-                var featureDescriptorPath;
-                if ('path' in featureDescriptor) {
-                    featureDescriptorPath = featureDescriptor.path;
-                    if (typeof featureDescriptorPath === 'string') {
-                        featurePath = featureDescriptorPath;
-                    } else if (featureDescriptorPath === autoPrototype) {
-                        featurePath = capitalizedTargetName;
-                        featurePath += '.prototype';
-                        if (featureName) {
-                            featurePath += '.' + hyphenToCamel(featureName);
-                        }
-                    }
-                } else {
-                    if (targetName === 'global') {
-                        featurePath = '';
-                    } else {
-                        featurePath = capitalizedTargetName;
-                    }
-                    if (featureName) {
-                        if (featurePath.length) {
-                            featurePath += '.';
-                        }
-                        if (featureDescriptor.type === 'constructor') {
-                            featurePath += featureName[0].toUpperCase() + hyphenToCamel(featureName.slice(1));
-                        } else {
-                            featurePath += hyphenToCamel(featureName);
-                        }
-                    }
-                }
-
-                var featureValidTest;
-                var featureDescriptorValid;
-                if ('valid' in featureDescriptor) {
-                    featureDescriptorValid = featureDescriptor.valid;
-                    if (typeof featureDescriptorValid === 'function') {
-                        featureValidTest = featureDescriptorValid;
-                    } else {
-                        throw new TypeError('feature descriptor valid must be a function');
-                    }
-                } else {
-                    featureValidTest = null;
-                }
-
-                var feature = implementation.add(prefixedFeatureName);
-                feature.path = featurePath;
-                feature.type = 'standard';
-                feature.spec = 'spec' in featureDescriptor ? featureDescriptor.spec : 'es6';
-                feature.when(missing(), 'missing');
-                if (featureValidTest) {
-                    feature.when(Predicate.not(featureValidTest), 'invalid');
-                }
-
-                i++;
-            }
-        };
-        function missing(path) {
-            return function() {
-                if (readAt(jsenv.global, path) === noValue) {
-                    return 'missing';
-                }
-                return true;
-            };
-        }
-        function registerStandard(featureName, featureData) {
-
-        }
-        function presence() {
-            return function() {
-                var value = readAt(jsenv.global, this.path);
-                if (value === noValue) {
-                    return 'missing';
-                }
-                this.value = value;
-                return true;
-            }
-        }
-
         // et au lieu d'avoir des noms on nomme juste les fonctions
         // et come ça on passe une liste des fonctions qui servet à savoir dan squel état est la feature
         // sachant que detect va par défaut utiliser le nom de la feature
@@ -2298,72 +1919,6 @@ je dis pourquoi pas
         https://github.com/kangax/compat-table/blob/gh-pages/data-es6.js
         */
 
-        // function testSyntax() {
-        //     var syntaxTestDescriptors = arguments;
-        //     var syntaxTests = map(syntaxTestDescriptors, function(syntaxDescriptor) {
-        //         return function() {
-        //             var feature = this;
-        //             var valid;
-
-        //             if ('relyOn' in syntaxDescriptor) {
-        //                 var dependencyNames = syntaxDescriptor.relyOn;
-        //                 var someDependencyIsExcluded = dependencyNames.some(function(dependencyName) {
-        //                     return jsenv.implementation.get(dependencyName).isExcluded();
-        //                 });
-
-        //                 if (someDependencyIsExcluded) {
-        //                     valid = true;
-        //                 }
-        //             }
-
-        //             if (valid === undefined) {
-        //                 if ('code' in syntaxDescriptor) {
-        //                     var result;
-        //                     try {
-        //                         result = eval(syntaxDescriptor.code); // eslint-disable-line
-        //                     } catch (e) {
-        //                         valid = false;
-        //                     }
-
-        //                     if (valid === undefined) {
-        //                         if ('valid' in syntaxDescriptor) {
-        //                             valid = syntaxDescriptor.valid(result);
-        //                         } else {
-        //                             valid = Boolean(result);
-        //                         }
-        //                     }
-        //                 }
-        //             }
-
-        //             if (valid === undefined) {
-        //                 valid = true;
-        //             }
-        //             feature.validityReason = syntaxDescriptor.name;
-        //             return valid;
-        //         };
-        //     });
-
-        //     return Predicate.every.apply(null, syntaxTests);
-        // }
-
-        // var implementation = jsenv.implementation;
-        // var registerSyntaxFeature = function(featureName, syntaxTest) {
-        //     var feature = implementation.add(featureName);
-        //     feature.type = 'syntax';
-        //     feature.transpiled = false;
-        //     feature.when(function() {
-        //         return this.transpiled;
-        //     }, 'valid');
-
-        //     feature.when(Predicate.not(syntaxTest), 'invalid');
-
-        //     return feature;
-        // };
-
-        // function extract(fn) {
-        //     return fn.toString().match(/[^]*\/\*([^]*)\*\/\}$/)[1];
-        // }
-
         var registerSyntaxFeature = function() {};
         var testSyntax = function() {};
         var extract = function() {};
@@ -2576,84 +2131,263 @@ je dis pourquoi pas
         ));
     });
 
-    jsenv.build(function registerFeatures() {
-        function presence() {
-            var value = jsenv.readAt(jsenv.global, this.path);
-            if (value === jsenv.noValue) {
-                this.status = 'invalid';
-                this.statusReason = 'missing';
-            } else {
-                this.status = 'valid';
-                this.value = value;
-            }
-        }
+    jsenv.build(function registerStandardFeatures() {
+        var implementation = jsenv.implementation;
+        var noValue = {novalue: true};
 
-        function registerStandard() {
-            var standardFeature = registerFeature.apply(this, arguments);
+        function registerStandard(globalValue) {
+            var feature = implementation.createFeature();
 
-            standardFeature.expect = function(path) {
-                this.path = path;
-                this.test = presence;
-                return this;
+            feature.name = 'global';
+            feature.type = 'standard';
+            feature.test = presence;
+            feature.value = globalValue;
+            feature.ensure = function(descriptor) {
+                var dependent = implementation.createFeature();
+
+                dependent.parent = this;
+                dependent.type = this.type;
+                dependent.ensure = this.ensure;
+                dependent.valueGetter = feature.valueGetter;
+                dependent.relyOn(this);
+
+                var descriptorName;
+                var descriptorPath;
+                var descriptorKind;
+                var descriptorTest;
+                if ('name' in descriptor) {
+                    descriptorName = descriptor.name;
+                }
+                if ('test' in descriptor) {
+                    descriptorTest = descriptor.test;
+                }
+                if ('kind' in descriptor) {
+                    descriptorKind = descriptor.kind;
+                }
+                if ('path' in descriptor) {
+                    descriptorPath = descriptor.path;
+                    if (isFeature(descriptorPath)) {
+                        var dependency = descriptorPath;
+                        descriptorPath = 'dynamic';// this.parent.path + '[' + dependency.path + ']';
+                        dependent.relyOn(dependency);
+                        if (!descriptorName) {
+                            descriptorName = dependency.name;
+                        }
+                        dependent.valueGetter = function() {
+                            var fromValue = this.parent.value;
+                            var dependencyValue = dependency.value;
+
+                            if (dependencyValue in fromValue) {
+                                return fromValue[dependencyValue];
+                            }
+                            return noValue;
+                        };
+                    } else if (typeof descriptorPath === 'string') {
+                        if (!descriptorName) {
+                            descriptorName = camelToHyphen(descriptorPath);
+                        }
+                    }
+                }
+
+                if (this === feature) {
+                    dependent.name = descriptorName;
+                } else {
+                    dependent.name = this.name + '-' + descriptorName;
+                }
+
+                if (descriptorPath) {
+                    dependent.path = descriptorPath;
+                }
+
+                var tests = [];
+                if (descriptorPath) {
+                    tests.push(presence);
+                }
+                if (descriptorKind) {
+                    tests.push(ensureKind(descriptorKind));
+                }
+                if (descriptorTest) {
+                    tests.push(descriptorTest);
+                }
+                if (tests.length > 0) {
+                    if (tests.length === 1) {
+                        dependent.test = tests[0];
+                    } else {
+                        dependent.test = function(settle) {
+                            var i = 0;
+                            var j = tests.length;
+                            var statusValid;
+                            var statusReason;
+                            var statusDetail;
+                            var handledCount = 0;
+
+                            function compositeSettle(valid, reason, detail) {
+                                handledCount++;
+
+                                statusValid = valid;
+                                statusReason = reason;
+                                statusDetail = detail;
+
+                                var settled = false;
+                                if (statusValid) {
+                                    settled = handledCount === j;
+                                } else {
+                                    settled = true;
+                                }
+
+                                if (settled) {
+                                    settle(statusValid, statusReason, statusDetail);
+                                }
+                            }
+
+                            while (i < j) {
+                                var test = tests[i];
+                                if (test.length === 0) {
+                                    var returnValue = test.call(this);
+                                    compositeSettle(Boolean(returnValue), 'returned', returnValue);
+                                } else {
+                                    test.call(this, compositeSettle);
+                                }
+                                if (statusValid === false) {
+                                    break;
+                                }
+                                i++;
+                            }
+                        };
+                    }
+                }
+
+                implementation.add(dependent);
+                return dependent;
             };
 
-            return standardFeature;
-        }
+            function isFeature(value) {
+                return typeof value === 'object';
+            }
+            function camelToHyphen(string) {
+                var i = 0;
+                var j = string.length;
+                var camelizedResult = '';
+                while (i < j) {
+                    var letter = string[i];
+                    var action;
 
-        function registerFeature(featureName, secondArg) {
-            var featureDescriptor;
-            if (arguments.length === 1) {
-                featureDescriptor = {};
-            } else if (typeof secondArg === 'object') {
-                featureDescriptor = secondArg;
-            } else {
-                throw new TypeError('registerFeature 2nd argument must be an object');
+                    if (i === 0) {
+                        action = 'lower';
+                    } else if (isUpperCaseLetter(letter)) {
+                        if (isUpperCaseLetter(string[i - 1])) { // toISOString -> to-iso-string & toJSON -> to-json
+                            if (i === j - 1) { // toJSON last letter
+                                action = 'camelize';
+                            } else if (isLowerCaseLetter(string[i + 1])) { // toISOString on the S
+                                action = 'camelize';
+                            } else { // toJSON on the SON
+                                action = 'lower';
+                            }
+                        } else if (
+                            isLowerCaseLetter(string[i - 1]) &&
+                            i > 1 &&
+                            isUpperCaseLetter(string[i - 2])
+                        ) { // isNaN -> is-nan
+                            action = 'lower';
+                        } else {
+                            action = 'camelize';
+                        }
+                    } else {
+                        action = 'concat';
+                    }
+
+                    if (action === 'lower') {
+                        camelizedResult += letter.toLowerCase();
+                    } else if (action === 'camelize') {
+                        camelizedResult += '-' + letter.toLowerCase();
+                    } else if (action === 'concat') {
+                        camelizedResult += letter;
+                    } else {
+                        throw new Error('unknown camelize action');
+                    }
+
+                    i++;
+                }
+                return camelizedResult;
+            }
+            function isUpperCaseLetter(letter) {
+                return /[A-Z]/.test(letter);
+            }
+            function isLowerCaseLetter(letter) {
+                return /[a-z]/.test(letter);
             }
 
-            var feature = jsenv.implementation.add(featureName);
-            assign(feature, featureDescriptor);
+            feature.valueGetter = function() {
+                var endValue;
+
+                if (this === feature) {
+                    endValue = globalValue;
+                } else {
+                    var path = this.path;
+                    var parts = path.split('.');
+                    var startValue = this.parent.value;
+                    endValue = startValue;
+                    var i = 0;
+                    var j = parts.length;
+                    while (i < j) {
+                        var part = parts[i];
+                        if (part in endValue) {
+                            endValue = endValue[part];
+                        } else {
+                            endValue = noValue;
+                            break;
+                        }
+                        i++;
+                    }
+                }
+
+                return endValue;
+            };
+            function presence(settle) {
+                var value = this.valueGetter();
+                if (value === noValue) {
+                    settle(false, 'missing');
+                } else {
+                    this.value = value;
+                    settle(true, 'present', value);
+                }
+            }
+            function ensureKind(expectedKind) {
+                return function(settle) {
+                    var value = this.value;
+                    var actualKind;
+
+                    if (expectedKind === 'object' && value === null) {
+                        actualKind = 'null';
+                    } else if (expectedKind === 'symbol') {
+                        if (value && value.constructor === Symbol) {
+                            actualKind = 'symbol';
+                        } else {
+                            actualKind = typeof value;
+                        }
+                    } else {
+                        actualKind = typeof value;
+                    }
+
+                    if (actualKind === expectedKind) {
+                        settle(true, 'expected-' + actualKind, value);
+                    } else {
+                        settle(false, 'unexpected-' + actualKind, value);
+                    }
+                };
+            }
+            implementation.add(feature);
             return feature;
         }
 
-        function syntax(firstArg, codeReturnValueTest) {
-            var code;
-            if (typeof firstArg === 'function') {
-                code = firstArg.toString().match(/[^]*\/\*([^]*)\*\/\}$/)[1];
-            } else if (typeof firstArg === 'string') {
-                code = firstArg;
-            } else {
-                throw new TypeError('syntax first argument must be a string or a function');
-            }
+        var globalStandard = registerStandard(jsenv.global);
 
-            return function(settle) {
-                var returnValue = eval(code); // eslint-disable-line
-
-                if (codeReturnValueTest) {
-                    if (codeReturnValueTest.length < 2) {
-                        returnValue = codeReturnValueTest.call(this, returnValue);
-                        settle(Boolean(returnValue), 'returned', returnValue);
-                    } else {
-                        codeReturnValueTest.call(this, returnValue, settle);
-                    }
-                } else {
-                    settle(Boolean(returnValue), 'returned', returnValue);
-                }
-            };
-        }
-
-        function registerSyntax() {
-            var syntaxFeature = registerFeature.apply(this, arguments);
-
-            syntaxFeature.expect = function() {
-                this.test = syntax.apply(this, arguments);
-                return this;
-            };
-
-            return syntaxFeature;
-        }
-
-        registerStandard('promise').expect('Promise').ensure(
-            function unhandledRejectionHook(settle) {
+        var PromiseStandard = globalStandard.ensure({
+            path: 'Promise'
+        });
+        PromiseStandard.ensure({
+            name: 'unhandled-rejection',
+            test: function(settle) {
                 var promiseRejectionEvent;
                 var unhandledRejection = function(e) {
                     promiseRejectionEvent = e;
@@ -2678,8 +2412,11 @@ je dis pourquoi pas
                         promiseRejectionEvent.reason === 'foo'
                     );
                 }, 10); // engine has 10ms to trigger the event
-            },
-            function rejectionHandledHook(settle) {
+            }
+        });
+        PromiseStandard.ensure({
+            name: 'rejection-handled',
+            test: function(settle) {
                 var promiseRejectionEvent;
                 var rejectionHandled = function(e) {
                     promiseRejectionEvent = e;
@@ -2708,34 +2445,169 @@ je dis pourquoi pas
                     }, 10); // engine has 10ms to trigger the event
                 });
             }
-        );
+        });
 
-        registerSyntax('const').expect(
-            'const foo = 123; foo;',
-            function(foo) {
-                return foo === 123;
-            }
-        ).ensure(
-            {
-                name: 'scoped-for-of',
-                // dependencies: ['for-of'],
-                test: syntax(
-                    function() {/*
-                        var scopes = [];
-                        for(const i of ['a','b']) {
-                          scopes.push(function(){ return i; });
+        var SymbolStandard = globalStandard.ensure({
+            path: 'Symbol'
+        });
+        SymbolStandard.ensure({
+            path: 'toPrimitive'
+        });
+
+        var ObjectStandard = globalStandard.ensure({
+            path: 'Object'
+        });
+        ObjectStandard.ensure({
+            path: 'getOwnPropertyDescriptor'
+        });
+
+        var DateStandard = globalStandard.ensure({
+            path: 'Date'
+        });
+        DateStandard.ensure({
+            path: 'now'
+        });
+        var DatePrototypeStandard = DateStandard.ensure({
+            path: 'prototype'
+        });
+        DatePrototypeStandard.ensure({
+            path: 'toISOString',
+            test: Predicate.every(
+                function() {
+                    // https://github.com/zloirock/core-js/blob/v2.4.1/modules/es6.date.to-iso-string.js
+                    return new Date(-5e13 - 1).toISOString() === '0385-07-25T07:06:39.999Z';
+                },
+                Predicate.fails(function() {
+                    // eslint-disable-next-line no-unused-expressions
+                    new Date(NaN).toISOString();
+                })
+            )
+        });
+        DatePrototypeStandard.ensure({
+            path: 'toJSON',
+            test: Predicate.every(
+                function() {
+                    // https://github.com/zloirock/core-js/blob/v2.4.1/modules/es6.date.to-json.js
+                    return new Date(NaN).toJSON() === null;
+                },
+                function() {
+                    var fakeDate = {
+                        toISOString: function() {
+                            return 1;
                         }
-                        scopes;
-                    */},
-                    function(scopes) {
-                        return (
-                            scopes[0]() === "a" &&
-                            scopes[1]() === "b"
-                        );
-                    }
-                )
+                    };
+                    return Date.prototype.toJSON.call(fakeDate) === 1;
+                }
+            )
+        });
+        DatePrototypeStandard.ensure({
+            path: implementation.get('symbol-to-primitive')
+        });
+        DatePrototypeStandard.ensure({
+            path: 'toString',
+            test: function() {
+                // https://github.com/zloirock/core-js/blob/v2.4.1/modules/es6.date.to-string.js
+                return new Date(NaN).toString() === 'Invalid Date';
             }
-        );
+        });
+
+        /*
+        if (jsenv.isBrowser() === false) {
+            implementation.exclude('node-list');
+            // etc
+            // en gros on exclu certains features quand on est pas dans le browser
+        }
+        */
+    });
+
+    jsenv.build(function registerSyntaxFeatures() {
+        var implementation = jsenv.implementation;
+
+        function syntax(firstArg, codeReturnValueTest) {
+            var code;
+            if (typeof firstArg === 'function') {
+                code = firstArg.toString().match(/[^]*\/\*([^]*)\*\/\}$/)[1];
+            } else if (typeof firstArg === 'string') {
+                code = firstArg;
+            } else {
+                throw new TypeError('syntax first argument must be a string or a function');
+            }
+
+            return function(settle) {
+                var returnValue = eval(code); // eslint-disable-line
+
+                if (codeReturnValueTest) {
+                    if (codeReturnValueTest.length < 2) {
+                        returnValue = codeReturnValueTest.call(this, returnValue);
+                        settle(Boolean(returnValue), 'returned', returnValue);
+                    } else {
+                        codeReturnValueTest.call(this, returnValue, settle);
+                    }
+                } else {
+                    settle(Boolean(returnValue), 'returned', returnValue);
+                }
+            };
+        }
+        function registerSyntax(syntaxDescriptor) {
+            var feature = implementation.createFeature();
+
+            feature.name = syntaxDescriptor.name;
+            feature.type = 'syntax';
+            feature.test = syntaxDescriptor.test;
+            feature.ensure = function(syntaxDescriptor) {
+                var dependent = implementation.createFeature();
+
+                dependent.relyOn(this);
+                dependent.parent = this;
+                dependent.type = this.type;
+
+                if ('name' in syntaxDescriptor) {
+                    dependent.name = this.name + '-' + syntaxDescriptor.name;
+                }
+                if ('dependencies' in syntaxDescriptor) {
+                    Iterable.forEach(syntaxDescriptor.dependencies, function(dependencyName) { // eslint-disable-line
+                        dependent.relyOn(dependencyName);
+                    });
+                }
+                if ('test' in syntaxDescriptor) {
+                    dependent.test = syntaxDescriptor.test;
+                }
+
+                implementation.add(dependent);
+                return dependent;
+            };
+            implementation.add(feature);
+            return feature;
+        }
+
+        var constSyntax = registerSyntax({
+            name: 'const',
+            test: syntax(
+                'const foo = 123; foo;',
+                function(foo) {
+                    return foo === 123;
+                }
+            )
+        }).exclude();
+        constSyntax.ensure({
+            name: 'scoped-for-of',
+            // dependencies: ['for-of'],
+            test: syntax(
+                function() {/*
+                    var scopes = [];
+                    for(const i of ['a','b']) {
+                      scopes.push(function(){ return i; });
+                    }
+                    scopes;
+                */},
+                function(scopes) {
+                    return (
+                        scopes[0]() === "a" &&
+                        scopes[1]() === "b"
+                    );
+                }
+            )
+        }).exclude();
     });
 
     jsenv.build(function implementationRequired() {
@@ -2764,8 +2636,8 @@ je dis pourquoi pas
                 i = 0;
                 while (i < j) {
                     var unresolvedNode = unresolvedNodes[i];
-                    var everyDependencyIsResolved = unresolvedNode.dependencies.every(function(dependency) {
-                        return resolvedNodes.indexOf(dependency) > -1;
+                    var everyDependencyIsResolved = Iterable.every(unresolvedNode.dependencies, function(dependency) {
+                        return Iterable.includes(resolvedNodes, dependency);
                     });
                     if (everyDependencyIsResolved) {
                         group.push(unresolvedNode);
@@ -2787,22 +2659,26 @@ je dis pourquoi pas
             return groups;
         }
 
-        implementation.groupFeatures = function() {
-            return groupNodesByDependencyDepth(implementation.features);
-        };
-
-        implementation.getInvalidFeatures = function(callback) {
-            var includedFeatures = implementation.features.filter(function(feature) {
-                return feature.isIncluded();
+        implementation.groupFeatures = function(callback) {
+            var inclusionHalf = Iterable.bisect(implementation.features, function(feature) {
+                return feature.isExcluded();
             });
+            var excludedFeatures = inclusionHalf[0];
+            var includedFeatures = inclusionHalf[1];
             var groups = groupNodesByDependencyDepth(includedFeatures);
             var groupIndex = -1;
             var groupCount = groups.length;
             var done = function() {
-                var invalidFeatures = includedFeatures.filter(function(feature) {
-                    return feature.isInvalid();
+                var validHalf = Iterable.bisect(includedFeatures, function(feature) {
+                    return feature.isValid();
                 });
-                callback(invalidFeatures);
+                callback({
+                    excluded: excludedFeatures,
+                    included: includedFeatures,
+                    includedAndGroupedByDependencyDepth: groups,
+                    includedAndValid: validHalf[0],
+                    includedAndInvalid: validHalf[1]
+                });
             };
 
             function nextGroup() {
@@ -2819,7 +2695,7 @@ je dis pourquoi pas
                         var feature = group[i];
                         feature.updateStatus(function() { // eslint-disable-line
                             readyCount++;
-                            if (readyCount === j - 1) {
+                            if (readyCount === j) {
                                 nextGroup();
                             }
                         });
