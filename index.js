@@ -706,7 +706,7 @@ je dis pourquoi pas
                 disableHooks();
             };
 
-            exceptionHandler.enable();
+            // exceptionHandler.enable();
             exceptionHandler.jsenv = jsenv;
 
             return {
@@ -1142,6 +1142,19 @@ je dis pourquoi pas
             i++;
         }
         return everyEntryIsTruthy;
+    };
+    Iterable.some = function some(iterable, fn, bind) {
+        var someEntryIsTruthy = false;
+        var i = 0;
+        var j = iterable.length;
+        while (i < j) {
+            if (fn.call(bind, iterable[i], i, iterable)) {
+                someEntryIsTruthy = true;
+                break;
+            }
+            i++;
+        }
+        return someEntryIsTruthy;
     };
     Iterable.bisect = function bisect(iterable, fn, bind) {
         var firstHalf = [];
@@ -2207,7 +2220,16 @@ je dis pourquoi pas
                     tests.push(ensureKind(descriptorKind));
                 }
                 if (descriptorTest) {
-                    tests.push(descriptorTest);
+                    tests.push(function(settle) {
+                        if (descriptorTest.length === 0) {
+                            var returnValue = descriptorTest.call(this);
+                            settle(Boolean(returnValue), returnValue ? 'passed' : 'failed', returnValue);
+                        } else {
+                            descriptorTest.call(this, function(valid, reason, detail) {
+                                settle(valid, reason || valid ? 'passed' : 'failed', detail);
+                            });
+                        }
+                    });
                 }
                 if (tests.length > 0) {
                     if (tests.length === 1) {
@@ -2684,7 +2706,10 @@ je dis pourquoi pas
             function nextGroup() {
                 groupIndex++;
                 if (groupIndex === groupCount) {
-                    done();
+                    // il faut faire setTimeout sur done
+                    // je ne sais pas trop pourquoi sinon nodejs cache les erreurs qui pourraient
+                    // être throw par done ou le callback
+                    setTimeout(done);
                 } else {
                     var group = groups[groupIndex];
                     var i = 0;

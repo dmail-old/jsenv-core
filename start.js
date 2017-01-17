@@ -2,23 +2,18 @@
 
 /*
 
+- more : npm install dynamique
+
 https://github.com/zloirock/core-js#custom-build-from-external-scripts
 
+- chaque polyfill/transpile doit préciser quel cas il couvre
+c'est pourquoi le client devras renvoyer non seulement la liste des fatures qui lui manque
+mais aussi le statusReason parmi 'missing', 'failed', et 'errored' pour le moment
+
 - babel en utilisant babel 6 et les plugins
-j'ai le concept mais une fois que j'ai ma function de transpilation avec les bons plugins
-qu'est ce que je fais ?
-je pense qu'il faut alors (puisque SystemJS est chargé)
-faire System.translate = ma fonction de transpilation
 
-ah et aussi : c'est pas aussi simple que juste avoir une liste de true/false
-certain plugin nécéssite la présence d'autres et il "faudrais" l'exprimer pour que si
-on exclue une dépendance on dise ouais mais sans ça tu peux pas avoir ça
-ou alors avec ça il faut absolument ça
-
-poster une issue sur systemjs a propos de la dépréciation du fetch hook
-car cela me permettait d'autoriser http sous node
-https://github.com/systemjs/systemjs/blob/0.20/src/fetch.js
-pour translate ça semble bon : https://github.com/ModuleLoader/es-module-loader/issues/525#issuecomment-272708053
+translate hook: https://github.com/ModuleLoader/es-module-loader/issues/525#issuecomment-272708053
+fetch hook : issue ouverte sur systemjs
 
 y'a un cas spécial auquel il faudras penser : yield etc
 il ont besoin à la fois d'un polyfill (regenerator/runtime) et d'une transpilation)
@@ -37,73 +32,212 @@ mais on retarde ça le plus possible parce que ça a des impacts (comment invali
 
 */
 
-/*
-// bon l'idée c'est bel et bien d'avoir une liste de features dont on souhaite se servir
-// et un test associé.
-// lorsque ce test ne passe pas
-// il peut ou non y avoir un moyen d'y remédier (polyfill/transpile)
-// etc mais aussi n'y avoir aucun moyen
-// c'est pourquoi chaque polyfill/transpile doit préciser quel cas il couvre
-
-- maintenant que feature.getStatus est asynchrone y'a des choses à revoir
-getRequiredFeatures et d'autres choses doivent maintenant être asynchrone
-à partir du moment où on commence à tester
-
-- au lieu d'avoir les dependances listé directement dans le package.json
-ça serais une tuerie d'avoir une liste de package et ce qu'ils sont censé
-corrigé de sorte que seulement si on en a besoin on installe core-js babel plugin etc
-faudrais bien penser à lancer les tests en parallèle, pas le choix sinon ils vont être bcp trop long
-et puis tfaçon c'ets des tests genre est ce que ça marche ou pas mais
-on veut la liste de ce qui marche pas et pas s'arrêter au premier qui marche pas
-sauf qu'avec les dépendances on peut pas vraiment les faire en parallèlee....
-oh misère!
-du coup faudrais que ceux étant dépendant attendent ok pourquoi pas
-
-*/
-
-// var fs = require('fs');
 require('./index.js');
 var jsenv = global.jsenv;
+var implementation = jsenv.implementation;
+var Iterable = jsenv.Iterable;
 
-// exclude some features
-// [
-//     'math-clamp',
-//     'math-deg-per-rad',
-//     'math-degrees',
-//     'math-fscale',
-//     'math-radians',
-//     'math-rad-per-deg',
-//     'math-scale',
-//     'string-escape-html',
-//     'string-match-all',
-//     'string-unescape-html'
-// ].forEach(function(excludedFeature) {
-//     jsenv.implementation.exclude(excludedFeature, 'npm corejs@2.4.1 does not have thoose polyfill');
-// });
-// handle thoose features using known file path
-// var featuresHandledByFile = {
-//     url: __dirname + '/src/polyfill/url/index.js',
-//     'url-search-params': __dirname + '/src/polyfill/url-search-params/index.js'
-// };
-// other features are handled is a less abvious way by corejs (see coreJSHandler below)
-// explicit is better than implicit so not ideal but prevent tons of code, keep as it is for now
+var excludedFeatures = [
+    'math-clamp',
+    'math-deg-per-rad',
+    'math-degrees',
+    'math-fscale',
+    'math-radians',
+    'math-rad-per-deg',
+    'math-scale',
+    'string-escape-html',
+    'string-match-all',
+    'string-unescape-html'
+];
+var solutionGroups = [
+    {
+        name: 'babel',
+        descriptors: [
+            {
+                name: 'transform-es2015-block-scoping',
+                features: [
+                    // provide thoose const features
+                    {name: 'const'},
+                    {name: 'const-block-scoped'},
+                    {name: 'const-block-scoped'},
+                    {name: 'const-not-in-statement'},
+                    {name: 'const-throw-on-redefine'},
+                    {name: 'const-scope-for'},
+                    {name: 'const-scope-for-in'},
+                    {name: 'const-scope-for-of'},
+                    {name: 'const-temporal-dead-zone'},
+                    // provide thoose let features
+                    {name: 'let'}
+                ]
+            }
+        ]
+    },
+    {
+        name: 'corejs',
+        descriptors: [
+            {
+                name: 'es6.promise',
+                features: [
+                    {name: 'promise'},
+                    {name: 'promise-unhandled-rejection'},
+                    {name: 'promise-rejection-handled'}
+                ]
+            },
+            {
+                name: 'es6.symbol',
+                features: [
+                    {name: 'symbol'},
+                    {name: 'symbol-to-primitive'}
+                ]
+            },
+            {
+                name: 'es6.object.get-own-property-descriptor',
+                features: [
+                    {name: 'object.get-own-property-descriptor'}
+                ]
+            },
+            {
+                name: 'es6.date.now',
+                features: [
+                    {name: 'date-now'}
+                ]
+            },
+            {
+                name: 'es6.date.to-iso-string',
+                features: [
+                    {name: 'date-prototype-to-iso-string'}
+                ]
+            },
+            {
+                name: 'es6.date.to-json',
+                features: [
+                    {name: 'date-prototype-to-json'}
+                ]
+            },
+            {
+                name: 'es6.date.to-primitive',
+                features: [
+                    {name: 'date-prototype-symbol-to-primitive'}
+                ]
+            },
+            {
+                name: 'es6.date-to-string',
+                features: [
+                    {name: 'date-prototype-to-string', when: 'failed'} // when: 'failed' because cannot solve 'missing'
+                ]
+            }
+        ]
+    },
+    {
+        name: 'filesystem',
+        descriptors: [
+            {
+                name: __dirname + '/src/polyfill/url/index.js',
+                features: [
+                    {name: 'url'}
+                ]
+            },
+            {
+                name: __dirname + '/src/polyfill/url-search-params/index.js',
+                features: [
+                    {name: 'url-search-params'}
+                ]
+            }
+        ]
+    }
+];
+
+excludedFeatures.forEach(function() {
+    // implementation.exclude(excludedFeature, 'npm corejs@2.4.1 does not have thoose polyfill');
+});
+implementation.groupFeatures(function(groups) {
+    var problematicFeatures = groups.includedAndInvalid.map(function(feature) {
+        return feature.name;
+    });
+    console.log('problematic features', problematicFeatures);
+
+    var requiredSolutionGroups = Iterable.map(solutionGroups, mapSolutionGroup);
+    function mapSolutionGroup(solutionGroup) {
+        var requiredSolutionGroup = jsenv.assign({}, solutionGroup);
+        var requiredDescriptors = [];
+
+        problematicFeatures = Iterable.filter(problematicFeatures, function(feature) {
+            var descriptorSolvingFeature = Iterable.find(solutionGroup.descriptors, function(solutionDescriptor) {
+                return Iterable.some(solutionDescriptor.features, function(featureSolutionDescriptor) {
+                    return feature === featureSolutionDescriptor.name;
+                });
+            });
+            var solved;
+            if (descriptorSolvingFeature) {
+                if (Iterable.includes(requiredDescriptors, descriptorSolvingFeature) === false) {
+                    requiredDescriptors.push(descriptorSolvingFeature);
+                }
+                solved = true;
+            } else {
+                solved = false;
+            }
+
+            return solved === false;
+        });
+
+        requiredSolutionGroup.descriptors = requiredDescriptors;
+
+        return requiredSolutionGroup;
+    }
+
+    if (problematicFeatures.length) {
+        throw new Error('unsolved problematic features: ' + problematicFeatures.join(','));
+    }
+
+    var requiredBabelSolutions = requiredSolutionGroups[0].descriptors;
+    var requiredCoreJSSolution = requiredSolutionGroups[1].descriptors;
+    var requiredFileSystemSolution = requiredSolutionGroups[2].descriptors;
+
+    console.log('required babel solutions', requiredBabelSolutions.map(function(descriptor) {
+        return descriptor.name;
+    }));
+    console.log('required corejs solutions', requiredCoreJSSolution.map(function(descriptor) {
+        return descriptor.name;
+    }));
+    console.log('required filesystem solutions', requiredFileSystemSolution.map(function(descriptor) {
+        return descriptor.name;
+    }));
+
+    // donc maintenant j'ai "juste" à créer du code que j'éxécute pour corejs + filesystem
+    // et une fonction de transpilation pour babel
+
+    // corejs solution
+    // var buildCoreJS = require('core-js-builder');
+    // return buildCoreJS({
+    //     modules: requiredCoreJSModules,
+    //     librabry: false,
+    //     umd: true
+    // });
+    // filesystem solution (se combine avec core js pour ne produire qu'un fichier)
+    // var fileContentPromises = handled.map(function(feature) {
+    //     return featuresHandledByFile[feature.name];
+    // }).map(function(filePath) {
+    //     var fs = require('fs');
+    //     return new Promise(function(resolve, reject) {
+    //         fs.readFile(filePath, function(error, buffer) {
+    //             if (error) {
+    //                 reject(error);
+    //             } else {
+    //                 resolve(buffer.toString());
+    //             }
+    //         });
+    //     });
+    // });
+    // return Promise.all(fileContentPromises).then(function(sources) {
+    //     return sources.join('\n\n');
+    // });
+    // babel solution
+    // produit une fonction de transpilation spécifique
+    // qui est installé sur SystemJS
+});
 
 // function coreJSHandler(requiredFeatures) {
-//     var handled = [];
-//     var unhandled = [];
-//     requiredFeatures.forEach(function(feature) {
-//         if (feature.name in featuresHandledByFile) {
-//             unhandled.push(feature);
-//         } else {
-//             handled.push(feature);
-//         }
-//     });
-
 //     return {
-//         unhandled: unhandled,
-//         compile: function() {
-//             var buildCoreJS = require('core-js-builder');
-
 //             var standardFeatureForcedCoreJSMapping = {
 //                 'set-immediate': 'web.immediate',
 
@@ -139,130 +273,6 @@ var jsenv = global.jsenv;
 //                 'symbol-to-primitive': 'es6.symbol'
 //             };
 
-//             handled.forEach(function(standardFeature) {
-//                 var featureName = standardFeature.name;
-//                 if (featureName in standardFeatureForcedCoreJSMapping === false) {
-//                     standardFeatureForcedCoreJSMapping[featureName] = getSupposedCoreJSModuleName(standardFeature);
-//                 }
-//             });
-//             function getSupposedCoreJSModuleName(standardFeature) {
-//                 var coreJsModuleName;
-//                 var featureSpec = standardFeature.spec;
-
-//                 coreJsModuleName = featureSpec;
-
-//                 var featureName = standardFeature.name;
-//                 var dashIndex = featureName.indexOf('-');
-//                 var beforeFirstDash = dashIndex === -1 ? featureName : featureName.slice(0, dashIndex);
-
-//                 if (
-//                     beforeFirstDash === 'array' ||
-//                     beforeFirstDash === 'date' ||
-//                     beforeFirstDash === 'function' ||
-//                     beforeFirstDash === 'object' ||
-//                     beforeFirstDash === 'symbol' ||
-//                     beforeFirstDash === 'math' ||
-//                     beforeFirstDash === 'number' ||
-//                     beforeFirstDash === 'reflect' ||
-//                     beforeFirstDash === 'regexp' ||
-//                     beforeFirstDash === 'string'
-//                 ) {
-//                     coreJsModuleName += '.' + beforeFirstDash;
-
-//                     var afterFirstDash = dashIndex === -1 ? '' : featureName.slice(dashIndex + 1);
-//                     if (afterFirstDash) {
-//                         coreJsModuleName += '.' + afterFirstDash;
-//                     }
-//                 } else {
-//                     coreJsModuleName += '.' + featureName;
-//                 }
-
-//                 return coreJsModuleName;
-//             }
-
-//             var requiredCoreJSModules = handled.map(function(standardFeature) {
-//                 return standardFeatureForcedCoreJSMapping[standardFeature.name];
-//             }).filter(function(value, index, list) {
-//                 return list.indexOf(value) === index;
-//             });
-
-//             return buildCoreJS({
-//                 modules: requiredCoreJSModules,
-//                 librabry: false,
-//                 umd: true
-//             });
-//         }
-//     };
-// }
-
-// function fileHandler(requiredFeatures) {
-//     var unhandled = [];
-//     var handled = [];
-//     requiredFeatures.forEach(function(feature) {
-//         if (feature.name in featuresHandledByFile) {
-//             handled.push(feature);
-//         } else {
-//             unhandled.push(feature);
-//         }
-//     });
-
-//     return {
-//         unhandled: unhandled,
-//         compile: function() {
-//             var fileContentPromises = handled.map(function(feature) {
-//                 return featuresHandledByFile[feature.name];
-//             }).map(function(filePath) {
-//                 return new Promise(function(resolve, reject) {
-//                     fs.readFile(filePath, function(error, buffer) {
-//                         if (error) {
-//                             reject(error);
-//                         } else {
-//                             resolve(buffer.toString());
-//                         }
-//                     });
-//                 });
-//             });
-
-//             return Promise.all(fileContentPromises).then(function(sources) {
-//                 return sources.join('\n\n');
-//             });
-//         }
-//     };
-// }
-
-// function compile(features) {
-//     var unhandledFeatures = features;
-//     var compilers = [];
-
-//     [
-//         coreJSHandler,
-//         fileHandler
-//     ].forEach(function(handler) {
-//         var result = handler(unhandledFeatures);
-//         unhandledFeatures = result.unhandled;
-//         compilers.push(result.compile);
-//     });
-
-//     if (unhandledFeatures.length) {
-//         var unhandledFeatureNames = unhandledFeatures.map(function(unhandledFeature) {
-//             return unhandledFeature.name;
-//         });
-//         throw new Error('unhandled features: ' + unhandledFeatureNames);
-//     }
-
-//     var compilePromises = compilers.map(function(compile) {
-//         return compile();
-//     });
-
-//     return Promise.all(compilePromises).then(function(sources) {
-//         return sources.join('\n\n');
-//     });
-// }
-
-jsenv.implementation.getInvalidFeatures(function(invalidFeatures) {
-    console.log('invalid features', invalidFeatures);
-});
-
 // var requiredStandardFeatures = requiredFeatures.filter(function(feature) {
 //     return feature.type === 'standard';
 // });
@@ -285,20 +295,7 @@ jsenv.implementation.getInvalidFeatures(function(invalidFeatures) {
 
 // function babelHandler(requiredFeatures) {
 //     var plugins = [
-//         {
-//             name: 'transform-es2015-block-scoping',
-//             features: [
-//                 'const',
-//                 'const-block-scoped',
-//                 'const-not-in-statement',
-//                 'const-throw-on-redefine',
-//                 'const-scope-for',
-//                 'const-scope-for-in',
-//                 'const-scope-for-of',
-//                 'const-temporal-dead-zone',
-//                 'let'
-//             ]
-//         }
+//
 //     ];
 //     var requiredPlugins = [];
 
