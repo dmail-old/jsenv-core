@@ -1300,6 +1300,7 @@ je dis pourquoi pas
             this.excluded = false;
             this.dependents = [];
             this.dependencies = [];
+            this.parameters = [];
 
             var arity = arguments.length;
             if (arity > 0) {
@@ -1321,32 +1322,54 @@ je dis pourquoi pas
         VersionnedFeaturePrototype.toString = function() {
             return this.name + '@' + this.version;
         };
+        VersionnedFeaturePrototype.addDependency = function(firstArg, asParameter) {
+            var dependency;
+            if (typeof firstArg === 'string') {
+                dependency = implementation.get(firstArg);
+                if (!dependency) {
+                    throw new Error('cannot find dependency ' + firstArg + ' of ' + this.name);
+                }
+            } else {
+                dependency = firstArg;
+            }
+
+            if (Iterable.includes(this.dependents, dependency)) {
+                throw new Error('cyclic dependency between ' + dependency.name + ' and ' + this.name);
+            }
+
+            if (asParameter) {
+                this.parameters.push(dependency);
+            } else if (dependency.excluded) {
+                this.excluded = true;
+            }
+
+            this.dependencies.push(dependency);
+            dependency.dependents.push(this);
+        };
         VersionnedFeaturePrototype.relyOn = function() {
             Iterable.forEach(arguments, function(arg) {
-                var dependentFeature;
-                if (typeof arg === 'string') {
-                    dependentFeature = implementation.get(arg);
-                    if (!dependentFeature) {
-                        throw new Error('cannot find dependency ' + arg + ' of ' + this.name);
-                    }
-                } else {
-                    dependentFeature = arg;
-                }
-
-                if (Iterable.includes(this.dependents, dependentFeature)) {
-                    throw new Error('cyclic dependency between ' + dependentFeature.name + ' and ' + this.name);
-                }
-
-                this.dependencies.push(dependentFeature);
-                dependentFeature.dependents.push(this);
+                this.addDependency(arg, false);
             }, this);
+        };
+        VersionnedFeaturePrototype.parameterizedBy = function() {
+            Iterable.forEach(arguments, function(arg) {
+                this.addDependency(arg, true);
+            }, this);
+        };
+        // VersionnedFeaturePrototype.isParameterizedBy = function(feature) {
+        //     return Iterable.includes(this.parameters, feature);
+        // };
+        VersionnedFeaturePrototype.isParameterOf = function(feature) {
+            return Iterable.includes(this.parameters, feature);
         };
         VersionnedFeaturePrototype.exclude = function(reason) {
             this.excluded = true;
             this.exclusionReason = reason;
             Iterable.forEach(this.dependents, function(dependent) {
-                dependent.exclude(reason);
-            });
+                if (this.isParameterOf(dependent) === false) {
+                    dependent.exclude(reason);
+                }
+            }, this);
             return this;
         };
         VersionnedFeaturePrototype.include = function(reason) {
@@ -1354,8 +1377,10 @@ je dis pourquoi pas
             this.exclusionReason = null;
             this.inclusionReason = reason;
             Iterable.forEach(this.dependencies, function(dependency) {
-                dependency.include(reason);
-            });
+                if (dependency.isParameterOf(this) === false) {
+                    dependency.include(reason);
+                }
+            }, this);
             return this;
         };
         VersionnedFeaturePrototype.isExcluded = function() {
@@ -1403,8 +1428,8 @@ je dis pourquoi pas
 
             var dependencies = feature.dependencies;
             var invalidDependency = Iterable.find(dependencies, function(dependency) {
-                return dependency.isInvalid();
-            });
+                return dependency.isInvalid() && dependency.isParameterOf(this) === false;
+            }, this);
             if (invalidDependency) {
                 settle(false, 'dependency-is-invalid', invalidDependency);
             } else {
@@ -1413,41 +1438,31 @@ je dis pourquoi pas
                 if (!test) {
                     throw new Error('feature ' + this + ' has no test');
                 }
-                var returnValue;
                 var throwedValue;
                 var hasThrowed = false;
-                var hasReturned = false;
 
-                // async stuff
-                if (test.length > 0) {
-                    try {
-                        test.call(
-                            feature,
-                            settle
-                        );
+                var args = Iterable.map(this.parameters, function(parameter) {
+                    return parameter;
+                });
+                args.push(settle);
 
-                        var asyncTestMaxDuration = 100;
-                        setTimeout(function() {
-                            settle(false, 'timeout', asyncTestMaxDuration);
-                        }, asyncTestMaxDuration);
-                    } catch (e) {
-                        hasThrowed = true;
-                        throwedValue = e;
-                    }
-                } else {
-                    try {
-                        returnValue = test.call(feature);
-                        hasReturned = true;
-                    } catch (e) {
-                        hasThrowed = true;
-                        throwedValue = e;
-                    }
+                try {
+                    test.apply(
+                        feature,
+                        args
+                    );
+
+                    var asyncTestMaxDuration = 100;
+                    setTimeout(function() {
+                        settle(false, 'timeout', asyncTestMaxDuration);
+                    }, asyncTestMaxDuration);
+                } catch (e) {
+                    hasThrowed = true;
+                    throwedValue = e;
                 }
 
                 if (hasThrowed) {
                     settle(false, 'throwed', throwedValue);
-                } else if (hasReturned) {
-                    settle(Boolean(returnValue), 'return', returnValue);
                 }
             }
 
@@ -2167,12 +2182,12 @@ je dis pourquoi pas
                 var descriptorName;
                 var descriptorPath;
                 var descriptorKind;
-                var descriptorTest;
+                var descriptorValid;
                 if ('name' in descriptor) {
                     descriptorName = descriptor.name;
                 }
-                if ('test' in descriptor) {
-                    descriptorTest = descriptor.test;
+                if ('valid' in descriptor) {
+                    descriptorValid = descriptor.valid;
                 }
                 if ('kind' in descriptor) {
                     descriptorKind = descriptor.kind;
@@ -2219,15 +2234,18 @@ je dis pourquoi pas
                 if (descriptorKind) {
                     tests.push(ensureKind(descriptorKind));
                 }
-                if (descriptorTest) {
-                    tests.push(function(settle) {
-                        if (descriptorTest.length === 0) {
-                            var returnValue = descriptorTest.call(this);
+                if (descriptorValid) {
+                    tests.push(function() {
+                        var args = arguments;
+                        var arity = args.length;
+                        var validArity = descriptorValid.length;
+
+                        if (validArity < arity) {
+                            var settle = args[arity - 1];
+                            var returnValue = descriptorValid.apply(this, args);
                             settle(Boolean(returnValue), returnValue ? 'passed' : 'failed', returnValue);
                         } else {
-                            descriptorTest.call(this, function(valid, reason, detail) {
-                                settle(valid, reason || valid ? 'passed' : 'failed', detail);
-                            });
+                            descriptorValid.apply(this, args);
                         }
                     });
                 }
@@ -2235,13 +2253,16 @@ je dis pourquoi pas
                     if (tests.length === 1) {
                         dependent.test = tests[0];
                     } else {
-                        dependent.test = function(settle) {
+                        dependent.test = function() {
                             var i = 0;
                             var j = tests.length;
                             var statusValid;
                             var statusReason;
                             var statusDetail;
                             var handledCount = 0;
+                            var args = Array.prototype.slice.call(arguments);
+                            var lastArgIndex = args.length - 1;
+                            var settle = args[lastArgIndex];
 
                             function compositeSettle(valid, reason, detail) {
                                 handledCount++;
@@ -2262,14 +2283,11 @@ je dis pourquoi pas
                                 }
                             }
 
+                            args[lastArgIndex] = compositeSettle;
+
                             while (i < j) {
                                 var test = tests[i];
-                                if (test.length === 0) {
-                                    var returnValue = test.call(this);
-                                    compositeSettle(Boolean(returnValue), 'returned', returnValue);
-                                } else {
-                                    test.call(this, compositeSettle);
-                                }
+                                test.apply(this, args);
                                 if (statusValid === false) {
                                     break;
                                 }
@@ -2298,11 +2316,11 @@ je dis pourquoi pas
                         action = 'lower';
                     } else if (isUpperCaseLetter(letter)) {
                         if (isUpperCaseLetter(string[i - 1])) { // toISOString -> to-iso-string & toJSON -> to-json
-                            if (i === j - 1) { // toJSON last letter
-                                action = 'camelize';
+                            if (i === j - 1) { // toJSON on the N
+                                action = 'lower';
                             } else if (isLowerCaseLetter(string[i + 1])) { // toISOString on the S
                                 action = 'camelize';
-                            } else { // toJSON on the SON
+                            } else { // toJSON on the SO
                                 action = 'lower';
                             }
                         } else if (
@@ -2409,7 +2427,7 @@ je dis pourquoi pas
         });
         PromiseStandard.ensure({
             name: 'unhandled-rejection',
-            test: function(settle) {
+            valid: function(settle) {
                 var promiseRejectionEvent;
                 var unhandledRejection = function(e) {
                     promiseRejectionEvent = e;
@@ -2438,7 +2456,7 @@ je dis pourquoi pas
         });
         PromiseStandard.ensure({
             name: 'rejection-handled',
-            test: function(settle) {
+            valid: function(settle) {
                 var promiseRejectionEvent;
                 var rejectionHandled = function(e) {
                     promiseRejectionEvent = e;
@@ -2494,7 +2512,7 @@ je dis pourquoi pas
         });
         DatePrototypeStandard.ensure({
             path: 'toISOString',
-            test: Predicate.every(
+            valid: Predicate.every(
                 function() {
                     // https://github.com/zloirock/core-js/blob/v2.4.1/modules/es6.date.to-iso-string.js
                     return new Date(-5e13 - 1).toISOString() === '0385-07-25T07:06:39.999Z';
@@ -2507,7 +2525,7 @@ je dis pourquoi pas
         });
         DatePrototypeStandard.ensure({
             path: 'toJSON',
-            test: Predicate.every(
+            valid: Predicate.every(
                 function() {
                     // https://github.com/zloirock/core-js/blob/v2.4.1/modules/es6.date.to-json.js
                     return new Date(NaN).toJSON() === null;
@@ -2527,7 +2545,7 @@ je dis pourquoi pas
         });
         DatePrototypeStandard.ensure({
             path: 'toString',
-            test: function() {
+            valid: function() {
                 // https://github.com/zloirock/core-js/blob/v2.4.1/modules/es6.date.to-string.js
                 return new Date(NaN).toString() === 'Invalid Date';
             }
@@ -2591,6 +2609,11 @@ je dis pourquoi pas
                         dependent.relyOn(dependencyName);
                     });
                 }
+                if ('parameters' in syntaxDescriptor) {
+                    Iterable.forEach(syntaxDescriptor.parameters, function(parameterName) { // eslint-disable-line
+                        dependent.parameterizedBy(parameterName);
+                    });
+                }
                 if ('test' in syntaxDescriptor) {
                     dependent.test = syntaxDescriptor.test;
                 }
@@ -2610,10 +2633,14 @@ je dis pourquoi pas
                     return foo === 123;
                 }
             )
+        });
+        registerSyntax({
+            name: 'for-of',
+            test: function() {}
         }).exclude();
         constSyntax.ensure({
             name: 'scoped-for-of',
-            // dependencies: ['for-of'],
+            dependencies: ['for-of'],
             test: syntax(
                 function() {/*
                     var scopes = [];
@@ -2629,7 +2656,7 @@ je dis pourquoi pas
                     );
                 }
             )
-        }).exclude();
+        });
     });
 
     jsenv.build(function implementationRequired() {
