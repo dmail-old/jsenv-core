@@ -2,37 +2,15 @@
 
 /*
 
-- avant babel il faudrais s'assure de la présence de SystemJS
-pour le moment cette feature est impossible à satisfaire autrmeent que par le polyfill
-donc le test doit s'assure de la présence du SystemJS de guy bedford
-et donc une fois qu'on a ce SystemJS qui est présent (de par le fichier de polyfill concaténé)
-enfin plutot de par filesystem qui gère cette feature
-on pourras alors faire en sorte que babel mette son transpile hook dessus
-ce qui veut donc dire qu'il faudras attendre le eval() qui install systemjs
-il faut donc que l'intsallation de babel se fasse après
-une sorte de afterAllSolveHook
+- démarrer un serveur de dev qui sera charger de fournir le polyfill et de transpiler
+le js d'un client qui s'y connecte
 
-plus tard lorsque y'aura le browser on installera pas ça sur SystemJS
-et on évaluera pas le code généré par corejs
-on se contentera de garder ce qui a été produit et de le filer au client
-pour qu'il obtienne un environnement adéquat
-
-- babel en utilisant babel 6 et les plugins
-
-translate hook: https://github.com/ModuleLoader/es-module-loader/issues/525#issuecomment-272708053
-fetch hook : issue ouverte sur systemjs
-
-y'a un cas spécial auquel il faudras penser : yield etc
-il ont besoin à la fois d'un polyfill (regenerator/runtime) et d'une transpilation)
-mais il s'agit d'une seule feature
-le code tel qu'il est actuellement prévoi l'un ou l'autre
-pour faire simple on a cas mettre les deux features et "forcer" l'utilisateur a savoir qu'il faut exclure/inclure les deux
-pour en profiter
+pour faire ça faut pouvoir charger les modules en utilisant SystemJS
+pour le moment je vois aucune raison de ne pas s'en servir directement
+sans se prendre la tête plus que ça
 
 - une fois que ça marcheras faudra reporter ce comportement sur le browser qui demandera au serveur
 un build de polyfill et communiquera aussi les bables plugins dont il a besoin
-(peut-on profiter du cache vu la nature dynamique? je pense que oui suffit de renvoyer que le fichier n'a pas changé
-lorsqu'on demande if-modified-since)
 
 - à un moment il faudrais mettre en cache les builds de polyfill pour éviter de les reconstruire tout le temps
 mais on retarde ça le plus possible parce que ça a des impacts (comment invalider ce cache etc) et c'est dispensable
@@ -62,10 +40,6 @@ excludedFeatures.forEach(function() {
     // implementation.exclude(excludedFeature, 'npm corejs@2.4.1 does not have thoose polyfill');
 });
 
-// il manque le fait que le plugin systemjs est toujours requis
-// dans le cas où on a besoin de systemjs
-// faudrais donc que corejs puisse soliciter la présence d'un plugin?
-
 var babelSolver = {
     name: 'babel',
     solutions: [
@@ -88,7 +62,8 @@ var babelSolver = {
     ],
     solve: function() {
         this.solutions.unshift({
-            name: 'transform-es2015-modules-systemjs'
+            name: 'transform-es2015-modules-systemjs',
+            features: []
         });
 
         var transpile = function(code) {
@@ -119,7 +94,10 @@ var babelSolver = {
     },
     afterAllSolveHook: function() {
         var transpile = this.transpile;
-        jsenv.global.Sytem.transpile = function(code, filename) {
+        jsenv.global.System.translate = function(load) {
+            load.metadata.format = 'register';
+            var code = load.source;
+            var filename = load.address;
             const result = transpile(code, filename);
             return result;
         };
@@ -386,70 +364,37 @@ implementation.scan(function(report) {
             return featureSolution;
         };
 
-        implementation.scan(function(report) {
-            var stilProblematicFeatures = report.includedAndInvalid;
-            if (stilProblematicFeatures.length) {
-                stilProblematicFeatures.forEach(function(feature) {
-                    var featureSolution = findFeatureSolution(solvers, feature);
-                    console.log(feature.name, 'not fixed by', featureSolution.name);
-                });
-            } else {
-                console.log(problematicFeatures.length, 'feature have been fixed');
+        return new Promise(function(resolve, reject) {
+            implementation.scan(function(secondReport) {
+                var stilProblematicFeatures = secondReport.includedAndInvalid;
+                if (stilProblematicFeatures.length) {
+                    stilProblematicFeatures.forEach(function(feature) {
+                        var featureSolution = findFeatureSolution(solvers, feature);
+                        console.log(feature.name, 'not fixed by', featureSolution.name);
+                    });
+                    reject();
+                } else {
+                    console.log(report.includedAndInvalid.length, 'feature have been fixed');
+                    resolve();
+                }
+            });
+        }).catch(function() {
+            // que fait-on lorsque il manque des features?
+        });
+    }).then(function() {
+        Iterable.forEach(solvers, function(solver) {
+            if ('afterAllSolveHook' in solver) {
+                solver.afterAllSolveHook();
             }
         });
+        // console.log('SystemJS got a custom translate ?', System.translate);
+        return System.import('./answer.js').then(function(exports) {
+            console.log('exported default', exports.default);
+        });
+    }).catch(function(e) {
+        // because unhandled rejection may not be available so error gets ignored
+        setTimeout(function() {
+            throw e;
+        });
     });
-
-    // console.log('required babel solutions', requiredBabelSolutions.map(function(descriptor) {
-    //     return descriptor.name;
-    // }));
-    // console.log('required corejs solutions', requiredCoreJSSolutions.map(function(descriptor) {
-    //     return descriptor.name;
-    // }));
-    // console.log('required filesystem solutions', requiredFileSystemSolutions.map(function(descriptor) {
-    //     return descriptor.name;
-    // }));
 });
-
-// function coreJSHandler(requiredFeatures) {
-//     return {
-//             var standardFeatureForcedCoreJSMapping = {
-//                 'set-immediate': 'web.immediate',
-
-//                 'array-buffer': 'es6.typed.array-buffer',
-//                 'data-view': 'es6.typed.data-view',
-//                 'int8-array': 'es6.typed.int8-array',
-//                 'uint8-array': 'es6.typed.uint8-array',
-//                 'uint8-clamped-array': 'es6.typed.uint8-clamped-array',
-//                 'int16-array': 'es6.typed.int16-array',
-//                 'uint16-array': 'es6.typed.uint16-array',
-//                 'int32-array': 'es6.typed.int32-array',
-//                 'uint32-array': 'es6.typed.uint32-array',
-//                 'float32-array': 'es6.typed.float32-array',
-//                 'float64-array': 'es6.typed.float64-array',
-
-//                 'node-list-iteration': 'web.dom.iterable',
-//                 'dom-token-list-iteration': 'web.dom.iterable',
-//                 'media-list-iteration': 'web.dom.iterable',
-//                 'style-sheet-list-iteration': 'web.dom.iterable',
-//                 'css-rule-list-iteration': 'web.dom.iterable',
-
-//                 'number-iterator': 'core.number.iterator',
-//                 'regexp-escape': 'core.regexp.escape',
-//                 'string-escape-html': 'core.string.escape-html',
-//                 'string-trim-end': 'es7.string.trim-right',
-//                 'string-trim-start': 'es7.string.trim-left',
-//                 'string-unescape-html': 'core.string.unescape-html',
-//                 'symbol-has-instance': 'es6.symbol',
-//                 'symbol-match': 'es6.symbol',
-//                 'symbol-replace': 'es6.symbol',
-//                 'symbol-search': 'es6.symbol',
-//                 'symbol-split': 'es6.symbol',
-//                 'symbol-to-primitive': 'es6.symbol'
-//             };
-
-// console.log('required core js modules', requiredCoreJSModules);
-
-// global.jsenv.generate().then(function(env) {
-//     var mainModuleURL = env.locate('./server.js');
-//     return env.importMain(mainModuleURL);
-// });

@@ -4,6 +4,10 @@
 
 /*
 
+concernant le nouveau fetch hook pour systemjs
+apparement il faudrais modifier le hook instantiate
+https://github.com/systemjs/systemjs/issues/1543#issuecomment-274036882
+
 à faire:
 
 enlever certain trucs comme les modules qu isont externalisées dans configSystem
@@ -41,7 +45,8 @@ ainsi que quelques utilitaires comme assign, Iterable et Predicate
     }
     function provide() {
         if (arguments.length > 1) {
-            jsenv[arguments[0]] = arguments[1];
+            var value = arguments[1];
+            jsenv[arguments[0]] = value;
         } else {
             var properties;
             if (typeof arguments[0] === 'function') {
@@ -504,7 +509,7 @@ ainsi que quelques utilitaires comme assign, Iterable et Predicate
             }
         };
     });
-    provide(function global() {
+    provide(function provideGlobalValue() {
         var globalValue;
 
         if (this.isBrowser()) {
@@ -758,6 +763,15 @@ en fonction du résultat de ces tests
                     )
                 );
             },
+            getPath: function() {
+                var path = [];
+                var selfOrParent = this;
+                while (selfOrParent && selfOrParent.path) {
+                    path.unshift(selfOrParent.path);
+                    selfOrParent = selfOrParent.parent;
+                }
+                return path.join('.');
+            },
 
             status: 'unspecified',
             // isValid & isInvalid or not opposite because status may be 'unspecified'
@@ -914,8 +928,8 @@ en fonction du résultat de ces tests
                 return new VersionnedFeature(arguments[0], arguments[1]);
             },
 
-            isFeature(value) {
-                return typeof value instanceof VersionnedFeature;
+            isFeature: function(value) {
+                return value instanceof VersionnedFeature;
             }
         };
     });
@@ -1103,7 +1117,7 @@ en fonction du résultat de ces tests
                     descriptorPath = descriptor.path;
                     if (jsenv.isFeature(descriptorPath)) {
                         var dependency = descriptorPath;
-                        descriptorPath = 'dynamic';// this.parent.path + '[' + dependency.path + ']';
+                        descriptorPath = this.getPath() + '[' + dependency.getPath() + ']';
                         dependent.relyOn(dependency);
                         if (!descriptorName) {
                             descriptorName = dependency.name;
