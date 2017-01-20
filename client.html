@@ -10,6 +10,8 @@
 
         window.jsenv.implementation.scan(function(report) {
             console.log('implementation report', report);
+
+            window.report = report;
         });
 
         // window.jsenv.import('http://localhost/polyfill.js').then(function() {

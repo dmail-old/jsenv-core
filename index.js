@@ -1376,62 +1376,147 @@ en fonction du résultat de ces tests
     jsenv.provide(function createSyntaxFeature() {
         var implementation = jsenv.implementation;
 
-        function assert(firstArg, codeReturnValueTest) {
-            var code;
-            if (typeof firstArg === 'function') {
-                code = firstArg.toString().match(/[^]*\/\*([^]*)\*\/\}$/)[1];
-            } else if (typeof firstArg === 'string') {
-                code = firstArg;
-            } else {
-                throw new TypeError('assert first argument must be a string or a function');
+        function createFunction(names, body) {
+            /* eslint-disable no-new-func */
+            if (names.length === 0) {
+                return new Function(body);
             }
-
-            return function(settle) {
-                var returnValue = eval(code); // eslint-disable-line
-
-                if (codeReturnValueTest) {
-                    if (codeReturnValueTest.length < 2) {
-                        returnValue = codeReturnValueTest.call(this, returnValue);
-                        settle(Boolean(returnValue), 'returned', returnValue);
-                    } else {
-                        codeReturnValueTest.call(this, returnValue, settle);
-                    }
-                } else {
-                    settle(Boolean(returnValue), 'returned', returnValue);
-                }
-            };
+            if (names.length === 1) {
+                return new Function(names[0], body);
+            }
+            if (names.length === 2) {
+                return new Function(names[0], names[1], body);
+            }
+            if (names.length === 3) {
+                return new Function(names[0], names[1], names[2], body);
+            }
+            throw new Error('cannot create function with more than 3 params');
+            /* eslint-enable no-new-func */
         }
+
+        // function extractFunctionBodyComment(fn) {
+        //     return fn.toString().match(/[^]*\/\*([^]*)\*\/\}$/)[1];
+        // }
+
         function registerSyntax(syntaxDescriptor) {
             var feature = jsenv.createFeature();
 
-            feature.name = syntaxDescriptor.name;
             feature.type = 'syntax';
-            feature.exec = syntaxDescriptor.test;
+            jsenv.assign(feature, syntaxDescriptor);
+            feature.getParams = function(args) {
+                var params = Object.keys(args).map(function(key) {
+                    return args[key];
+                });
+                return params;
+            };
+            feature.getResult = function() {
+                var args = {};
+                if (this.hasOwnProperty('args')) {
+                    var ownArgs = this.args;
+
+                    if (typeof ownArgs === 'function') {
+                        args = ownArgs.call(this);
+                    } else if (typeof ownArgs === 'object') {
+                        args = ownArgs;
+                    } else {
+                        throw new TypeError('feature args must be an object or function');
+                    }
+
+                    var parent = this.parent;
+                    if (parent) {
+                        var inheritedArgs = {};
+                        jsenv.assign(inheritedArgs, parent.args);
+                        jsenv.assign(inheritedArgs, args);
+                        args = inheritedArgs;
+                    }
+                } else {
+                    args = this.parent ? this.parent.args : {};
+                }
+                this.args = args;
+
+                var body;
+                if (this.hasOwnProperty('body')) {
+                    var ownBody = this.body;
+                    if (typeof ownBody === 'string') {
+                        body = createFunction(Object.keys(args), ownBody);
+                    } else if (typeof ownBody === 'function') {
+                        body = ownBody;
+                    } else {
+                        throw new TypeError('feature body must be an object or function');
+                    }
+                } else {
+                    body = this.parent ? this.parent.body : '';
+                }
+                this.body = body;
+
+                var params = this.getParams(args);
+                return body.apply(this, params);
+            };
+            feature.exec = function(settle) {
+                var result = this.getResult();
+                var test = this.test;
+                if (this.hasOwnProperty('test')) {
+                    var ownTest = this.test;
+                    if (typeof ownTest === 'function') {
+                        test = ownTest;
+                    } else {
+                        throw new TypeError('feature test must be a function');
+                    }
+                } else {
+                    test = this.parent ? this.parent.test : function() {};
+                }
+
+                if (test.length < 2) {
+                    var returnValue = test.call(this, result);
+                    settle(Boolean(returnValue), 'returned', result);
+                } else {
+                    test.call(this, result, settle);
+                }
+            };
+            // feature.execOn = function(args) {
+            //     var oldGetParams = this.getParams;
+            //     var oldGetResult = this.getResult;
+
+            //     this.getResult = function() {
+            //         this.getParams = function() {
+            //             return args;
+            //         };
+            //         var result = oldGetResult.apply(this, arguments);
+            //         this.getParams = oldGetParams;
+            //         this.getResult = oldGetResult;
+            //         return result;
+            //     };
+
+            //     return this.getResult();
+            // };
+
             feature.ensure = function(syntaxDescriptor) {
                 var dependent = jsenv.createFeature();
 
-                dependent.relyOn(this);
                 dependent.parent = this;
                 dependent.type = this.type;
+                dependent.exec = this.exec;
+                dependent.getParams = this.getParams;
+                dependent.getResult = this.getResult;
+                dependent.ensure = this.ensure;
 
-                if ('name' in syntaxDescriptor) {
-                    dependent.name = syntaxDescriptor.name;
-                }
+                dependent.relyOn(this);
+
                 if ('dependencies' in syntaxDescriptor) {
                     var dependencies = Iterable.map(syntaxDescriptor.dependencies, function(dependencyName) { // eslint-disable-line
                         return implementation.get(dependencyName);
                     });
                     dependent.relyOn.apply(dependent, dependencies);
+                    delete syntaxDescriptor.dependencies; // because assign below
                 }
                 if ('parameters' in syntaxDescriptor) {
                     var parameters = Iterable.map(syntaxDescriptor.parameters, function(parameterName) { // eslint-disable-line
                         return implementation.get(parameterName);
                     });
                     dependent.parameterizedBy.apply(dependent, parameters);
+                    delete syntaxDescriptor.parameters; // because assign below
                 }
-                if ('test' in syntaxDescriptor) {
-                    dependent.exec = syntaxDescriptor.test;
-                }
+                jsenv.assign(dependent, syntaxDescriptor);
 
                 implementation.add(dependent);
                 return dependent;
@@ -1464,8 +1549,7 @@ en fonction du résultat de ces tests
         }
 
         return {
-            createSyntaxFeature: syntax,
-            assertSyntax: assert
+            createSyntaxFeature: syntax
         };
     });
 
@@ -1543,6 +1627,7 @@ en fonction du résultat de ces tests
             });
         });
         standard('symbol', 'Symbol');
+        standard('symbol-iterator', 'iterator');
         standard('symbol-to-primitive', 'toPrimitive');
         standard('object', 'Object');
         standard('object-get-own-property-descriptor', 'getOwnPropertyDescriptor');
@@ -1576,6 +1661,9 @@ en fonction du résultat de ces tests
             // https://github.com/zloirock/core-js/blob/v2.4.1/modules/es6.date.to-string.js
             return new Date(NaN).toString() === 'Invalid Date';
         });
+        standard('array', 'Array');
+        standard('array-prototype', 'prototype');
+        standard('array-prototype-symbol-iterator', jsenv.implementation.get('symbol-iterator'));
         /*
         if (jsenv.isBrowser() === false) {
             implementation.exclude('node-list');
@@ -1587,44 +1675,219 @@ en fonction du résultat de ces tests
 
     jsenv.provide(function registerSyntaxFeatures() {
         var syntax = jsenv.createSyntaxFeature;
-        var assert = jsenv.assertSyntax;
 
-        syntax('const', {
-            test: assert(
-                'const foo = 123; foo;',
-                function(foo) {
-                    return foo === 123;
-                }
-            )
-        });
-        syntax('const-is-block-scoped', {
-            test: assert(
-                'const bar = 123; { const bar = 456; }; bar;',
-                function(bar) {
-                    return bar === 123;
-                }
-            )
+        syntax('computed-properties', {
+            args: {
+                name: 'y',
+                value: 1
+            },
+            body: '\
+                return {[name]: value};\
+            ',
+            test: function(result) {
+                return result[this.args.name] === this.args.value;
+            }
         });
         syntax('for-of', {
+            args: {
+                iterable: [5]
+            },
+            body: '\
+                var result = [];\
+                for (var value of iterable) {\
+                    result.push(value);\
+                }\
+                return result;\
+            ',
+            test: function(result) {
+                return result[0] === 5;
+            }
+        });
+        syntax('for-of-array-sparse', {
+            args: {
+                iterable: [,,] // eslint-disable-line
+            },
+            test: function(result) {
+                return (
+                    result.length === this.args.iterable.length &&
+                    result[0] === undefined &&
+                    result[1] === undefined
+                );
+            }
+        });
+        syntax('for-of-string', {
+            args: {
+                iterable: 'foo'
+            },
+            test: function(values) {
+                return values.join('') === this.args.iterable;
+            }
+        });
+        syntax('for-of-string-astral-plain', {
+            args: {
+                iterable: '𠮷𠮶'
+            },
+            test: function(result) {
+                return (
+                    result.length === 2 &&
+                    result[0] === '𠮷' &&
+                    result[1] === '𠮶'
+                );
+            }
+        });
+        syntax('for-of-generator', {
+            // dependencies: ['yield'],
+            body: '\
+                var result = "";\
+                var iterable = (function*() {\
+                    yield 1;\
+                    yield 2;\
+                    yield 3;\
+                }());\
+                for (var item of iterable) {\
+                    result += item;\
+                }\
+                return result;\
+            ',
+            test: function(result) {
+                return result === '123';
+            }
+        });
+        syntax('for-of-iterable-generic', {
+            dependencies: ['array-prototype-symbol-iterator'],
+            args: function() {
+                return {
+                    iterable: createIterableObject([1, 2, 3])
+                };
+            },
+            test: function(result) {
+                return result.join('') === '123';
+            }
+        });
+        syntax('for-of-iterable-generic-instance', {
+            args: function() {
+                return {
+                    iterable: Object.create(createIterableObject([1, 2, 3]))
+                };
+            },
+            test: function(result) {
+                return result.join('') === '123';
+            }
+        });
+        syntax('for-of-iterable-return', {
+            args: function() {
+                return {
+                    iterable: createIterableObject([1, 2, 3], {
+                        'return': function() { // eslint-disable-line
+                            jsenv.global.test = true;
+                            return {};
+                        }
+                    })
+                };
+            },
+            body: '\
+                for (var it of iterable) {\
+                    break;\
+                }\
+            ',
+            test: function() {
+                var test = jsenv.global.test;
+                delete jsenv.global.test;
+                return test === true;
+            }
+        });
+        syntax('for-of-iterable-return-called-on-throw', {
+            args: function() {
+                return {
+                    iterable: createIterableObject([1, 2, 3], {
+                        'return': function() { // eslint-disable-line
+                            jsenv.global.test = true;
+                            return {};
+                        }
+                    })
+                };
+            },
+            body: '\
+                try {\
+                    for (var it of iterable) {\
+                        throw 0;\
+                    }\
+                }\ catch (e) {}\
+            ',
+            test: function() {
+                var test = jsenv.global.test;
+                delete jsenv.global.test;
+                return test === true;
+            }
+        });
+        // https://github.com/kangax/compat-table/blob/gh-pages/es6/compiler-skeleton.html#L16
+        function createIterableObject(arr, methods) {
+            methods = methods || {};
+            if (typeof Symbol !== 'function' || !Symbol.iterator) {
+                return {};
+            }
+            arr.length++;
+            var iterator = {
+                next: function() {
+                    return {
+                        value: arr.shift(),
+                        done: arr.length <= 0
+                    };
+                },
+                'return': methods['return'], // eslint-disable-line
+                'throw': methods['throw'] // eslint-disable-line
+            };
+            var iterable = {};
+            iterable[Symbol.iterator] = function() {
+                return iterator;
+            };
+            return iterable;
+        }
 
-        }).exclude();
+        syntax('const', {
+            args: {
+                value: 123
+            },
+            body: '\
+                const foo = value;\
+                return foo;\
+            ',
+            test: function(result) {
+                return result === this.args.value;
+            }
+        });
+        syntax('const-scoped-block', {
+            body: '\
+                const bar = value;\
+                {\
+                    const bar = 456;\
+                }\
+                return bar;\
+            ',
+            test: function(result) {
+                return result === this.args.value;
+            }
+        });
         syntax('const-scoped-for-of', {
             dependencies: ['for-of'],
-            test: assert(
-                function() {/*
-                    var scopes = [];
-                    for(const i of ['a','b']) {
-                      scopes.push(function(){ return i; });
-                    }
-                    scopes;
-                */},
-                function(scopes) {
-                    return (
-                        scopes[0]() === "a" &&
-                        scopes[1]() === "b"
-                    );
-                }
-            )
+            args: {
+                iterable: ['a', 'b']
+            },
+            body: '\
+                var scopes = [];\
+                for(const i of iterable) {\
+                    scopes.push(function(){\
+                        return i;\
+                    });\
+                }\
+                return scopes;\
+            ',
+            test: function(result) {
+                return (
+                    result[0]() === this.args.iterable[0] &&
+                    result[1]() === this.args.iterable[1]
+                );
+            }
         });
     });
 })(jsenv);

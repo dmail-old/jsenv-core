@@ -48,21 +48,36 @@ var babelSolver = {
             features: [
                 // provide thoose const features
                 'const',
-                'const-is-block-scoped',
+                'const-scoped-block',
                 'const-not-in-statement',
                 'const-throw-on-redefine',
-                'const-scope-for',
                 'const-scope-for-in',
-                'const-scope-for-of',
+                'const-scoped-for-of',
                 'const-temporal-dead-zone',
                 // provide thoose let features
                 'let'
+            ]
+        },
+        {
+            name: 'transform-es2015-computed-properties',
+            features: [
+                'computed-properties'
+            ]
+        },
+        {
+            name: 'transform-es2015-for-of',
+            features: [
+                'for-of'
             ]
         }
     ],
     solve: function() {
         this.solutions.unshift({
             name: 'transform-es2015-modules-systemjs',
+            features: []
+        });
+        this.solutions.unshift({
+            name: 'check-es2015-constants',
             features: []
         });
 
