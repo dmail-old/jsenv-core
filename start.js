@@ -46,16 +46,20 @@ var babelSolver = {
         {
             name: 'transform-es2015-block-scoping',
             features: [
-                // provide thoose const features
                 'const',
-                'const-scoped-block',
-                'const-not-in-statement',
+                'const-throw-statement',
                 'const-throw-on-redefine',
-                'const-scope-for-in',
-                'const-scoped-for-of',
                 'const-temporal-dead-zone',
-                // provide thoose let features
-                'let'
+                'const-scoped',
+                'const-scoped-for-statement',
+                'const-scoped-for-body',
+                'const-scoped-for-of-body',
+                'let',
+                'let-throw-statement',
+                'let-temporal-dead-zone',
+                'let-scoped',
+                'let-scoped-for-statement',
+                'let-scoped-for-body'
             ]
         },
         {
@@ -67,7 +71,74 @@ var babelSolver = {
         {
             name: 'transform-es2015-for-of',
             features: [
-                'for-of'
+                'for-of',
+                'for-of-array-sparse',
+                'for-of-string',
+                'for-of-string-astral-plain',
+                'for-of-iterable-generic',
+                'for-of-iterable-generic-instance',
+                'for-of-iterable-return-called-on-break',
+                'for-of-iterable-return-called-on-throw'
+            ]
+        },
+        {
+            name: 'transform-es2015-function-name',
+            features: [
+                'function-prototype-name-statement',
+                'function-prototype-name-expression',
+                'function-prototype-name-new',
+                'function-prototype-name-bind',
+                'function-prototype-name-var',
+                'function-prototype-name-accessor',
+                'function-prototype-name-method',
+                'function-prototype-name-method-shorthand',
+                'function-prototype-name-method-shorthand-lexical-binding',
+                'function-prototype-name-method-computed-symbol'
+            ]
+        },
+        {
+            name: 'transform-es2015-parameters',
+            features: [
+                'function-default-parameters',
+                'function-default-parameters-explicit-undefined',
+                'function-default-parameters-refer-previous',
+                'function-default-parameters-arguments',
+                'function-default-parameters-temporal-dead-zone',
+                'function-default-parameters-scope-separated',
+                'function-default-parameters-new-function',
+
+                'function-rest-parameters',
+                'function-rest-parameters-length',
+                'function-rest-parameters-arguments',
+                'function-rest-parameters-setter-throw',
+                'function-rest-parameters-new-function'
+            ]
+        },
+        {
+            name: 'transform-es2015-shorthand-properties',
+            features: [
+                'shorthand-properties',
+                'shorthand-methods'
+            ]
+        },
+        {
+            name: 'transform-es2015-spread',
+            features: [
+                'spread-function-call',
+                'spread-function-call-throw-non-iterable',
+                'spread-function-call-array-sparse',
+                'spread-function-call-string',
+                'spread-function-call-string-astral',
+                'spread-function-call-generator',
+                'spread-function-call-iterable',
+                'spread-function-call-iterable-instance',
+                'spread-literal-array',
+                'spread-literal-array-sparse',
+                'spread-literal-array-string',
+                'spread-literal-array-string-astral',
+                'spread-literal-array-generator',
+                'spread-literal-array-iterable',
+                'spread-literal-array-iterable-instance'
             ]
         }
     ],
@@ -185,6 +256,13 @@ var coreJSSolver = {
             name: 'es6.date-to-string',
             features: [
                 'date-prototype-to-string-nan-return-invalid-date'
+            ]
+        },
+        {
+            name: 'es6.function.name',
+            features: [
+                'function-prototype-name',
+                'function-prototype-name-description'
             ]
         }
     ],

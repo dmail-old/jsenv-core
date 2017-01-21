@@ -9,7 +9,8 @@
         /* eslint-env browser */
 
         window.jsenv.implementation.scan(function(report) {
-            console.log('implementation report', report);
+            console.log('valid features', report.includedAndValid.join(''));
+            console.log('invalid features', report.includedAndInvalid.join(''));
 
             window.report = report;
         });
