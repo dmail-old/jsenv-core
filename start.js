@@ -72,9 +72,6 @@ var babelSolver = {
             name: 'transform-es2015-for-of',
             features: [
                 'for-of',
-                'for-of-array-sparse',
-                'for-of-string',
-                'for-of-string-astral-plain',
                 'for-of-iterable-generic',
                 'for-of-iterable-generic-instance',
                 'for-of-iterable-return-called-on-break',
@@ -126,16 +123,10 @@ var babelSolver = {
             features: [
                 'spread-function-call',
                 'spread-function-call-throw-non-iterable',
-                'spread-function-call-array-sparse',
-                'spread-function-call-string',
-                'spread-function-call-string-astral',
                 'spread-function-call-generator',
                 'spread-function-call-iterable',
                 'spread-function-call-iterable-instance',
                 'spread-literal-array',
-                'spread-literal-array-sparse',
-                'spread-literal-array-string',
-                'spread-literal-array-string-astral',
                 'spread-literal-array-generator',
                 'spread-literal-array-iterable',
                 'spread-literal-array-iterable-instance'

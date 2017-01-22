@@ -811,6 +811,95 @@ en fonction du résultat de ces tests
     var Iterable = jsenv.Iterable;
     var Predicate = jsenv.Predicate;
 
+    function sameValues(a, b) {
+        if (typeof a === 'string') {
+            a = convertStringToArray(a);
+        }
+        if (typeof b === 'string') {
+            b = convertStringToArray(b);
+        }
+        if (a.length !== b.length) {
+            return false;
+        }
+        var i = a.length;
+        while (i--) {
+            if (a[i] !== b[i]) {
+                return false;
+            }
+        }
+        return true;
+    }
+    function convertStringToArray(string) {
+        var result = [];
+        var i = 0;
+        var j = string.length;
+        while (i < j) {
+            var char = string[i];
+
+            if (i < j - 1) {
+                var charCode = string.charCodeAt(i);
+
+                // fix astral plain strings
+                if (charCode >= 55296 && charCode <= 56319) {
+                    i++;
+                    result.push(char + string[i]);
+                } else {
+                    result.push(char);
+                }
+            } else {
+                result.push(char);
+            }
+            i++;
+        }
+        return result;
+    }
+     // https://github.com/kangax/compat-table/blob/gh-pages/es6/compiler-skeleton.html#L16
+    function createIterableObject(arr, methods) {
+        methods = methods || {};
+        if (typeof Symbol !== 'function' || !Symbol.iterator) {
+            return {};
+        }
+        arr.length++;
+        var iterator = {
+            next: function() {
+                return {
+                    value: arr.shift(),
+                    done: arr.length <= 0
+                };
+            },
+            'return': methods['return'], // eslint-disable-line
+            'throw': methods['throw'] // eslint-disable-line
+        };
+        var iterable = {};
+        iterable[Symbol.iterator] = function() {
+            return iterator;
+        };
+        iterator.iterable = iterable;
+        return iterable;
+    }
+    function collectKeys(value) {
+        var keys = [];
+        for (var key in value) {
+            if (value.hasOwnProperty(key)) {
+                if (isNaN(key) === false && value instanceof Array) {
+                    keys.push(Number(key));
+                } else {
+                    keys.push(key);
+                }
+            }
+        }
+        return keys;
+    }
+    function consumeIterator(iterator) {
+        var values = [];
+        var next = iterator.next();
+        while (next.done === false) {
+            values.push(next.value);
+            next = iterator.next();
+        }
+        return values;
+    }
+
     jsenv.provide(function versionnedFeature() {
         function VersionnedFeature() {
             this.excluded = false;
@@ -1665,6 +1754,13 @@ en fonction du résultat de ces tests
         standard('array', 'Array');
         standard('array-prototype', 'prototype');
         standard('array-prototype-symbol-iterator', jsenv.implementation.get('symbol-iterator'));
+        standard('array-prototype-symbol-iterator-sparse', function(arrayIterator) {
+            var sparseArray = [,,]; // eslint-disable-line no-sparse-arrays, comma-spacing
+            var iterator = arrayIterator.call(sparseArray);
+            var values = consumeIterator(iterator);
+
+            return sameValues(values, sparseArray);
+        });
 
         standard('function', 'Function');
         standard('function-prototype', 'prototype');
@@ -1681,6 +1777,25 @@ en fonction du résultat de ces tests
                 descriptor.configurable === true
             );
         });
+
+        standard('string', 'String');
+        standard('string-prototype', 'prototype');
+        standard('string-prototype-symbol-iterator', jsenv.implementation.get('symbol-iterator'));
+        standard('string-prototype-symbol-iterator-basic', function(stringIterator) {
+            var string = '1234';
+            var iterator = stringIterator.call(string);
+            var values = consumeIterator(iterator);
+
+            return sameValues(values, string);
+        });
+        standard('string-prototype-symbol-iterator-astral', function(stringIterator) {
+            var astralString = '𠮷𠮶';
+            var iterator = stringIterator.call(astralString);
+            var values = consumeIterator(iterator);
+
+            return sameValues(values, astralString);
+        });
+
         /*
         if (jsenv.isBrowser() === false) {
             implementation.exclude('node-list');
@@ -1692,43 +1807,6 @@ en fonction du résultat de ces tests
 
     jsenv.provide(function registerSyntaxFeatures() {
         var syntax = jsenv.registerSyntax;
-
-        function sameValues(a, b) {
-            if (a.length !== b.length) {
-                return false;
-            }
-            var i = a.length;
-            while (i--) {
-                if (a[i] !== b[i]) {
-                    return false;
-                }
-            }
-            return true;
-        }
-         // https://github.com/kangax/compat-table/blob/gh-pages/es6/compiler-skeleton.html#L16
-        function createIterableObject(arr, methods) {
-            methods = methods || {};
-            if (typeof Symbol !== 'function' || !Symbol.iterator) {
-                return {};
-            }
-            arr.length++;
-            var iterator = {
-                next: function() {
-                    return {
-                        value: arr.shift(),
-                        done: arr.length <= 0
-                    };
-                },
-                'return': methods['return'], // eslint-disable-line
-                'throw': methods['throw'] // eslint-disable-line
-            };
-            var iterable = {};
-            iterable[Symbol.iterator] = function() {
-                return iterator;
-            };
-            iterator.iterable = iterable;
-            return iterable;
-        }
 
         // internal dependency level: 0
         syntax('const', {
@@ -1986,32 +2064,6 @@ en fonction du résultat de ces tests
                 return error instanceof Error;
             }
         });
-        syntax('spread-function-call-array-sparse', {
-            config: {
-                method: Array,
-                value: [,,] // eslint-disable-line no-sparse-arrays, comma-spacing
-            },
-            test: function(result) {
-                return sameValues(result, this.config.value);
-            }
-        });
-        syntax('spread-function-call-string', {
-            config: {
-                value: '1234'
-            },
-            test: function(result) {
-                return result === this.config.method.apply(null, this.config.value.split(''));
-            }
-        });
-        syntax('spread-function-call-string-astral', {
-            config: {
-                method: Array,
-                value: '𠮷𠮶'
-            },
-            test: function(result) {
-                return result[0] === this.config.value[0];
-            }
-        });
         syntax('spread-function-call-iterable', {
             dependencies: [
                 'symbol-iterator'
@@ -2042,30 +2094,6 @@ en fonction du résultat de ces tests
             ',
             test: function(result) {
                 return sameValues(result, this.config.value);
-            }
-        });
-        syntax('spread-literal-array-sparse', {
-            config: {
-                value: [,,] // eslint-disable-line no-sparse-arrays, comma-spacing
-            },
-            test: function(result) {
-                return sameValues(result, this.config.value);
-            }
-        });
-        syntax('spread-literal-array-string', {
-            config: {
-                value: 'bcd'
-            },
-            test: function(result) {
-                return sameValues(result, this.config.value);
-            }
-        });
-        syntax('spread-literal-array-string-astral', {
-            config: {
-                value: '𠮷𠮶'
-            },
-            test: function(result) {
-                return result[0] === this.config.value[0];
             }
         });
         syntax('spread-literal-array-iterable', {
@@ -2104,34 +2132,6 @@ en fonction du résultat de ces tests
             ',
             test: function(result) {
                 return result[0] === 5;
-            }
-        });
-        syntax('for-of-array-sparse', {
-            config: {
-                iterable: [,,] // eslint-disable-line no-sparse-arrays, comma-spacing
-            },
-            test: function(result) {
-                return sameValues(result, this.config.iterable);
-            }
-        });
-        syntax('for-of-string', {
-            config: {
-                iterable: 'foo'
-            },
-            test: function(result) {
-                return sameValues(result, this.config.iterable);
-            }
-        });
-        syntax('for-of-string-astral-plain', {
-            config: {
-                iterable: '𠮷𠮶'
-            },
-            test: function(result) {
-                return (
-                    result.length === 2 &&
-                    result[0] === this.config.iterable[0] &&
-                    result[1] === this.config.iterable[1]
-                );
             }
         });
         syntax('for-of-iterable-generic', {
@@ -2205,29 +2205,31 @@ en fonction du résultat de ces tests
 
         syntax('function-prototype-name-statement', {
             run: function() {
-                return {
-                    foo: function foo() {},
-                    anonymous: (function() {})
-                };
+                function foo() {}
+
+                return [
+                    foo,
+                    (function() {})
+                ];
             },
             test: function(result) {
                 return (
-                    result.foo.name === 'foo' &&
-                    result.anonymous.name === ''
+                    result[0].name === 'foo' &&
+                    result[1].name === ''
                 );
             }
         });
         syntax('function-prototype-name-expression', {
             run: function() {
-                return {
-                    foo: (function foo() {}),
-                    anonymous: (function() {})
-                };
+                return [
+                    (function foo() {}),
+                    (function() {})
+                ];
             },
             test: function(result) {
                 return (
-                    result.foo.name === 'foo' &&
-                    result.anonymous.name === ''
+                    result[0].name === 'foo' &&
+                    result[1].name === ''
                 );
             }
         });
@@ -2456,7 +2458,7 @@ en fonction du résultat de ces tests
                 return fn.apply(null, values);\
             ',
             test: function(result) {
-                return sameValues(result, this.args.values.slice(1));
+                return sameValues(result, this.config.values);
             }
         });
 
@@ -2494,12 +2496,7 @@ en fonction du résultat de ces tests
                 var scopedValues = jsenv.Iterable.map(result, function(fn) {
                     return fn();
                 });
-                var value = this.config.value;
-                var expectedValues = [];
-                for (var i in value) { // eslint-disable-line guard-for-in
-                    expectedValues.push(i);
-                }
-                return sameValues(scopedValues, expectedValues);
+                return sameValues(scopedValues, collectKeys(this.config.value));
             }
         });
         syntax('function-prototype-name-method-shorthand', {
