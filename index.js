@@ -69,18 +69,38 @@ ainsi que quelques utilitaires comme assign, Iterable et Predicate
     provide('modulePrefix', '@jsenv');
     provide('rootModuleName', 'jsenv');
     provide('moduleName', 'env');
+    provide(function construct() {
+        var construct;
+        if (Reflect && 'construct' in Reflect) {
+            construct = Reflect.construct;
+        } else {
+            construct = function construct(Constructor, args) {
+                var ConstructorProxy = function(args) {
+                    return Constructor.apply(this, args);
+                };
+                ConstructorProxy.prototype = Constructor.prototype;
+                var instance = new ConstructorProxy(args);
+                ConstructorProxy.prototype = null;
+                return instance;
+            };
+        }
+
+        return {
+            construct: construct
+        };
+    });
     provide(function version() {
         var anyChar = '*';
-        var hiddenChar = '?';
+        var unspecifiedChar = '?';
 
         function VersionPart(value) {
-            if (value === anyChar || value === hiddenChar) {
+            if (value === anyChar || value === unspecifiedChar) {
                 this.value = value;
             } else if (isNaN(value)) {
                 // I dont wanna new Version to throw
                 // in the worst case you end with a version like '?.?.?' but not an error
                 this.error = new Error('version part must be a number or * (not ' + value + ')');
-                this.value = hiddenChar;
+                this.value = unspecifiedChar;
             } else {
                 this.value = parseInt(value);
             }
@@ -91,12 +111,16 @@ ainsi que quelques utilitaires comme assign, Iterable et Predicate
                 return this.value === anyChar;
             },
 
-            isHidden: function() {
-                return this.value === hiddenChar;
+            isUnspecified: function() {
+                return this.value === unspecifiedChar;
+            },
+
+            isSpecified: function() {
+                return this.value !== unspecifiedChar;
             },
 
             isPrecise: function() {
-                return this.isAny() === false && this.isHidden() === false;
+                return this.isAny() === false && this.isSpecified();
             },
 
             match: function(other) {
@@ -142,10 +166,10 @@ ainsi que quelques utilitaires comme assign, Iterable et Predicate
                 major = new VersionPart(anyChar);
                 minor = new VersionPart(anyChar);
                 patch = new VersionPart(anyChar);
-            } else if (versionName === hiddenChar) {
-                major = new VersionPart(hiddenChar);
-                minor = new VersionPart(hiddenChar);
-                patch = new VersionPart(hiddenChar);
+            } else if (versionName === unspecifiedChar) {
+                major = new VersionPart(unspecifiedChar);
+                minor = new VersionPart(unspecifiedChar);
+                patch = new VersionPart(unspecifiedChar);
             } else if (versionName.indexOf('.') === -1) {
                 major = new VersionPart(versionName);
                 minor = new VersionPart(0);
@@ -190,19 +214,36 @@ ainsi que quelques utilitaires comme assign, Iterable et Predicate
         };
         Version.prototype = {
             constructor: Version,
+
+            isAny: function() {
+                return (
+                    this.major.isAny() &&
+                    this.minor.isAny() &&
+                    this.patch.isAny()
+                );
+            },
+
+            isSpecified: function() {
+                return (
+                    this.major.isSpecified() &&
+                    this.minor.isSpecified() &&
+                    this.patch.isSpecified()
+                );
+            },
+
+            isUnspecified: function() {
+                return (
+                    this.major.isUnspecified() &&
+                    this.minor.isUnspecified() &&
+                    this.patch.isUnspecified()
+                );
+            },
+
             isPrecise: function() {
                 return (
                     this.major.isPrecise() &&
                     this.minor.isPrecise() &&
                     this.patch.isPrecise()
-                );
-            },
-
-            isTrustable: function() {
-                return (
-                    this.major.isHidden() === false &&
-                    this.minor.isHidden() === false &&
-                    this.patch.isHidden() === false
                 );
             },
 
@@ -239,41 +280,98 @@ ainsi que quelques utilitaires comme assign, Iterable et Predicate
             },
 
             toString: function() {
+                if (this.isAny()) {
+                    return anyChar;
+                }
+                if (this.isUnspecified()) {
+                    return unspecifiedChar;
+                }
                 return this.major + '.' + this.minor + '.' + this.patch;
             }
         };
 
-        return {
-            createVersion: function(string) {
-                return new Version(string);
-            }
-        };
-    });
-    provide(function platform() {
-        // platform is what runs the agent : windows, linux, mac, ..
+        var versionSeparator = '@';
+        var VersionnableProperties = {
+            setName: function(firstArg) {
+                var separatorIndex = firstArg.indexOf(versionSeparator);
+                if (separatorIndex === -1) {
+                    this.name = firstArg.toLowerCase();
+                } else {
+                    this.name = firstArg.slice(0, separatorIndex).toLowerCase();
+                    var version = firstArg.slice(separatorIndex + versionSeparator.length);
+                    this.setVersion(version);
+                }
+            },
+            setVersion: function(version) {
+                this.version = jsenv.createVersion(version);
+            },
+            toString: function() {
+                var shortNotation = '';
 
-        function Platform(name, version) {
-            this.name = name.toLowerCase();
-            this.version = jsenv.createVersion(version);
-        }
-        Platform.prototype = {
-            constructor: Platform,
+                shortNotation += this.name;
+                if (this.version.isSpecified()) {
+                    shortNotation += versionSeparator + this.version;
+                }
 
-            match: function(platform) {
+                return shortNotation;
+            },
+            match: function(other) {
+                if (typeof other === 'string') {
+                    other = new this.constructor(other);
+                }
+
                 return (
-                    platform === this || (
-                        platform.name === this.name &&
-                        platform.verison.match(this.verison)
+                    this === other || (
+                        this.name === other.name &&
+                        this.version.match(other.version)
                     )
                 );
             }
         };
 
         return {
-            createPlatform: function(name, version) {
-                return new Platform(name, version || '?');
+            createVersion: function() {
+                return jsenv.construct(Version, arguments);
             },
-            platform: new Platform('unknown', '?'),
+
+            makeVersionnable: function(Constructor) {
+                jsenv.assign(Constructor.prototype, VersionnableProperties);
+            },
+
+            constructVersion: function(instance, args) {
+                var arity = args.length;
+                if (arity === 0) {
+                    instance.setName('');
+                    instance.setVersion('?');
+                } else if (arity === 1) {
+                    instance.setName(args[0]);
+                    if (!instance.version) {
+                        instance.setVersion('?');
+                    }
+                } else {
+                    instance.setName(args[0]);
+                    instance.setVersion(args[1]);
+                }
+            }
+        };
+    });
+    provide(function platform() {
+        // platform is what runs the agent : windows, linux, mac, ..
+
+        function Platform() {
+            jsenv.constructVersion(this, arguments);
+        }
+        Platform.prototype = {
+            constructor: Platform
+        };
+        jsenv.makeVersionnable(Platform);
+        var platform = new Platform('unknown');
+
+        return {
+            createPlatform: function() {
+                return jsenv.construct(Platform, arguments);
+            },
+            platform: platform,
 
             isWindows: function() {
                 return this.platform.name === 'windows';
@@ -282,31 +380,23 @@ ainsi que quelques utilitaires comme assign, Iterable et Predicate
     });
     provide(function agent() {
         // agent is what runs JavaScript : nodejs, iosjs, firefox, ...
-        function Agent(type, name, version) {
-            this.type = type;
-            this.name = name.toLowerCase();
-            this.version = jsenv.createVersion(version || '?');
+        function Agent() {
+            jsenv.constructVersion(this, arguments);
         }
         Agent.prototype = {
-            constructor: Agent,
-
-            match: function(agent) {
-                return (
-                    agent === this || (
-                        agent.type === this.type &&
-                        agent.name === this.name &&
-                        agent.version.match(this.version)
-                    )
-                );
-            }
+            constructor: Agent
         };
+        jsenv.makeVersionnable(Agent);
+
+        var agent = new Agent('unknown', '?');
+        agent.type = 'unknown';
 
         return {
-            createAgent: function(type, name, version) {
-                return new Agent(type, name, version);
+            createAgent: function() {
+                return jsenv.construct(Agent, arguments);
             },
 
-            agent: new Agent('unknown', 'unknown', '?'),
+            agent: agent,
 
             isBrowser: function() {
                 return this.agent.type === 'browser';
@@ -352,6 +442,9 @@ ainsi que quelques utilitaires comme assign, Iterable et Predicate
                 }
 
                 platformName = window.navigator.platform;
+                if (platformName === 'Win32') {
+                    platformName = 'windows';
+                }
                 platformVersion = '?';
             }
         } else if (typeof process === 'object' && {}.toString.call(process) === "[object process]") {
@@ -361,7 +454,10 @@ ainsi que quelques utilitaires comme assign, Iterable et Predicate
 
             // https://nodejs.org/api/process.html#process_process_platform
             // 'darwin', 'freebsd', 'linux', 'sunos', 'win32'
-            platformName = process.platform === 'win32' ? 'windows' : process.platform;
+            platformName = process.platform;
+            if (platformName === 'win32') {
+                platformName = 'windows';
+            }
             platformVersion = require('os').release();
         } else {
             agentType = 'unknown';
@@ -371,7 +467,8 @@ ainsi que quelques utilitaires comme assign, Iterable et Predicate
             platformVersion = '?';
         }
 
-        var agent = jsenv.createAgent(agentType, agentName, agentVersion);
+        var agent = jsenv.createAgent(agentName, agentVersion);
+        agent.type = agentType;
         var platform = jsenv.createPlatform(platformName, platformVersion);
 
         return {
@@ -715,54 +812,16 @@ en fonction du résultat de ces tests
     var Predicate = jsenv.Predicate;
 
     jsenv.provide(function versionnedFeature() {
-        var versionSeparator = '@';
         function VersionnedFeature() {
             this.excluded = false;
             this.dependents = [];
             this.dependencies = [];
             this.parameters = [];
-
-            var arity = arguments.length;
-            if (arity === 0) {
-                this.setName('');
-                this.setVersion('*');
-            } else if (arity === 1) {
-                this.setName(arguments[0]);
-                if (!this.version) {
-                    this.setVersion('*');
-                }
-            } else {
-                this.setName(arguments[0]);
-                this.setVersion(arguments[1]);
-            }
+            jsenv.constructVersion(this, arguments);
         }
         VersionnedFeature.prototype = {
             constructor: VersionnedFeature,
 
-            setName: function(firstArg) {
-                var separatorIndex = firstArg.indexOf(versionSeparator);
-                if (separatorIndex === -1) {
-                    this.name = firstArg;
-                } else {
-                    this.name = firstArg.slice(0, separatorIndex);
-                    var version = firstArg.slice(separatorIndex + versionSeparator.length);
-                    this.setVersion(version);
-                }
-            },
-            setVersion: function(version) {
-                this.version = jsenv.createVersion(version);
-            },
-            toString: function() {
-                return this.name + versionSeparator + this.version;
-            },
-            match: function(other) {
-                return (
-                    this === other || (
-                        this.name === other.name &&
-                        this.version.match(other.version)
-                    )
-                );
-            },
             getPath: function() {
                 var path = [];
                 var selfOrParent = this;
@@ -846,6 +905,7 @@ en fonction du résultat de ces tests
                 return this.excluded !== true;
             }
         };
+        jsenv.makeVersionnable(VersionnedFeature);
 
         return {
             createFeature: function() {
@@ -1015,21 +1075,10 @@ en fonction du résultat de ces tests
         var implementation = jsenv.implementation;
 
         function compileFunction(names, body) {
-            /* eslint-disable no-new-func */
-            if (names.length === 0) {
-                return new Function(body);
-            }
-            if (names.length === 1) {
-                return new Function(names[0], body);
-            }
-            if (names.length === 2) {
-                return new Function(names[0], names[1], body);
-            }
-            if (names.length === 3) {
-                return new Function(names[0], names[1], names[2], body);
-            }
-            throw new Error('cannot create function with more than 3 params');
-            /* eslint-enable no-new-func */
+            var args = [];
+            args.push.apply(args, names);
+            args.push(body);
+            return jsenv.construct(Function, args);
         }
         // function extractFunctionBodyComment(fn) {
         //     return fn.toString().match(/[^]*\/\*([^]*)\*\/\}$/)[1];
@@ -2373,6 +2422,17 @@ en fonction du résultat de ces tests
                 );
             }
         });
+        syntax('function-rest-parameters-throw-setter', {
+            run: '\
+                return {\
+                    set e(...args) {}\
+                };\
+            ',
+            phase: 'compile',
+            test: function(error) {
+                return error instanceof Error;
+            }
+        });
         syntax('function-rest-parameters-length', {
             run: '\
                 return [\
@@ -2399,17 +2459,7 @@ en fonction du résultat de ces tests
                 return sameValues(result, this.args.values.slice(1));
             }
         });
-        syntax('function-rest-parameters-setter-throw', {
-            run: '\
-                return {\
-                    set e(...args) {}\
-                };\
-            ',
-            phase: 'compile',
-            test: function(error) {
-                return error instanceof Error;
-            }
-        });
+
         syntax('function-rest-parameters-new-function', {
             run: function() {
                 return new Function( // eslint-disable-line no-new-func

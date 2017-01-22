@@ -108,9 +108,9 @@ var babelSolver = {
                 'function-default-parameters-new-function',
 
                 'function-rest-parameters',
+                'function-rest-parameters-throw-setter',
                 'function-rest-parameters-length',
                 'function-rest-parameters-arguments',
-                'function-rest-parameters-setter-throw',
                 'function-rest-parameters-new-function'
             ]
         },
