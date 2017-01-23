@@ -71,7 +71,7 @@ ainsi que quelques utilitaires comme assign, Iterable et Predicate
     provide('moduleName', 'env');
     provide(function construct() {
         var construct;
-        if (Reflect && 'construct' in Reflect) {
+        if (typeof Reflect === 'object' && 'construct' in Reflect) {
             construct = Reflect.construct;
         } else {
             construct = function construct(Constructor, args) {
@@ -853,23 +853,19 @@ en fonction du résultat de ces tests
         }
         return result;
     }
-     // https://github.com/kangax/compat-table/blob/gh-pages/es6/compiler-skeleton.html#L16
     function createIterableObject(arr, methods) {
-        methods = methods || {};
-        if (typeof Symbol !== 'function' || !Symbol.iterator) {
-            return {};
-        }
-        arr.length++;
+        var i = 0;
+        var j = arr.length;
         var iterator = {
             next: function() {
+                i++;
                 return {
-                    value: arr.shift(),
-                    done: arr.length <= 0
+                    value: i === j ? undefined : arr[i],
+                    done: i === j
                 };
-            },
-            'return': methods['return'], // eslint-disable-line
-            'throw': methods['throw'] // eslint-disable-line
+            }
         };
+        jsenv.assign(iterator, methods || {});
         var iterable = {};
         iterable[Symbol.iterator] = function() {
             return iterator;
@@ -1068,25 +1064,33 @@ en fonction du résultat de ces tests
             },
 
             scan: function(callback) {
-                var inclusionHalf = Iterable.bisect(this.features, function(feature) {
-                    return feature.isExcluded();
+                if (this.preventScanReason) {
+                    throw new Error('cannot scan, reason :' + this.preventScanReason);
+                }
+                this.preventScanReason = 'there is already a pending scan';
+
+                var self = this;
+                var includedFeatures = Iterable.filter(this.features, function(feature) {
+                    return feature.isIncluded();
                 });
-                var excludedFeatures = inclusionHalf[0];
-                var includedFeatures = inclusionHalf[1];
                 var groups = groupNodesByDependencyDepth(includedFeatures);
                 var groupIndex = -1;
                 var groupCount = groups.length;
                 var done = function() {
-                    var validHalf = Iterable.bisect(includedFeatures, function(feature) {
-                        return feature.isValid();
+                    var statusGroups = {
+                        unspecified: [],
+                        invalid: [],
+                        valid: []
+                    };
+                    Iterable.forEach(includedFeatures, function(feature) {
+                        statusGroups[feature.status].push(feature);
                     });
                     var report = {
-                        excluded: excludedFeatures,
-                        included: includedFeatures,
-                        includedAndGroupedByDependencyDepth: groups,
-                        includedAndValid: validHalf[0],
-                        includedAndInvalid: validHalf[1]
+                        features: self.features,
+                        includedAndGroupedByDependencyDepth: groups
                     };
+                    jsenv.assign(report, statusGroups);
+                    self.preventScanReason = undefined;
                     callback(report);
                 };
 
@@ -1227,7 +1231,10 @@ en fonction du résultat de ces tests
         var noValue = {novalue: true};
         function runStandard(feature) {
             var result;
-            if (feature.hasOwnProperty('result')) {
+            // désactive hasOwnProperty result sinon on ne peut pas relancer le test
+            // puisque une fois le test fait une fois, feature.result existe
+            // ou alors il faudrais delete feature.result pour relancer le test
+            if (false && feature.hasOwnProperty('result')) {
                 result = feature.result;
             } else if (feature.parent) {
                 var startValue = feature.parent.result;
@@ -1561,9 +1568,15 @@ en fonction du résultat de ces tests
         globalStandard.test = presence;
         implementation.add(globalStandard);
 
-        function standard(name, test) {
+        function standard(name, test, disableNameRelationShip) {
             var feature = jsenv.createFeature(name);
-            var parent = findParentFromFeatureName(name) || globalStandard;
+            var parent;
+
+            if (disableNameRelationShip) {
+                parent = globalStandard;
+            } else {
+                parent = findParentFromFeatureName(name) || globalStandard;
+            }
 
             parent.ensure(feature);
 
@@ -1795,6 +1808,9 @@ en fonction du résultat de ces tests
 
             return sameValues(values, astralString);
         });
+
+        standard('url', 'URL');
+        standard('url-search-params', 'URLSearchParams', true);
 
         /*
         if (jsenv.isBrowser() === false) {

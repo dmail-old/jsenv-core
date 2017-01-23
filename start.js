@@ -2,6 +2,8 @@
 
 /*
 
+- pouvoir importer server.js sans problème
+
 - démarrer un serveur de dev qui sera charger de fournir le polyfill et de transpiler
 le js d'un client qui s'y connecte
 
@@ -39,446 +41,499 @@ var excludedFeatures = [
 excludedFeatures.forEach(function() {
     // implementation.exclude(excludedFeature, 'npm corejs@2.4.1 does not have thoose polyfill');
 });
+implementation.exclude('function-prototype-name-description');
 
-var babelSolver = {
-    name: 'babel',
-    solutions: [
-        {
-            name: 'transform-es2015-block-scoping',
-            features: [
-                'const',
-                'const-throw-statement',
-                'const-throw-on-redefine',
-                'const-temporal-dead-zone',
-                'const-scoped',
-                'const-scoped-for-statement',
-                'const-scoped-for-body',
-                'const-scoped-for-of-body',
-                'let',
-                'let-throw-statement',
-                'let-temporal-dead-zone',
-                'let-scoped',
-                'let-scoped-for-statement',
-                'let-scoped-for-body'
-            ]
-        },
-        {
-            name: 'transform-es2015-computed-properties',
-            features: [
-                'computed-properties'
-            ]
-        },
-        {
-            name: 'transform-es2015-for-of',
-            features: [
-                'for-of',
-                'for-of-iterable-generic',
-                'for-of-iterable-generic-instance',
-                'for-of-iterable-return-called-on-break',
-                'for-of-iterable-return-called-on-throw'
-            ]
-        },
-        {
-            name: 'transform-es2015-function-name',
-            features: [
-                'function-prototype-name-statement',
-                'function-prototype-name-expression',
-                'function-prototype-name-new',
-                'function-prototype-name-bind',
-                'function-prototype-name-var',
-                'function-prototype-name-accessor',
-                'function-prototype-name-method',
-                'function-prototype-name-method-shorthand',
-                'function-prototype-name-method-shorthand-lexical-binding',
-                'function-prototype-name-method-computed-symbol'
-            ]
-        },
-        {
-            name: 'transform-es2015-parameters',
-            features: [
-                'function-default-parameters',
-                'function-default-parameters-explicit-undefined',
-                'function-default-parameters-refer-previous',
-                'function-default-parameters-arguments',
-                'function-default-parameters-temporal-dead-zone',
-                'function-default-parameters-scope-separated',
-                'function-default-parameters-new-function',
-
-                'function-rest-parameters',
-                'function-rest-parameters-throw-setter',
-                'function-rest-parameters-length',
-                'function-rest-parameters-arguments',
-                'function-rest-parameters-new-function'
-            ]
-        },
-        {
-            name: 'transform-es2015-shorthand-properties',
-            features: [
-                'shorthand-properties',
-                'shorthand-methods'
-            ]
-        },
-        {
-            name: 'transform-es2015-spread',
-            features: [
-                'spread-function-call',
-                'spread-function-call-throw-non-iterable',
-                'spread-function-call-generator',
-                'spread-function-call-iterable',
-                'spread-function-call-iterable-instance',
-                'spread-literal-array',
-                'spread-literal-array-generator',
-                'spread-literal-array-iterable',
-                'spread-literal-array-iterable-instance'
-            ]
-        }
-    ],
-    solve: function() {
-        this.solutions.unshift({
-            name: 'transform-es2015-modules-systemjs',
-            features: []
-        });
-        this.solutions.unshift({
-            name: 'check-es2015-constants',
-            features: []
-        });
-
-        var transpile = function(code) {
-            return code;
-        };
-        if (this.solutions.length === 0) {
-
-        } else {
-            var requiredPlugins = [];
-            Iterable.forEach(this.solutions, function(solution) {
-                if (Iterable.includes(requiredPlugins, solution.name) === false) {
-                    requiredPlugins.push(solution.name);
-                }
-            });
-            console.log('required babel plugins', requiredPlugins);
-
-            var babel = require('babel-core');
-            transpile = function(code, filename) {
-                return babel.transform(code, {
-                    filename: filename,
-                    sourceMap: 'inline',
-                    plugins: requiredPlugins
-                }).code;
-            };
-        }
-
-        this.transpile = transpile;
-    },
-    afterAllSolveHook: function() {
-        var transpile = this.transpile;
-        jsenv.global.System.translate = function(load) {
-            load.metadata.format = 'register';
-            var code = load.source;
-            var filename = load.address;
-            const result = transpile(code, filename);
-            return result;
-        };
-    },
-    beforeSolvingFeatureHook: function(feature, solution) {
-        feature.status = 'unspecified';
-        feature.statusReason = 'transpiling';
-        feature.statusDetail = 'babel:' + solution.name;
-    },
-    afterSolvingFeatureHook: function(feature, solution) {
-        feature.statusIsFrozen = true;
-        feature.status = 'valid';
-        feature.statusReason = 'transpiled';
-        feature.statusDetail = 'babel:' + solution.name;
-    }
-};
-var coreJSSolver = {
-    name: 'corejs',
-    solutions: [
-        {
-            name: 'es6.promise',
-            features: [
-                'promise',
-                'promise-unhandled-rejection',
-                'promise-rejection-handled'
-            ]
-        },
-        {
-            name: 'es6.symbol',
-            features: [
-                'symbol',
-                'symbol-to-primitive'
-            ]
-        },
-        {
-            name: 'es6.object.get-own-property-descriptor',
-            features: [
-                'object-get-own-property-descriptor'
-            ]
-        },
-        {
-            name: 'es6.date.now',
-            features: [
-                'date-now'
-            ]
-        },
-        {
-            name: 'es6.date.to-iso-string',
-            features: [
-                'date-prototype-to-iso-string',
-                'date-prototype-to-iso-string-negative-5e13',
-                'date-prototype-to-iso-string-nan-throw'
-            ]
-        },
-        {
-            name: 'es6.date.to-json',
-            features: [
-                'date-prototype-to-json',
-                'date-prototype-to-json-nan-return-null',
-                'date-prototype-to-json-use-iso-string'
-            ]
-        },
-        {
-            name: 'es6.date.to-primitive',
-            features: [
-                'date-prototype-symbol-to-primitive'
-            ]
-        },
-        {
-            name: 'es6.date-to-string',
-            features: [
-                'date-prototype-to-string-nan-return-invalid-date'
-            ]
-        },
-        {
-            name: 'es6.function.name',
-            features: [
-                'function-prototype-name',
-                'function-prototype-name-description'
-            ]
-        }
-    ],
-    solve: function() {
-        var self = this;
-
-        return new Promise(function(resolve) {
-            var buildCoreJS = require('core-js-builder');
-            var requiredCodeJSModules = Iterable.map(self.solutions, function(solution) {
-                return solution.name;
-            });
-            console.log('required corejs modules', requiredCodeJSModules);
-            var promise = buildCoreJS({
-                modules: requiredCodeJSModules,
-                librabry: false,
-                umd: true
-            });
-            resolve(promise);
-        }).then(function(code) {
-            var fs = require('fs');
-            fs.writeFileSync('polyfill-all.js', code);
-            eval(code); // eslint-disable-line
-        });
-    },
-    beforeSolvingFeatureHook: function(feature, solution) {
-        feature.status = 'unspecified';
-        feature.statusReason = 'polyfilling';
-        feature.statusDetail = 'corejs:' + solution.name;
-    },
-    afterSolvingFeatureHook: function(feature, solution) {
-        feature.status = 'unspecified';
-        feature.statusReason = 'polyfilled';
-        feature.statusDetail = 'corejs:' + solution.name;
-    }
-};
-var fileSystemSolver = {
-    name: 'filesystem',
-    solutions: [
-        {
-            name: __dirname + '/node_modules/systemjs/dist/system.src.js',
-            features: [
-                'system'
-            ]
-        },
-        {
-            name: __dirname + '/src/polyfill/url/index.js',
-            features: [
-                'url'
-            ]
-        },
-        {
-            name: __dirname + '/src/polyfill/url-search-params/index.js',
-            features: [
-                'url-search-params'
-            ]
-        }
-    ],
-    solve: function() {
-        var fs = require('fs');
-        var sourcesPromises = Iterable.map(this.solutions, function(solution) {
-            return new Promise(function(resolve, reject) {
-                fs.readFile(solution.name, function(error, buffer) {
-                    if (error) {
-                        reject(error);
-                    } else {
-                        resolve(buffer.toString());
-                    }
-                });
-            });
-        });
-        return Promise.all(sourcesPromises).then(function(sources) {
-            return sources.join('\n\n');
-        }).then(function(code) {
-            if (code) {
-                var fs = require('fs');
-                fs.writeFileSync('fs-all.js', code);
-                eval(code); // eslint-disable-line
-            }
-        });
-    },
-    beforeSolvingFeatureHook: function(feature, solution) {
-        feature.status = 'unspecified';
-        feature.statusReason = 'polyfilling';
-        feature.statusDetail = 'filesystem:' + solution.name;
-    },
-    afterSolvingFeatureHook: function(feature, solution) {
-        feature.status = 'unspecified';
-        feature.statusReason = 'polyfilled';
-        feature.statusDetail = 'filesystem:' + solution.name;
-    }
-};
-var solvers = [babelSolver, coreJSSolver, fileSystemSolver];
-
-implementation.scan(function(report) {
-    var problematicFeatures = report.includedAndInvalid.slice();
-
-    solvers = Iterable.map(solvers, function(solver) {
-        var getRequiredFeatures = function(features) {
-            var requiredFeatures = [];
-
-            Iterable.forEach(features, function(featureName) {
-                var problematicFeatureIndex = Iterable.findIndex(problematicFeatures, function(problematicFeature) {
-                    return problematicFeature.name === featureName;
-                });
-                if (problematicFeatureIndex > -1) {
-                    requiredFeatures.push(problematicFeatures[problematicFeatureIndex]);
-                    problematicFeatures.splice(problematicFeatureIndex, 1);
-                }
-            });
-
-            return requiredFeatures;
-        };
-        var getRequiredSolutions = function(solutions) {
-            var requiredSolutions = [];
-
-            Iterable.forEach(solutions, function(solution) {
-                var requiredFeatures = getRequiredFeatures(solution.features, solution);
-                if (requiredFeatures.length) {
-                    var requiredSolution = jsenv.assign({}, solution);
-
-                    requiredSolution.features = requiredFeatures;
-                    requiredSolutions.push(requiredSolution);
-                }
-            });
-
-            return requiredSolutions;
-        };
-
-        var requiredSolutions = getRequiredSolutions(solver.solutions);
-        solver = jsenv.assign({}, solver);
-        solver.solutions = requiredSolutions;
-        return solver;
-    });
-
-    if (problematicFeatures.length) {
-        throw new Error('no solution for: ' + problematicFeatures.join(','));
+var createTask = (function() {
+    function Task(name, descriptor) {
+        this.name = name;
+        jsenv.assign(this, descriptor);
     }
 
-    function forEachSolverFeature(solver, fn) {
-        Iterable.forEach(solver.solutions, function(solution) {
-            Iterable.forEach(solution.features, function(feature) {
-                fn(feature, solution, solver);
-            });
-        });
-    }
-
-    var solversPromises = Iterable.map(solvers, function(solver) {
-        forEachSolverFeature(solver, function(feature, solution) {
-            solver.beforeSolvingFeatureHook(feature, solution);
-        });
-        return solver.solve();
-    });
-    Promise.all(solversPromises).then(function() {
-        Iterable.forEach(solvers, function(solver) {
-            forEachSolverFeature(solver, function(feature, solution) {
-                solver.afterSolvingFeatureHook(feature, solution);
-            });
-        });
-
-        var findFeatureSolutionInSolver = function(solver, feature) {
-            var matchingSolution;
-            var solutions = solver.solutions;
-            var i = solutions.length;
-            while (i--) {
-                var solution = solutions[i];
-                var solutionFeatures = solution.features;
-                var m = solutionFeatures.length;
-                while (m--) {
-                    var solutionFeature = solutionFeatures[m];
-                    if (solutionFeature.match(feature)) {
-                        matchingSolution = solution;
-                        break;
-                    }
-                }
-                if (matchingSolution) {
-                    break;
-                }
-            }
-
-            return matchingSolution;
-        };
-
-        var findFeatureSolution = function(solvers, feature) {
-            var i = solvers.length;
-            var featureSolution;
-            while (i--) {
-                featureSolution = findFeatureSolutionInSolver(solvers[i], feature);
-                if (featureSolution) {
-                    break;
-                }
-            }
-            return featureSolution;
-        };
-
-        return new Promise(function(resolve, reject) {
-            implementation.scan(function(secondReport) {
-                var stilProblematicFeatures = secondReport.includedAndInvalid;
-                if (stilProblematicFeatures.length) {
-                    stilProblematicFeatures.forEach(function(feature) {
-                        var featureSolution = findFeatureSolution(solvers, feature);
-                        console.log(feature.name, 'not fixed by', featureSolution.name);
+    Task.prototype = {
+        constructor: Task,
+        required: 'auto',
+        features: [],
+        afterScanHook: function(features) {
+            if (this.required !== false) {
+                this.features = Iterable.map(this.features, function(featureName) {
+                    var foundFeature = Iterable.find(features, function(feature) {
+                        return feature.match(featureName);
                     });
-                    reject();
+                    if (!foundFeature) {
+                        throw new Error('cannot find feature named ' + featureName + ' for task ' + this.name);
+                    }
+                    return foundFeature;
+                }, this);
+            }
+
+            if (this.required === 'auto') {
+                var someFeatureIsProblematic = Iterable.some(this.features, function(feature) {
+                    return feature.isInvalid();
+                });
+                this.required = someFeatureIsProblematic;
+            }
+
+            if (this.required) {
+                Iterable.forEach(this.features, function(feature) {
+                    feature.status = 'unspecified';
+                    this.beforeInstallFeatureEffect(feature);
+                }, this);
+            }
+        },
+        beforeInstallFeatureEffect: function() {
+
+        },
+        beforeInstallHook: function() {
+
+        },
+        afterInstallHook: function() {
+            Iterable.forEach(this.features, function(feature) {
+                feature.status = 'unspecified';
+                this.afterInstallFeatureEffect(feature);
+            }, this);
+        },
+        afterInstallFeatureEffect: function() {
+
+        }
+    };
+
+    return function() {
+        return jsenv.construct(Task, arguments);
+    };
+})();
+
+var coreJSTasks = [];
+function coreJSModule(name, descriptor) {
+    var task = createTask(name, descriptor);
+
+    task.beforeInstallFeatureEffect = function(feature) {
+        feature.statusReason = 'polyfilling';
+        feature.statusDetail = 'corejs:' + this.name;
+    };
+    task.afterInstallFeatureEffect = function(feature) {
+        feature.statusReason = 'polyfilled';
+        feature.statusDetail = 'corejs:' + this.name;
+    };
+
+    coreJSTasks.push(task);
+    return task;
+}
+coreJSModule('es6.promise', {
+    required: 'auto',
+    features: [
+        'promise',
+        'promise-unhandled-rejection',
+        'promise-rejection-handled'
+    ]
+});
+coreJSModule('es6.symbol', {
+    features: [
+        'symbol',
+        'symbol-to-primitive'
+    ]
+});
+coreJSModule('es6.object.get-own-property-descriptor', {
+    features: [
+        'object-get-own-property-descriptor'
+    ]
+});
+coreJSModule('es6.date.now', {
+    features: [
+        'date-now'
+    ]
+});
+coreJSModule('es6.date.to-iso-string', {
+    features: [
+        'date-prototype-to-iso-string',
+        'date-prototype-to-iso-string-negative-5e13',
+        'date-prototype-to-iso-string-nan-throw'
+    ]
+});
+coreJSModule('es6.date.to-json', {
+    features: [
+        'date-prototype-to-json',
+        'date-prototype-to-json-nan-return-null',
+        'date-prototype-to-json-use-to-iso-string'
+    ]
+});
+coreJSModule('es6.date.to-primitive', {
+    features: [
+        'date-prototype-symbol-to-primitive'
+    ]
+});
+coreJSModule('es6.date-to-string', {
+    features: [
+        'date-prototype-to-string-nan-return-invalid-date'
+    ]
+});
+coreJSModule('es6.function.name', {
+    features: [
+        'function-prototype-name'
+        // pas vraiment polyfillable si function-description est non configurable
+        // on ne pourra rien y faire, du coup faut l'exclure non ?
+        // 'function-prototype-name-description'
+    ]
+});
+
+var fileTasks = [];
+function file(name, descriptor) {
+    if (name[0] === '.' && name[1] === '/') {
+        name = __dirname.replace(/\\/g, '/') + name.slice(1);
+    }
+
+    var task = createTask(name, descriptor);
+
+    task.beforeInstallFeatureEffect = function(feature) {
+        feature.statusReason = 'polyfilling';
+        feature.statusDetail = 'file:' + this.name;
+    };
+    task.afterInstallFeatureEffect = function(feature) {
+        feature.statusReason = 'polyfilled';
+        feature.statusDetail = 'file:' + this.name;
+    };
+
+    fileTasks.push(task);
+    return task;
+}
+file('./node_modules/systemjs/dist/system.src.js', {
+    required: true,
+    features: [
+        'system'
+    ]
+});
+file('./src/polyfill/url/index.js', {
+    features: [
+        'url'
+    ]
+});
+file('./src/polyfill/url-search-params/index.js', {
+    features: [
+        'url-search-params'
+    ]
+});
+
+var babelTasks = [];
+function babelPlugin(name, descriptor) {
+    var task = createTask(name, descriptor);
+
+    task.beforeInstallFeatureEffect = function(feature) {
+        feature.statusIsFrozen = true;
+        feature.statusReason = 'transpiling';
+        feature.statusDetail = 'babel:' + this.name;
+    };
+    task.afterInstallFeatureEffect = function(feature) {
+        feature.statusIsFrozen = true;
+        feature.statusReason = 'transpiled';
+        feature.statusDetail = 'babel:' + this.name;
+    };
+
+    babelTasks.push(task);
+    return task;
+}
+babelPlugin('transform-es2015-modules-systemjs', {
+    required: true
+});
+babelPlugin('check-es2015-constants', {
+    required: true
+});
+babelPlugin('transform-regenerator', {
+    required: false, // on désactive pour le moment, j'ai pas fait les feature correspondantes
+    config: {
+        generators: 'auto',
+        async: 'auto',
+        asyncGenerators: 'auto'
+    },
+    features: [
+        'function-generator'
+    ],
+    afterScanHook: function(features) {
+        Object.getPrototypeOf(this).afterScanHook.apply(this, arguments);
+
+        if (this.required) {
+            file({
+                name: './node_modules/regenerator/dist/regenerator.js',
+                required: true
+            });
+
+            var featureIsProblematic = function() {
+                return Iterable.some(features, function(feature) {
+                    return feature.match(feature) && feature.isInvalid();
+                });
+            };
+
+            var config = this.config;
+            if (config.generators === 'auto') {
+                config.generators = featureIsProblematic('function-generator');
+            }
+            if (config.async === 'auto') {
+                config.async = featureIsProblematic('function-async');
+            }
+            if (config.asyncGenerators === 'auto') {
+                config.asyncGenerators = featureIsProblematic('function-generator-async');
+            }
+        }
+    }
+});
+babelPlugin('transform-es2015-block-scoping', {
+    required: 'auto',
+    features: [
+        'const',
+        'const-throw-statement',
+        'const-throw-redefine',
+        'const-temporal-dead-zone',
+        'const-scoped',
+        'const-scoped-for-statement',
+        'const-scoped-for-body',
+        'const-scoped-for-of-body',
+        'let',
+        'let-throw-statement',
+        'let-temporal-dead-zone',
+        'let-scoped',
+        'let-scoped-for-statement',
+        'let-scoped-for-body'
+    ]
+});
+babelPlugin('transform-es2015-block-scoping', {
+    required: 'auto',
+    features: [
+        'computed-properties'
+    ]
+});
+babelPlugin('transform-es2015-for-of', {
+    required: 'auto',
+    features: [
+        'for-of',
+        'for-of-iterable-generic',
+        'for-of-iterable-generic-instance',
+        'for-of-iterable-return-called-on-break',
+        'for-of-iterable-return-called-on-throw'
+    ]
+});
+babelPlugin('transform-es2015-function-name', {
+    required: 'auto',
+    features: [
+        'function-prototype-name-statement',
+        'function-prototype-name-expression',
+        'function-prototype-name-new',
+        'function-prototype-name-bind',
+        'function-prototype-name-var',
+        'function-prototype-name-accessor',
+        'function-prototype-name-method',
+        'function-prototype-name-method-shorthand',
+        'function-prototype-name-method-shorthand-lexical-binding',
+        'function-prototype-name-method-computed-symbol'
+    ]
+});
+babelPlugin('transform-es2015-parameters', {
+    required: 'auto',
+    features: [
+        'function-default-parameters',
+        'function-default-parameters-explicit-undefined',
+        'function-default-parameters-refer-previous',
+        'function-default-parameters-arguments',
+        'function-default-parameters-temporal-dead-zone',
+        'function-default-parameters-scope-separated',
+        'function-default-parameters-new-function',
+
+        'function-rest-parameters',
+        'function-rest-parameters-throw-setter',
+        'function-rest-parameters-length',
+        'function-rest-parameters-arguments',
+        'function-rest-parameters-new-function'
+    ]
+});
+babelPlugin('transform-es2015-shorthand-properties', {
+    required: 'auto',
+    features: [
+        'shorthand-properties',
+        'shorthand-methods'
+    ]
+});
+babelPlugin('transform-es2015-spread', {
+    required: 'auto',
+    features: [
+        'spread-function-call',
+        'spread-function-call-throw-non-iterable',
+       //  'spread-function-call-generator',
+        'spread-function-call-iterable',
+        'spread-function-call-iterable-instance',
+        'spread-literal-array',
+        // 'spread-literal-array-generator',
+        'spread-literal-array-iterable',
+        'spread-literal-array-iterable-instance'
+    ]
+});
+
+function start() {
+    return scan().then(fixReport).then(function() {
+        // return System.import('./answer.js').then(function(exports) {
+        //     console.log('exported default', exports.default);
+        // });
+    }).catch(function(e) {
+        if (e) {
+            // because unhandled rejection may not be available so error gets ignored
+            setTimeout(function() {
+                throw e;
+            });
+        }
+    });
+}
+function scan() {
+    console.log('scanning implementation');
+    return new Promise(function(resolve) {
+        implementation.scan(resolve);
+    });
+}
+function fixReport(report) {
+    callEveryHook('afterScanHook', report.features);
+
+    var problematicFeatures = report.invalid;
+    var unhandledProblematicFeatures = problematicFeatures.filter(function(feature) {
+        return feature.isInvalid();
+    });
+    if (unhandledProblematicFeatures.length) {
+        throw new Error('no solution for: ' + unhandledProblematicFeatures.join(','));
+    }
+
+    return createPolyfill().then(installPolyfill).then(function() {
+        return createTranspiler();
+    }).then(installTranspiler).then(function() {
+        return scan();
+    }).then(function(secondReport) {
+        var remainingProblematicFeatures = secondReport.invalid;
+        if (remainingProblematicFeatures.length) {
+            remainingProblematicFeatures.forEach(function(feature) {
+                var featureTask = findFeatureTask(feature);
+                console.log(featureTask.name, 'is not a valid alternative for feature ' + feature.name);
+            });
+            return Promise.reject();
+        }
+        console.log(problematicFeatures.length, 'feature have been provided by alternative');
+    });
+}
+function callEveryHook(hookName) {
+    var args = Array.prototype.slice.call(arguments, 1);
+    callEveryTaskHook.apply(null, [coreJSTasks, hookName].concat(args));
+    callEveryTaskHook.apply(null, [fileTasks, hookName].concat(args));
+    callEveryTaskHook.apply(null, [babelTasks, hookName].concat(args));
+}
+function callEveryTaskHook(tasks, hookName) {
+    var args = Array.prototype.slice.call(arguments, 2);
+    Iterable.forEach(tasks, function(task) {
+        task[hookName].apply(task, args);
+    });
+}
+function createPolyfill() {
+    return Promise.all([
+        createCoreJSPolyfill(),
+        createOwnFilePolyfill()
+    ]).then(function(sources) {
+        return sources.join('\n\n');
+    });
+}
+function createCoreJSPolyfill() {
+    var requiredModules = coreJSTasks.filter(function(module) {
+        return module.required;
+    });
+    var requiredModulesAsOption = requiredModules.map(function(module) {
+        return module.name;
+    });
+
+    console.log('required corejs modules', requiredModulesAsOption);
+
+    return new Promise(function(resolve) {
+        var buildCoreJS = require('core-js-builder');
+        var promise = buildCoreJS({
+            modules: requiredModulesAsOption,
+            librabry: false,
+            umd: true
+        });
+        resolve(promise);
+    });
+}
+function createOwnFilePolyfill() {
+    var requiredFiles = Iterable.filter(fileTasks, function(file) {
+        return file.required;
+    });
+    var requiredFilePaths = Iterable.map(requiredFiles, function(file) {
+        return file.name;
+    });
+    console.log('required files', requiredFilePaths);
+
+    var fs = require('fs');
+    var sourcesPromises = Iterable.map(requiredFilePaths, function(filePath) {
+        return new Promise(function(resolve, reject) {
+            fs.readFile(filePath, function(error, buffer) {
+                if (error) {
+                    reject(error);
                 } else {
-                    console.log(report.includedAndInvalid.length, 'feature have been fixed');
-                    resolve();
+                    resolve(buffer.toString());
                 }
             });
-        }).catch(function() {
-            // que fait-on lorsque il manque des features?
-        });
-    }).then(function() {
-        Iterable.forEach(solvers, function(solver) {
-            if ('afterAllSolveHook' in solver) {
-                solver.afterAllSolveHook();
-            }
-        });
-        // console.log('SystemJS got a custom translate ?', System.translate);
-        return System.import('./answer.js').then(function(exports) {
-            console.log('exported default', exports.default);
-        });
-    }).catch(function(e) {
-        // because unhandled rejection may not be available so error gets ignored
-        setTimeout(function() {
-            throw e;
         });
     });
-});
+    return Promise.all(sourcesPromises).then(function(sources) {
+        return sources.join('\n\n');
+    });
+}
+function installPolyfill(content) {
+    callEveryTaskHook(coreJSTasks, 'beforeInstallHook');
+    callEveryTaskHook(fileTasks, 'beforeInstallHook');
+
+    if (content) {
+        eval(content); // eslint-disable-line
+    }
+
+    callEveryTaskHook(coreJSTasks, 'afterInstallHook');
+    callEveryTaskHook(fileTasks, 'afterInstallHook');
+}
+function createTranspiler() {
+    callEveryTaskHook(babelTasks, 'beforeInstallHook');
+    return createBabelTranspiler();
+}
+function createBabelTranspiler() {
+    var requiredPlugins = babelTasks.filter(function(plugin) {
+        return plugin.required;
+    });
+    var pluginsAsOptions = requiredPlugins.map(function(requiredPlugin) {
+        return [requiredPlugin.name, requiredPlugin.options];
+    });
+    console.log('required babel plugins', requiredPlugins.map(function(plugin) {
+        return plugin.name;
+    }));
+
+    var babel = require('babel-core');
+    var transpile = function(code, filename) {
+        // https://babeljs.io/docs/core-packages/#options
+        // inputSourceMap: null,
+        // minified: false
+        return babel.transform(code, {
+            filename: filename,
+            sourceMaps: 'inline',
+            plugins: pluginsAsOptions
+        }).code;
+    };
+
+    return Promise.resolve({
+        transpile: transpile
+    });
+}
+function installTranspiler(transpiler) {
+    callEveryTaskHook(babelTasks, 'beforeInstallHook');
+    jsenv.global.System.translate = function(load) {
+        load.metadata.format = 'register';
+        var code = load.source;
+        var filename = load.address;
+        const result = transpiler.transpile(code, filename);
+        return result;
+    };
+    callEveryTaskHook(babelTasks, 'afterInstallHook');
+}
+function findFeatureTask(feature) {
+    var tasks = coreJSTasks.concat(fileTasks, babelTasks);
+    return Iterable.find(tasks, function(task) {
+        return Iterable.includes(task.features, feature);
+    });
+}
+
+start();
