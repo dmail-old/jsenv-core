@@ -257,4 +257,8 @@ server.onTransition = function(oldStatus, status) {
         console.log('jsenv closed');
     }
 };
-server.open(serverUrl);
+server.open(serverUrl).catch(function(e) {
+    setTimeout(function() {
+        throw e;
+    });
+});

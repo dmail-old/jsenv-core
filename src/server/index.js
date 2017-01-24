@@ -10,7 +10,7 @@ provide beforeExit.on/off to register callback to run before code exists
 thoose callback are runned in parallel when user leaves the page (browser) or terminal (node)
 inside nodejs process.exit is delayed until all promisified callback have resolved
 */
-env.build(function beforeExit() {
+env.provide(function beforeExit() {
     var listeners = [];
     var installBeforeExit;
     var uninstallBeforeExit;
@@ -19,12 +19,18 @@ env.build(function beforeExit() {
         emit() {
             Promise.race(listeners.map(function(fn) {
                 return Promise.resolve(fn());
-            })).then(performExit);
+            })).then(function() {
+                if (uninstallBeforeExit) {
+                    uninstallBeforeExit();
+                    uninstallBeforeExit = undefined;
+                }
+                performExit();
+            });
         },
 
         add(fn) {
             if (listeners.length === 0) {
-                installBeforeExit();
+                uninstallBeforeExit = installBeforeExit();
             }
             listeners.push(fn);
         },
@@ -34,8 +40,9 @@ env.build(function beforeExit() {
             if (index > -1) {
                 listeners.splice(index, 1);
             }
-            if (listeners.length === 0) {
+            if (listeners.length === 0 && uninstallBeforeExit) {
                 uninstallBeforeExit();
+                uninstallBeforeExit = undefined;
             }
         }
     };
@@ -43,32 +50,48 @@ env.build(function beforeExit() {
     if (env.isBrowser()) {
         installBeforeExit = function() {
             window.onbeforeunload = beforeExit.emit;
-        };
-        uninstallBeforeExit = function() {
-            window.onbeforeunload = undefined;
+
+            return function() {
+                window.onbeforeunload = undefined;
+            };
         };
         performExit = function() {
             // in the browser this may not be called
             // because you cannot prevent user from leaving your page
         };
     } else if (env.isNode()) {
-        // http://stackoverflow.com/questions/10021373/what-is-the-windows-equivalent-of-process-onsigint-in-node-js
-        if (env.isWindows()) {
-            var rl = require("readline").createInterface({
-                input: process.stdin,
-                output: process.stdout
-            });
-
-            rl.on('SIGINT', function() {
-                process.emit('SIGINT');
-            });
-        }
-
         installBeforeExit = function() {
-            process.once('SIGINT', beforeExit.emit);
-        };
-        uninstallBeforeExit = function() {
-            process.off('SIGINT', beforeExit.emit);
+            function emit() {
+                beforeExit.emit();
+            }
+
+            var uninstallBeforeExit;
+
+            if (env.isWindows()) {
+                // http://stackoverflow.com/questions/10021373/what-is-the-windows-equivalent-of-process-onsigint-in-node-js
+                var rl = require("readline").createInterface({
+                    input: process.stdin,
+                    output: process.stdout
+                });
+
+                var forceEmit = function() {
+                    process.emit('SIGINT');
+                };
+
+                rl.on('SIGINT', forceEmit);
+                process.on('SIGINT', emit);
+                uninstallBeforeExit = function() {
+                    rl.removeListener('SIGINT', forceEmit);
+                    process.removeListener('SIGINT', emit);
+                };
+            } else {
+                process.on('SIGINT', emit);
+                uninstallBeforeExit = function() {
+                    process.removeListener('SIGINT', emit);
+                };
+            }
+
+            return uninstallBeforeExit;
         };
         performExit = function() {
             process.exit();
@@ -170,7 +193,7 @@ const NodeServer = compose({
 function createServer(options) {
     const nodeModuleName = options.secure ? 'https' : 'http';
 
-    return env.import('@node/' + nodeModuleName).then(function(nodeModule) {
+    return System.import('@node/' + nodeModuleName).then(function(nodeModule) {
         return nodeModule.createServer();
     });
 }

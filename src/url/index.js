@@ -30,39 +30,7 @@ https://gist.github.com/Yaffle/1088850
                                       |                          |
                                     domain                   filename
 
-compare
-
-if (firstURI.protocol !== secondURI.protocol ) {
-    return 1;
-}
-
-toNumber: function(){
-        var score = 0;
-
-        if( this.protocol ){
-            score+= 1;
-        }
-        if( this.hostname ){
-            score+= 2;
-        }
-        if( this.port ){
-            score+= 4;
-        }
-        if( this.pathname ){
-            score+= 8;
-        }
-        if( this.dirname ){
-            score+= 16;
-        }
-        if( this.extname ){
-            score+= 32;
-        }
-
-        return score;
-    },
 */
-
-// import '../polyfill/url-search-params/index.js#?env|default.needs.url-search-params';
 
 import env from '@jsenv/env';
 import compose from '@jsenv/compose';
@@ -431,6 +399,10 @@ const Url = compose('Url', {
     });
 })();
 
+export default Url;
+
+// import '../polyfill/url-search-params/index.js#?env|default.needs.url-search-params';
+
 // var absURLRegEx = /^[^:\/?#]+:/;
 // function isAbsoluteURL(name) {
 //     if (name[0] === '/') {
@@ -447,4 +419,35 @@ const Url = compose('Url', {
 //     return absURLRegEx.test(name);
 // }
 
-export default Url;
+/*
+compare
+
+if (firstURI.protocol !== secondURI.protocol ) {
+    return 1;
+}
+
+toNumber: function(){
+        var score = 0;
+
+        if( this.protocol ){
+            score+= 1;
+        }
+        if( this.hostname ){
+            score+= 2;
+        }
+        if( this.port ){
+            score+= 4;
+        }
+        if( this.pathname ){
+            score+= 8;
+        }
+        if( this.dirname ){
+            score+= 16;
+        }
+        if( this.extname ){
+            score+= 32;
+        }
+
+        return score;
+    },
+*/

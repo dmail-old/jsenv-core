@@ -4,6 +4,13 @@
 
 - pouvoir importer server.js sans problème
 
+- trover une solution de cache qui permet de dire
+j'ai a, b, c en entrée -> c'est là
+si j'ai a, b -> c'est là
+puisqu'on ne peut pas utiliser directement le nom du fichier peut être
+qu'un md5 de a+b+c ou alors un mapping.json qui dit "0": "a,b,c", "1": "a, b"
+en gros ce mapping sers à savoir à quoi correspond chaque fichier
+
 - démarrer un serveur de dev qui sera charger de fournir le polyfill et de transpiler
 le js d'un client qui s'y connecte
 
@@ -24,6 +31,7 @@ mais on retarde ça le plus possible parce que ça a des impacts (comment invali
 */
 
 require('./index.js');
+var fs = require('fs');
 var jsenv = global.jsenv;
 var implementation = jsenv.implementation;
 var Iterable = jsenv.Iterable;
@@ -174,6 +182,11 @@ coreJSModule('es6.function.name', {
         // pas vraiment polyfillable si function-description est non configurable
         // on ne pourra rien y faire, du coup faut l'exclure non ?
         // 'function-prototype-name-description'
+    ]
+});
+coreJSModule('es6.object.assign', {
+    features: [
+        'object-assign'
     ]
 });
 
@@ -415,7 +428,7 @@ babelPlugin('transform-es2015-destructuring', {
 });
 
 function start() {
-    return scan().then(fixReport).then(function() {
+    return ensureFeatures().then(function() {
         System.trace = true;
         System.meta['*.json'] = {format: 'json'};
         System.config({
@@ -470,7 +483,11 @@ function start() {
         registerCoreModule(prefixModule(jsenv.moduleName), jsenv);
         registerCoreModule('@node/require', require);
     }).then(function() {
-        // return System.import('./server.js');
+        return System.import('./setup.js').then(function(exports) {
+            return exports.default(jsenv);
+        });
+    }).then(function() {
+        return System.import('./server.js');
     }).catch(function(e) {
         if (e) {
             // because unhandled rejection may not be available so error gets ignored
@@ -480,38 +497,182 @@ function start() {
         }
     });
 }
-function scan() {
-    console.log('scanning implementation');
-    return new Promise(function(resolve) {
-        implementation.scan(resolve);
+function fsStat(path) {
+    return new Promise(function(resolve, reject) {
+        fs.stat(path, function(error, content) {
+            if (error) {
+                if (error.code === 'ENOENT') {
+                    resolve(null);
+                } else {
+                    reject(error);
+                }
+            } else {
+                resolve(content);
+            }
+        });
     });
 }
-function fixReport(report) {
-    callEveryHook('afterScanHook', report.features);
-
-    var problematicFeatures = report.invalid;
-    var unhandledProblematicFeatures = problematicFeatures.filter(function(feature) {
-        return feature.isInvalid();
+function readFile(path) {
+    return new Promise(function(resolve, reject) {
+        fs.readFile(path, function(error, content) {
+            if (error) {
+                reject(error);
+            } else {
+                resolve(content);
+            }
+        });
     });
-    if (unhandledProblematicFeatures.length) {
-        throw new Error('no solution for: ' + unhandledProblematicFeatures.join(','));
-    }
+}
+function writeFile(path, content) {
+    return new Promise(function(resolve, reject) {
+        fs.writeFile(path, content, function(error, content) {
+            if (error) {
+                reject(error);
+            } else {
+                resolve(content);
+            }
+        });
+    });
+}
+function ensureFeatures() {
+    function getReport() {
+        var agentString = String(jsenv.agent);
+        var reportPath = getReportCacheFilePath(agentString);
+        var scanPath = './index.js';
 
-    return createPolyfill().then(installPolyfill).then(function() {
-        return createTranspiler();
-    }).then(installTranspiler).then(function() {
-        return scan();
-    }).then(function(secondReport) {
-        var remainingProblematicFeatures = secondReport.invalid;
-        if (remainingProblematicFeatures.length) {
-            remainingProblematicFeatures.forEach(function(feature) {
-                var featureTask = findFeatureTask(feature);
-                console.log(featureTask.name, 'is not a valid alternative for feature ' + feature.name);
+        return Promise.all([
+            fsStat(reportPath).catch(function(e) {
+                if (e.code === 'ENOENT') {
+                    return null;
+                }
+                return Promise.reject(e);
+            }),
+            fsStat(scanPath)
+        ]).then(function(stats) {
+            var reportStat = stats[0];
+            var scanStat = stats[1];
+
+            // si le fichier report n'existe pas -> laisse tomber
+            // ou si le fichier dont il provient est plus récent
+            if (!reportStat || scanStat.mtime > reportStat.mtime) {
+                return generateReport(reportPath);
+            }
+            return readFile(reportPath).then(function(content) {
+                return JSON.parse(content.toString());
             });
-            return Promise.reject();
+        });
+    }
+    function getReportCacheFilePath(agentString) {
+        return './cache/agent-report/' + agentString + '.json';
+    }
+    function generateReport(reportPath) {
+        // il est possible que 2 report soit les mêmes
+        // pour deux agents différents aussi
+        // il serais mieux de ne pas stocker l'agent directement mais plutot
+        // d'avoir une liste de report et une sorte de dictionnaire qui assigne chaque report à
+        // un ou plusieurs agent genre
+        // 0.json, 1.json, 2.json
+        // et agent.json {"node@0.12": 0, "firefox@30.0": 1}
+        // comme ça on lit juste index.json pour savoir si user agent à un profile
+        // puis on lit le profile
+        // y'aurais aussi un polyfill correspondant à chaque profile
+        // (pour le moment les polyfill sont directement lié aux features)
+        // que l'on souhaite avoir au final mais ça pourrais changer
+        // comme je l'avais dit tout ce truc de mettre en cache c'est trop tôt
+
+        return scan().then(function(report) {
+            var simplifiedReport = {};
+            report.features.forEach(function(feature) {
+                simplifiedReport[feature.name] = feature.status;
+            });
+            var simplifiedReportJSON = JSON.stringify(simplifiedReport, null, '\t');
+            return writeFile(reportPath, simplifiedReportJSON).then(function() {
+                return simplifiedReport;
+            });
+        });
+    }
+    function scan() {
+        console.log('scanning implementation');
+        return new Promise(function(resolve) {
+            implementation.scan(resolve);
+        });
+    }
+    function reviveReport(report) {
+        var features = [];
+
+        Object.keys(report).forEach(function(featureName) {
+            var feature = jsenv.createFeature(featureName);
+            feature.status = report[featureName];
+
+            var currentFeature = jsenv.implementation.get(featureName);
+            feature.enabled = currentFeature.enabled;
+
+            features.push(feature);
+        });
+
+        return {
+            features: features
+        };
+    }
+    function fixReport(report) {
+        var features = report.features;
+        var problematicFeatures = features.filter(function(feature) {
+            return feature.isEnabled() && feature.isInvalid();
+        });
+        callEveryHook('afterScanHook', features);
+        var unhandledProblematicFeatures = features.filter(function(feature) {
+            return feature.isEnabled() && feature.isInvalid();
+        });
+        if (unhandledProblematicFeatures.length) {
+            throw new Error('no solution for: ' + unhandledProblematicFeatures.join(','));
         }
-        console.log(problematicFeatures.length, 'feature have been provided by alternative');
-    });
+
+        return createPolyfill().then(installPolyfill).then(function() {
+            return createTranspiler();
+        }).then(installTranspiler).then(function() {
+            // le fait de tester une fois le polyfill créer
+            // n'a besoin d'être fait qu'une seule fois
+            // mais ne se fait pas direct ici
+            // il se peut qu'on demande au client de tester et non pas à soi-même
+            // et dans ce cas il doit retester un sous ensemble de toutes les features
+            // (selement celles qui sont problématiques)
+            // le client pourrait être assez intelligent pour le faire automatiquement
+            // et c'est surement ce qu'on fera sauf que
+            // lorsqu'on est dans lemême thread, et c'est le cas pour ce script
+            // le status des features doit être mis correctement à jour afin de pouvoir retester
+            function findFeatureTask(feature) {
+                var tasks = coreJSTasks.concat(fileTasks, babelTasks);
+                return Iterable.find(tasks, function(task) {
+                    return Iterable.find(task.features, function(taskFeature) {
+                        return taskFeature.match(feature);
+                    });
+                });
+            }
+
+            // jsenv.implementation.features.forEach(function(feature) {
+            //     feature.status = 'unspecified';
+            // });
+
+            return scan().then(function(secondReport) {
+                var remainingProblematicFeatures = secondReport.features.filter(function(feature) {
+                    var currentFeature = jsenv.implementation.get(feature.name);
+                    return currentFeature.isEnabled() && feature.isInvalid() && currentFeature.type !== 'syntax';
+                });
+                if (remainingProblematicFeatures.length) {
+                    remainingProblematicFeatures.forEach(function(feature) {
+                        var featureTask = findFeatureTask(feature);
+                        if (!featureTask) {
+                            throw new Error('cannot find task for feature ' + feature.name);
+                        }
+                        console.log(featureTask.name, 'is not a valid alternative for feature ' + feature.name);
+                    });
+                    return Promise.reject();
+                }
+                console.log(problematicFeatures.length, 'feature have been provided by alternative');
+            });
+        });
+    }
+    return getReport().then(reviveReport).then(fixReport);
 }
 function callEveryHook(hookName) {
     var args = Array.prototype.slice.call(arguments, 1);
@@ -527,31 +688,47 @@ function callEveryTaskHook(tasks, hookName) {
 }
 function createPolyfill() {
     return Promise.all([
-        createCoreJSPolyfill(),
+        getCoreJSPolyfill(),
         createOwnFilePolyfill()
     ]).then(function(sources) {
         return sources.join('\n\n');
     });
 }
-function createCoreJSPolyfill() {
-    var requiredModules = coreJSTasks.filter(function(module) {
-        return module.required;
-    });
-    var requiredModulesAsOption = requiredModules.map(function(module) {
-        return module.name;
-    });
+function getCoreJSPolyfill() {
+    var agentString = String(jsenv.agent);
+    var buildPath = './cache/corejs-build/' + agentString + '.js';
 
-    console.log('required corejs modules', requiredModulesAsOption);
-
-    return new Promise(function(resolve) {
-        var buildCoreJS = require('core-js-builder');
-        var promise = buildCoreJS({
-            modules: requiredModulesAsOption,
-            librabry: false,
-            umd: true
+    return fsStat(buildPath).then(function(stat) {
+        if (stat) {
+            return readFile(buildPath).then(String);
+        }
+        return createCoreJSPolyfill().then(function(code) {
+            return writeFile(buildPath, code).then(function() {
+                return code;
+            });
         });
-        resolve(promise);
     });
+
+    function createCoreJSPolyfill() {
+        var requiredModules = coreJSTasks.filter(function(module) {
+            return module.required;
+        });
+        var requiredModulesAsOption = requiredModules.map(function(module) {
+            return module.name;
+        });
+
+        console.log('required corejs modules', requiredModulesAsOption);
+
+        return new Promise(function(resolve) {
+            var buildCoreJS = require('core-js-builder');
+            var promise = buildCoreJS({
+                modules: requiredModulesAsOption,
+                librabry: false,
+                umd: true
+            });
+            resolve(promise);
+        });
+    }
 }
 function createOwnFilePolyfill() {
     var requiredFiles = Iterable.filter(fileTasks, function(file) {
@@ -626,16 +803,25 @@ function installTranspiler(transpiler) {
         load.metadata.format = 'register';
         var code = load.source;
         var filename = load.address;
-        const result = transpiler.transpile(code, filename);
+        var result = transpiler.transpile(code, filename);
+
+        // ici on pourras avoir un cache des fichier transpilé
+        // attention ce cahce doit correspondre aux options du transpiler
+        // autrement dit il doit y avoir un cache par transpiler
+        // cela fera exploser les perfs en positif lorsqu'on aura ça
+        // premier lancement un poil plus lourds mais tous les suivants rapide comme l'éclair
+        // et ça je dis oui
+        // par contre encore une fois cela ressemble aux polyfill
+        // il ne faut pas un cache par userAgent mais bien un cache
+        // par option de transpilation qu'on a mise donc si j'utilise deux plugins
+        // ou trois c'est pas le même cache
+        // si j'utilise une option différente non plus
+
+        result += '\n//# sourceURL=' + filename + '!transpiled';
+
         return result;
     };
     callEveryTaskHook(babelTasks, 'afterInstallHook');
-}
-function findFeatureTask(feature) {
-    var tasks = coreJSTasks.concat(fileTasks, babelTasks);
-    return Iterable.find(tasks, function(task) {
-        return Iterable.includes(task.features, feature);
-    });
 }
 
 start();

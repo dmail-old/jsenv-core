@@ -1082,28 +1082,21 @@ en fonction du résultat de ces tests
                 this.preventScanReason = 'there is already a pending scan';
 
                 var self = this;
-                var enabledFeatures = Iterable.filter(this.features, function(feature) {
-                    return feature.isEnabled();
-                });
-                var groups = groupNodesByDependencyDepth(enabledFeatures);
+                var features = this.features;
+                var groups = groupNodesByDependencyDepth(features);
                 var groupIndex = -1;
                 var groupCount = groups.length;
                 var done = function() {
-                    var statusGroups = {
-                        unspecified: [],
-                        invalid: [],
-                        valid: []
-                    };
-                    Iterable.forEach(enabledFeatures, function(feature) {
-                        statusGroups[feature.status].push(feature);
+                    var simplifiedFeatures = jsenv.Iterable.map(self.features, function(feature) {
+                        var simplifiedFeature = jsenv.createFeature(feature.name, feature.version);
+                        simplifiedFeature.enabled = feature.enabled;
+                        simplifiedFeature.status = feature.status;
+                        return simplifiedFeature;
                     });
-                    var report = {
-                        features: self.features,
-                        enabledAndGroupedByDependencyDepth: groups
-                    };
-                    jsenv.assign(report, statusGroups);
                     self.preventScanReason = undefined;
-                    callback(report);
+                    callback({
+                        features: simplifiedFeatures
+                    });
                 };
 
                 function nextGroup() {
@@ -1748,6 +1741,7 @@ en fonction du résultat de ces tests
         standard('symbol-to-primitive', 'toPrimitive');
         standard('object', 'Object');
         standard('object-get-own-property-descriptor', 'getOwnPropertyDescriptor');
+        standard('object-assign', 'assign');
         standard('date', 'Date');
         standard('date-now', 'now');
         standard('date-prototype', 'prototype');
@@ -1836,6 +1830,14 @@ en fonction du résultat de ces tests
     });
 
     jsenv.provide(function registerSyntaxFeatures() {
+        /*
+        this is all about mapping
+        https://github.com/babel/babel-preset-env/blob/master/data/plugin-features.js
+        with
+        https://github.com/kangax/compat-table/blob/gh-pages/data-es5.js
+        https://github.com/kangax/compat-table/blob/gh-pages/data-es6.js
+        */
+
         var registerSyntax = jsenv.registerSyntax;
         var groupNames = [];
         function group(name, groupScope) {
