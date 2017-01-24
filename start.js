@@ -12,7 +12,9 @@ pour le moment je vois aucune raison de ne pas s'en servir directement
 sans se prendre la tête plus que ça
 
 - une fois que ça marcheras faudra reporter ce comportement sur le browser qui demandera au serveur
-un build de polyfill et communiquera aussi les bables plugins dont il a besoin
+un build de polyfill et communiquera aussi les babel plugins dont il a besoin
+
+- yield, async, generator, prévoir les features/plugins/polyfill correspondant
 
 - à un moment il faudrais mettre en cache les builds de polyfill pour éviter de les reconstruire tout le temps
 mais on retarde ça le plus possible parce que ça a des impacts (comment invalider ce cache etc) et c'est dispensable
@@ -26,7 +28,7 @@ var jsenv = global.jsenv;
 var implementation = jsenv.implementation;
 var Iterable = jsenv.Iterable;
 
-var excludedFeatures = [
+var disabledFeatures = [
     'math-clamp',
     'math-deg-per-rad',
     'math-degrees',
@@ -38,10 +40,10 @@ var excludedFeatures = [
     'string-match-all',
     'string-unescape-html'
 ];
-excludedFeatures.forEach(function() {
+disabledFeatures.forEach(function() {
     // implementation.exclude(excludedFeature, 'npm corejs@2.4.1 does not have thoose polyfill');
 });
-implementation.exclude('function-prototype-name-description');
+implementation.disable('function-prototype-name-description');
 
 var createTask = (function() {
     function Task(name, descriptor) {
@@ -293,7 +295,7 @@ babelPlugin('transform-es2015-block-scoping', {
         'let-scoped-for-body'
     ]
 });
-babelPlugin('transform-es2015-block-scoping', {
+babelPlugin('transform-es2015-computed-properties', {
     required: 'auto',
     features: [
         'computed-properties'
@@ -303,8 +305,8 @@ babelPlugin('transform-es2015-for-of', {
     required: 'auto',
     features: [
         'for-of',
-        'for-of-iterable-generic',
-        'for-of-iterable-generic-instance',
+        'for-of-iterable',
+        'for-of-iterable-instance',
         'for-of-iterable-return-called-on-break',
         'for-of-iterable-return-called-on-throw'
     ]
@@ -332,7 +334,7 @@ babelPlugin('transform-es2015-parameters', {
         'function-default-parameters-refer-previous',
         'function-default-parameters-arguments',
         'function-default-parameters-temporal-dead-zone',
-        'function-default-parameters-scope-separated',
+        'function-default-parameters-scope-own',
         'function-default-parameters-new-function',
 
         'function-rest-parameters',
@@ -354,7 +356,7 @@ babelPlugin('transform-es2015-spread', {
     features: [
         'spread-function-call',
         'spread-function-call-throw-non-iterable',
-       //  'spread-function-call-generator',
+        // 'spread-function-call-generator',
         'spread-function-call-iterable',
         'spread-function-call-iterable-instance',
         'spread-literal-array',
@@ -363,12 +365,112 @@ babelPlugin('transform-es2015-spread', {
         'spread-literal-array-iterable-instance'
     ]
 });
+babelPlugin('transform-es2015-destructuring', {
+    features: [
+        'destructuring-declaration-array',
+        'destructuring-declaration-array-trailing-commas',
+        'destructuring-declaration-array-iterable',
+        'destructuring-declaration-array-iterable-instance',
+        'destructuring-declaration-array-sparse',
+        'destructuring-declaration-array-nested',
+        'destructuring-declaration-array-for-in-statement',
+        'destructuring-declaration-array-for-of-statement',
+        'destructuring-declaration-array-catch-statement',
+        'destructuring-declaration-array-rest',
+        'destructuring-declaration-array-default',
+
+        'destructuring-declaration-object',
+        'destructuring-declaration-object-throw-null',
+        'destructuring-declaration-object-throw-undefined',
+        'destructuring-declaration-object-primitive-return-prototype',
+        'destructuring-declaration-object-trailing-commas',
+        'destructuring-declaration-object-double-dot-as',
+        'destructuring-declaration-object-computed-properties',
+        'destructuring-declaration-object-catch-statement',
+        'destructuring-declaration-object-default',
+        'destructuring-declaration-object-default-let-temporal-dead-zone',
+
+        'destructuring-declaration-array-chain-object',
+        'destructuring-declaration-array-nest-object',
+        'destructuring-declaration-object-nest-array',
+
+        'destructuring-assignment-array-empty',
+        'destructuring-assignment-array-rest-nest',
+        'destructuring-assignment-array-expression-return',
+        'destructuring-assignment-array-chain',
+
+        'destructuring-assignment-object-empty',
+        'destructuring-assignment-object-expression-return',
+        'destructuring-assignment-object-throw-left-parenthesis',
+        'destructuring-assignment-object-chain',
+
+        'destructuring-parameters-array-arguments',
+        'destructuring-parameters-array-new-function',
+        'destructuring-parameters-array-function-length',
+
+        'destructuring-parameters-object-arguments',
+        'destructuring-parameters-object-new-function',
+        'destructuring-parameters-object-function-length'
+    ]
+});
 
 function start() {
     return scan().then(fixReport).then(function() {
-        // return System.import('./answer.js').then(function(exports) {
-        //     console.log('exported default', exports.default);
-        // });
+        System.trace = true;
+        System.meta['*.json'] = {format: 'json'};
+        System.config({
+            map: {
+                '@jsenv/compose': jsenv.dirname + '/node_modules/jsenv-compose'
+            },
+            packages: {
+                '@jsenv/compose': {
+                    main: 'index.js',
+                    format: 'es6'
+                }
+            }
+        });
+
+        function createModuleExportingDefault(defaultExportsValue) {
+            return this.System.newModule({
+                "default": defaultExportsValue // eslint-disable-line quote-props
+            });
+        }
+        function registerCoreModule(moduleName, defaultExport) {
+            System.set(moduleName, createModuleExportingDefault(defaultExport));
+        }
+        function prefixModule(name) {
+            var prefix = jsenv.modulePrefix;
+            var prefixedName;
+            if (prefix) {
+                prefixedName = prefix + '/' + name;
+            } else {
+                prefixedName = name;
+            }
+
+            return prefixedName;
+        }
+
+        [
+            'action',
+            'fetch-as-text',
+            'iterable',
+            'lazy-module',
+            'options',
+            'thenable',
+            'rest',
+            'server',
+            'timeout',
+            'url'
+        ].forEach(function(libName) {
+            var libPath = jsenv.dirname + '/src/' + libName + '/index.js';
+            System.paths[prefixModule(libName)] = libPath;
+        }, this);
+
+        registerCoreModule(prefixModule(jsenv.rootModuleName), jsenv);
+        registerCoreModule(prefixModule(jsenv.moduleName), jsenv);
+        registerCoreModule('@node/require', require);
+    }).then(function() {
+        // return System.import('./server.js');
     }).catch(function(e) {
         if (e) {
             // because unhandled rejection may not be available so error gets ignored

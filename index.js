@@ -854,7 +854,7 @@ en fonction du résultat de ces tests
         return result;
     }
     function createIterableObject(arr, methods) {
-        var i = 0;
+        var i = -1;
         var j = arr.length;
         var iterator = {
             next: function() {
@@ -886,6 +886,15 @@ en fonction du résultat de ces tests
         }
         return keys;
     }
+    // function collectValues(value) {
+    //     var values = [];
+    //     for (var key in value) {
+    //         if (value.hasOwnProperty(key)) {
+    //             values.push(value[key]);
+    //         }
+    //     }
+    //     return values;
+    // }
     function consumeIterator(iterator) {
         var values = [];
         var next = iterator.next();
@@ -898,7 +907,6 @@ en fonction du résultat de ces tests
 
     jsenv.provide(function versionnedFeature() {
         function VersionnedFeature() {
-            this.excluded = false;
             this.dependents = [];
             this.dependencies = [];
             this.parameters = [];
@@ -906,6 +914,7 @@ en fonction du résultat de ces tests
         }
         VersionnedFeature.prototype = {
             constructor: VersionnedFeature,
+            enabled: true,
 
             getPath: function() {
                 var path = [];
@@ -936,8 +945,8 @@ en fonction du résultat de ces tests
 
                 if (asParameter) {
                     this.parameters.push(dependency);
-                } else if (dependency.excluded) {
-                    this.excluded = true;
+                } else if (dependency.isDisabled()) {
+                    this.disable();
                 }
 
                 this.dependencies.push(dependency);
@@ -962,32 +971,35 @@ en fonction du résultat de ces tests
                 return Iterable.includes(this.parameters, feature);
             },
 
-            exclude: function(reason) {
-                this.excluded = true;
-                this.exclusionReason = reason;
-                Iterable.forEach(this.dependents, function(dependent) {
-                    if (this.isParameterOf(dependent) === false) {
-                        dependent.exclude(reason);
-                    }
-                }, this);
+            disable: function(reason) {
+                if (this.isEnabled()) {
+                    this.enabled = false;
+                    this.disableReason = reason;
+                    Iterable.forEach(this.dependents, function(dependent) {
+                        if (this.isParameterOf(dependent) === false) {
+                            dependent.disable('dependent-is-disabled');
+                        }
+                    }, this);
+                }
                 return this;
             },
-            include: function(reason) {
-                this.excluded = false;
-                this.exclusionReason = null;
-                this.inclusionReason = reason;
-                Iterable.forEach(this.dependencies, function(dependency) {
-                    if (dependency.isParameterOf(this) === false) {
-                        dependency.include(reason);
-                    }
-                }, this);
+            enable: function(reason) {
+                if (this.isDisabled()) {
+                    this.enabled = true;
+                    this.enableReason = reason;
+                    Iterable.forEach(this.dependencies, function(dependency) {
+                        if (dependency.isParameterOf(this) === false) {
+                            dependency.enable('dependency-is-enabled');
+                        }
+                    }, this);
+                }
                 return this;
             },
-            isExcluded: function() {
-                return this.excluded === true;
+            isEnabled: function() {
+                return this.enabled === true;
             },
-            isIncluded: function() {
-                return this.excluded !== true;
+            isDisabled: function() {
+                return this.enabled !== true;
             }
         };
         jsenv.makeVersionnable(VersionnedFeature);
@@ -1053,13 +1065,13 @@ en fonction du résultat de ces tests
                 return false;
             },
 
-            include: function(featureName) {
-                this.get(featureName).include();
+            enable: function(featureName) {
+                this.get(featureName).enable();
                 return this;
             },
 
-            exclude: function(featureName, reason) {
-                this.get(featureName).exclude(reason);
+            disable: function(featureName, reason) {
+                this.get(featureName).disable(reason);
                 return this;
             },
 
@@ -1070,10 +1082,10 @@ en fonction du résultat de ces tests
                 this.preventScanReason = 'there is already a pending scan';
 
                 var self = this;
-                var includedFeatures = Iterable.filter(this.features, function(feature) {
-                    return feature.isIncluded();
+                var enabledFeatures = Iterable.filter(this.features, function(feature) {
+                    return feature.isEnabled();
                 });
-                var groups = groupNodesByDependencyDepth(includedFeatures);
+                var groups = groupNodesByDependencyDepth(enabledFeatures);
                 var groupIndex = -1;
                 var groupCount = groups.length;
                 var done = function() {
@@ -1082,12 +1094,12 @@ en fonction du résultat de ces tests
                         invalid: [],
                         valid: []
                     };
-                    Iterable.forEach(includedFeatures, function(feature) {
+                    Iterable.forEach(enabledFeatures, function(feature) {
                         statusGroups[feature.status].push(feature);
                     });
                     var report = {
                         features: self.features,
-                        includedAndGroupedByDependencyDepth: groups
+                        enabledAndGroupedByDependencyDepth: groups
                     };
                     jsenv.assign(report, statusGroups);
                     self.preventScanReason = undefined;
@@ -1428,9 +1440,7 @@ en fonction du résultat de ces tests
                     throw new TypeError('feature run must be a string or function');
                 }
             } else {
-                run = this.parent ? this.parent.run : function() {
-                    return this.config;
-                };
+                run = this.parent ? this.parent.run : undefined;
             }
             this.run = run;
             return run;
@@ -1478,7 +1488,7 @@ en fonction du résultat de ces tests
                     var phase;
 
                     if (!test) {
-                        throw new Error('feature ' + this + ' has no test');
+                        throw new Error('feature ' + this + ' has no test method');
                     }
 
                     phase = 'compile';
@@ -1495,6 +1505,10 @@ en fonction du résultat de ces tests
                     if (hasThrowed) {
                         result = throwedValue;
                     } else {
+                        if (!run) {
+                            throw new Error('feature ' + this + ' has no run method');
+                        }
+
                         phase = 'call';
                         try {
                             result = run.apply(this, runArgs);
@@ -1822,752 +1836,1304 @@ en fonction du résultat de ces tests
     });
 
     jsenv.provide(function registerSyntaxFeatures() {
-        var syntax = jsenv.registerSyntax;
+        var registerSyntax = jsenv.registerSyntax;
+        var groupNames = [];
+        function group(name, groupScope) {
+            if (name) {
+                groupNames.push(name);
+            }
+            groupScope();
+            if (name) {
+                groupNames.pop();
+            }
+        }
+        function syntax(name, descriptor) {
+            if (arguments.length === 1) {
+                descriptor = arguments[0];
+                name = '';
+            }
 
-        // internal dependency level: 0
-        syntax('const', {
-            config: {
-                value: 123
-            },
-            run: '\
-                const result = value;\
-                return result;\
-            ',
-            test: function(result) {
-                return result === this.config.value;
-            }
-        });
-        syntax('const-throw-statement', {
-            run: '\
-                if (true) const bar = 1;\
-            ',
-            phase: 'compile',
-            test: function(error) {
-                return error instanceof Error;
-            }
-        });
-        syntax('const-throw-redefine', {
-            run: '\
-                const foo = 1;\
-                foo = 2;\
-            ',
-            phase: 'call',
-            test: function(error) {
-                return error instanceof Error;
-            }
-        });
-        syntax('const-temporal-dead-zone', {
-            config: {
-                value: 10
-            },
-            run: '\
-                var result;\
-                function fn() {\
-                    result = foo;\
-                }\
-                const foo = value;\
-                fn();\
-                return result;\
-            ',
-            test: function(result) {
-                return result === this.config.value;
-            }
-        });
-        syntax('const-scoped', {
-            config: {
-                outsideValue: 0,
-                insideValue: 1
-            },
-            run: '\
-                const result = outsideValue;\
-                {\
-                    const result = insideValue;\
-                }\
-                return result;\
-            ',
-            test: function(result) {
-                return result === this.config.outsideValue;
-            }
-        });
-        syntax('const-scoped-for-statement', {
-            run: '\
-                const foo = outsideValue;\
-                for(const foo = insideValue; false;) {}\
-                return foo;\
-            ',
-            test: function(result) {
-                return result === this.config.outsideValue;
-            }
-        });
-        syntax('const-scoped-for-body', {
-            config: {
-                value: [0, 1]
-            },
-            run: '\
-                var scopes = [];\
-                for(const i in value) {\
-                    scopes.push(function() {\
-                        return i;\
-                    });\
-                }\
-                return scopes;\
-            ',
-            test: function(result) {
-                var scopedValues = jsenv.Iterable.map(result, function(fn) {
-                    return fn();
-                });
-                var value = this.config.value;
-                var expectedValues = [];
-                for (var i in value) { // eslint-disable-line guard-for-in
-                    expectedValues.push(i);
+            if (groupNames.length) {
+                if (name) {
+                    name = groupNames.join('-') + '-' + name;
+                } else {
+                    name = groupNames.join('-');
                 }
-                return sameValues(scopedValues, expectedValues);
             }
-        });
+            return registerSyntax(name, descriptor);
+        }
 
-        syntax('let', {
-            config: {
-                value: 123
-            },
-            run: '\
-                let result = value;\
-                return result;\
-            ',
-            test: function(result) {
-                return result === this.config.value;
-            }
-        });
-        syntax('let-throw-statement', {
-            run: '\
-                if (true) let result = 1;\
-            ',
-            phase: 'compile',
-            test: function(error) {
-                return error instanceof Error;
-            }
-        });
-        syntax('let-temporal-dead-zone', {
-            config: {
-                value: 10
-            },
-            run: '\
-                var result;\
-                function fn() {\
-                    result = foo;\
-                }\
-                let foo = value;\
-                fn();\
-                return result;\
-            ',
-            test: function(result) {
-                return result === this.config.value;
-            }
-        });
-        syntax('let-scoped', {
-            config: {
-                outsideValue: 0,
-                insideValue: 1
-            },
-            run: '\
-                let result = outsideValue;\
-                {\
-                    let result = insideValue;\
-                }\
-                return result;\
-            ',
-            test: function(result) {
-                return result === this.config.outsideValue;
-            }
-        });
-        syntax('let-scoped-for-statement', {
-            run: '\
-                let result = outsideValue;\
-                for(let result = insideValue; false;) {}\
-                return result;\
-            ',
-            test: function(result) {
-                return result === this.config.outsideValue;
-            }
-        });
-        syntax('let-scoped-for-body', {
-            config: {
-                value: [0, 1]
-            },
-            run: '\
-                var scopes = [];\
-                for(let i in value) {\
-                    scopes.push(function() {\
-                        return i;\
-                    });\
-                }\
-                return scopes;\
-            ',
-            test: function(result) {
-                var scopedValues = jsenv.Iterable.map(result, function(fn) {
-                    return fn();
-                });
-                var value = this.config.value;
-                var expectedValues = [];
-                for (var i in value) { // eslint-disable-line guard-for-in
-                    expectedValues.push(i);
+        group('for-of', function() {
+            syntax({
+                dependencies: [
+                    'array-prototype-symbol-iterator'
+                ],
+                config: {
+                    value: [5]
+                },
+                run: '\
+                    var result = [];\
+                    for (var entry of value) {\
+                        result.push(entry);\
+                    }\
+                    return result;\
+                ',
+                test: function(result) {
+                    return result[0] === 5;
                 }
-                return sameValues(scopedValues, expectedValues);
-            }
-        });
-
-        syntax('computed-properties', {
-            config: {
-                name: 'y',
-                value: 1
-            },
-            run: '\
-                return {[name]: value};\
-            ',
-            test: function(result) {
-                return result[this.config.name] === this.config.value;
-            }
-        });
-
-        syntax('shorthand-properties', {
-            config: {
-                a: 1,
-                b: 2
-            },
-            run: '\
-                return {a, b};\
-            ',
-            test: function(result) {
-                return (
-                    result.a === this.config.a &&
-                    result.b === this.config.b
-                );
-            }
-        });
-        syntax('shorthand-methods', {
-            config: {
-                value: {}
-            },
-            run: '\
-                return {\
-                    y() {\
-                        return value;\
+            });
+            syntax('iterable', {
+                dependencies: [
+                    'symbol-iterator'
+                ],
+                config: function() {
+                    return {
+                        value: createIterableObject([1, 2, 3])
+                    };
+                },
+                test: function(result) {
+                    return sameValues(result, [1, 2, 3]);
+                }
+            });
+            syntax('iterable-instance', {
+                config: function() {
+                    return {
+                        value: Object.create(createIterableObject([1, 2, 3]))
+                    };
+                },
+                test: function(result) {
+                    return sameValues(result, [1, 2, 3]);
+                }
+            });
+            syntax('iterable-return-called-on-break', {
+                config: function() {
+                    return {
+                        value: createIterableObject([1], {
+                            'return': function() { // eslint-disable-line
+                                this.iterable.returnCalled = true;
+                                return {};
+                            }
+                        })
+                    };
+                },
+                run: '\
+                    for (var it of value) {\
+                        break;\
                     }\
-                };\
-            ',
-            test: function(result) {
-                return result.y() === this.config.value;
-            }
+                ',
+                test: function() {
+                    return this.config.value.returnCalled;
+                }
+            });
+            syntax('iterable-return-called-on-throw', {
+                config: function() {
+                    return {
+                        throwedValue: 0,
+                        value: createIterableObject([1], {
+                            'return': function() { // eslint-disable-line
+                                this.iterable.returnCalled = true;
+                                return {};
+                            }
+                        })
+                    };
+                },
+                run: '\
+                    for (var it of value) {\
+                        throw throwedValue;\
+                    }\
+                ',
+                phase: 'call',
+                test: function(error) {
+                    return (
+                        error === this.config.throwedValue &&
+                        this.config.value.returnCalled
+                    );
+                }
+            });
         });
 
-        syntax('spread-function-call', {
-            config: {
-                method: Math.max,
-                value: [1, 2, 3]
-            },
-            run: '\
-                return method(...value);\
-            ',
-            test: function(result) {
-                return result === this.config.method.apply(null, this.config.value);
-            }
-        });
-        syntax('spread-function-call-throw-non-iterable', {
-            config: {
-                value: true
-            },
-            phase: 'call',
-            test: function(error) {
-                return error instanceof Error;
-            }
-        });
-        syntax('spread-function-call-iterable', {
-            dependencies: [
-                'symbol-iterator'
-            ],
-            config: {
-                method: Math.max,
-                value: createIterableObject([1, 2, 3])
-            },
-            test: function(result) {
-                return result === this.config.method.apply(null, [1, 2, 3]);
-            }
-        });
-        syntax('spread-function-call-iterable-instance', {
-            config: {
-                method: Math.max,
-                value: Object.create(createIterableObject([1, 2, 3]))
-            },
-            test: function(result) {
-                return result === this.config.method.apply(null, [1, 2, 3]);
-            }
-        });
-        syntax('spread-literal-array', {
-            config: {
-                value: [1, 2, 3]
-            },
-            run: '\
-                return [...value];\
-            ',
-            test: function(result) {
-                return sameValues(result, this.config.value);
-            }
-        });
-        syntax('spread-literal-array-iterable', {
-            dependencies: [
-                'symbol-iterator'
-            ],
-            config: {
-                value: createIterableObject([1, 2, 3])
-            },
-            test: function(result) {
-                return sameValues(result, [1, 2, 3]);
-            }
-        });
-        syntax('spread-literal-array-iterable-instance', {
-            config: {
-                value: Object.create(createIterableObject([1, 2, 3]))
-            },
-            test: function(result) {
-                return sameValues(result, [1, 2, 3]);
-            }
+        group('const', function() {
+            syntax({
+                config: {
+                    value: 123
+                },
+                run: '\
+                    const result = value;\
+                    return result;\
+                ',
+                test: function(result) {
+                    return result === this.config.value;
+                }
+            });
+            syntax('throw-statement', {
+                run: '\
+                    if (true) const bar = 1;\
+                ',
+                phase: 'compile',
+                test: function(error) {
+                    return error instanceof Error;
+                }
+            });
+            syntax('throw-redefine', {
+                run: '\
+                    const foo = 1;\
+                    foo = 2;\
+                ',
+                phase: 'call',
+                test: function(error) {
+                    return error instanceof Error;
+                }
+            });
+            syntax('temporal-dead-zone', {
+                config: {
+                    value: 10
+                },
+                run: '\
+                    var result;\
+                    function fn() {\
+                        result = foo;\
+                    }\
+                    const foo = value;\
+                    fn();\
+                    return result;\
+                ',
+                test: function(result) {
+                    return result === this.config.value;
+                }
+            });
+            syntax('scoped', {
+                config: {
+                    outsideValue: 0,
+                    insideValue: 1
+                },
+                run: '\
+                    const result = outsideValue;\
+                    {\
+                        const result = insideValue;\
+                    }\
+                    return result;\
+                ',
+                test: function(result) {
+                    return result === this.config.outsideValue;
+                }
+            });
+            syntax('scoped-for-statement', {
+                run: '\
+                    const foo = outsideValue;\
+                    for(const foo = insideValue; false;) {}\
+                    return foo;\
+                ',
+                test: function(result) {
+                    return result === this.config.outsideValue;
+                }
+            });
+            syntax('scoped-for-body', {
+                config: {
+                    value: [0, 1]
+                },
+                run: '\
+                    var scopes = [];\
+                    for(const i in value) {\
+                        scopes.push(function() {\
+                            return i;\
+                        });\
+                    }\
+                    return scopes;\
+                ',
+                test: function(result) {
+                    var scopedValues = jsenv.Iterable.map(result, function(fn) {
+                        return fn();
+                    });
+                    var value = this.config.value;
+                    var expectedValues = [];
+                    for (var i in value) { // eslint-disable-line guard-for-in
+                        expectedValues.push(i);
+                    }
+                    return sameValues(scopedValues, expectedValues);
+                }
+            });
+            syntax('scoped-for-of-body', {
+                dependencies: ['for-of'],
+                config: {
+                    value: [0, 1]
+                },
+                run: '\
+                    var scopes = [];\
+                    for(const i of value) {\
+                        scopes.push(function() {\
+                            return i;\
+                        });\
+                    }\
+                    return scopes;\
+                ',
+                test: function(result) {
+                    var scopedValues = jsenv.Iterable.map(result, function(fn) {
+                        return fn();
+                    });
+                    return sameValues(scopedValues, collectKeys(this.config.value));
+                }
+            });
         });
 
-        syntax('for-of', {
-            dependencies: [
-                'array-prototype-symbol-iterator'
-            ],
-            config: {
-                iterable: [5]
-            },
-            run: '\
-                var result = [];\
-                for (var value of iterable) {\
-                    result.push(value);\
-                }\
-                return result;\
-            ',
-            test: function(result) {
-                return result[0] === 5;
-            }
+        group('let', function() {
+            syntax({
+                config: {
+                    value: 123
+                },
+                run: '\
+                    let result = value;\
+                    return result;\
+                ',
+                test: function(result) {
+                    return result === this.config.value;
+                }
+            });
+            syntax('throw-statement', {
+                run: '\
+                    if (true) let result = 1;\
+                ',
+                phase: 'compile',
+                test: function(error) {
+                    return error instanceof Error;
+                }
+            });
+            syntax('temporal-dead-zone', {
+                config: {
+                    value: 10
+                },
+                run: '\
+                    var result;\
+                    function fn() {\
+                        result = foo;\
+                    }\
+                    let foo = value;\
+                    fn();\
+                    return result;\
+                ',
+                test: function(result) {
+                    return result === this.config.value;
+                }
+            });
+            syntax('scoped', {
+                config: {
+                    outsideValue: 0,
+                    insideValue: 1
+                },
+                run: '\
+                    let result = outsideValue;\
+                    {\
+                        let result = insideValue;\
+                    }\
+                    return result;\
+                ',
+                test: function(result) {
+                    return result === this.config.outsideValue;
+                }
+            });
+            syntax('scoped-for-statement', {
+                run: '\
+                    let result = outsideValue;\
+                    for(let result = insideValue; false;) {}\
+                    return result;\
+                ',
+                test: function(result) {
+                    return result === this.config.outsideValue;
+                }
+            });
+            syntax('scoped-for-body', {
+                config: {
+                    value: [0, 1]
+                },
+                run: '\
+                    var scopes = [];\
+                    for(let i in value) {\
+                        scopes.push(function() {\
+                            return i;\
+                        });\
+                    }\
+                    return scopes;\
+                ',
+                test: function(result) {
+                    var scopedValues = jsenv.Iterable.map(result, function(fn) {
+                        return fn();
+                    });
+                    var value = this.config.value;
+                    var expectedValues = [];
+                    for (var i in value) { // eslint-disable-line guard-for-in
+                        expectedValues.push(i);
+                    }
+                    return sameValues(scopedValues, expectedValues);
+                }
+            });
         });
-        syntax('for-of-iterable-generic', {
-            dependencies: [
-                'symbol-iterator'
-            ],
-            config: function() {
-                return {
-                    iterable: createIterableObject([1, 2, 3])
-                };
-            },
-            test: function(result) {
-                return sameValues(result, [1, 2, 3]);
-            }
+
+        group('computed-properties', function() {
+            syntax({
+                config: {
+                    name: 'y',
+                    value: 1
+                },
+                run: '\
+                    return {[name]: value};\
+                ',
+                test: function(result) {
+                    return result[this.config.name] === this.config.value;
+                }
+            });
         });
-        syntax('for-of-iterable-generic-instance', {
-            config: function() {
-                return {
-                    iterable: Object.create(createIterableObject([1, 2, 3]))
-                };
-            },
-            test: function(result) {
-                return sameValues(result, [1, 2, 3]);
-            }
+
+        group('shorthand-properties', function() {
+            syntax({
+                config: {
+                    a: 1,
+                    b: 2
+                },
+                run: '\
+                    return {a, b};\
+                ',
+                test: function(result) {
+                    return (
+                        result.a === this.config.a &&
+                        result.b === this.config.b
+                    );
+                }
+            });
         });
-        syntax('for-of-iterable-return-called-on-break', {
-            config: function() {
-                return {
-                    iterable: createIterableObject([1], {
-                        'return': function() { // eslint-disable-line
-                            this.iterable.returnCalled = true;
-                            return {};
+
+        group('shorthand-methods', function() {
+            syntax({
+                config: {
+                    value: {}
+                },
+                run: '\
+                    return {\
+                        y() {\
+                            return value;\
+                        }\
+                    };\
+                ',
+                test: function(result) {
+                    return result.y() === this.config.value;
+                }
+            });
+        });
+
+        group('destructuring', function() {
+            group('declaration', function() {
+                group('array', function() {
+                    syntax({
+                        config: {
+                            value: [1]
+                        },
+                        run: '\
+                            var [a] = value;\
+                            return a;\
+                        ',
+                        test: function(result) {
+                            return result === this.config.value[0];
                         }
-                    })
-                };
-            },
-            run: '\
-                for (var it of iterable) {\
-                    break;\
-                }\
-            ',
-            test: function() {
-                return this.config.iterable.returnCalled;
-            }
-        });
-        syntax('for-of-iterable-return-called-on-throw', {
-            config: function() {
-                return {
-                    throwedValue: 0,
-                    iterable: createIterableObject([1], {
-                        'return': function() { // eslint-disable-line
-                            this.iterable.returnCalled = true;
-                            return {};
+                    });
+                    syntax('trailing-commas', {
+                        run: '\
+                            var [a,] = value;\
+                            return a;\
+                        ',
+                        test: function(result) {
+                            return result === this.config.value[0];
                         }
-                    })
-                };
-            },
-            run: '\
-                for (var it of iterable) {\
-                    throw throwedValue;\
-                }\
-            ',
-            phase: 'call',
-            test: function(error) {
-                return (
-                    error === this.config.throwedValue &&
-                    this.config.iterable.returnCalled
-                );
-            }
-        });
-
-        syntax('function-prototype-name-statement', {
-            run: function() {
-                function foo() {}
-
-                return [
-                    foo,
-                    (function() {})
-                ];
-            },
-            test: function(result) {
-                return (
-                    result[0].name === 'foo' &&
-                    result[1].name === ''
-                );
-            }
-        });
-        syntax('function-prototype-name-expression', {
-            run: function() {
-                return [
-                    (function foo() {}),
-                    (function() {})
-                ];
-            },
-            test: function(result) {
-                return (
-                    result[0].name === 'foo' &&
-                    result[1].name === ''
-                );
-            }
-        });
-        syntax('function-prototype-name-new', {
-            run: function() {
-                return (new Function()); // eslint-disable-line no-new-func
-            },
-            test: function(result) {
-                return result.name === 'anonymous';
-            }
-        });
-        syntax('function-prototype-name-bind', {
-            run: function() {
-                function foo() {}
-
-                return {
-                    boundFoo: foo.bind({}),
-                    boundAnonymous: (function() {}).bind({}) // eslint-disable-line no-extra-bind
-                };
-            },
-            test: function(result) {
-                return (
-                    result.boundFoo.name === "bound foo" &&
-                    result.boundAnonymous.name === "bound "
-                );
-            }
-        });
-        syntax('function-prototype-name-var', {
-            run: function() {
-                var foo = function() {};
-                var bar = function baz() {};
-
-                return {
-                    foo: foo,
-                    bar: bar
-                };
-            },
-            test: function(result) {
-                return (
-                    result.foo.name === "foo" &&
-                    result.bar.name === "baz"
-                );
-            }
-        });
-        syntax('function-prototype-name-accessor', {
-            run: '\
-                return {\
-                    get foo() {},\
-                    set foo(x) {}\
-                };\
-            ',
-            test: function(result) {
-                var descriptor = Object.getOwnPropertyDescriptor(result, 'foo');
-
-                return (
-                    descriptor.get.name === 'get foo' &&
-                    descriptor.set.name === 'set foo'
-                );
-            }
-        });
-        syntax('function-prototype-name-method', {
-            run: function() {
-                var o = {
-                    foo: function() {},
-                    bar: function baz() {}
-                };
-                o.qux = function() {};
-                return o;
-            },
-            test: function(result) {
-                return (
-                    result.foo.name === 'foo' &&
-                    result.bar.name === 'baz' &&
-                    result.qux.name === ''
-                );
-            }
-        });
-
-        syntax('function-default-parameters', {
-            config: {
-                values: [3]
-            },
-            run: '\
-                function f(a = 1, b = 2) {\
-                    return {a: a, b: b};\
-                }\
-                return f.apply(null, values);\
-            ',
-            test: function(result) {
-                return (
-                    result.a === this.config.values[0] &&
-                    result.b === 2
-                );
-            }
-        });
-        syntax('function-default-parameters-explicit-undefined', {
-            config: {
-                values: [undefined, 3]
-            },
-            test: function(result) {
-                return (
-                    result.a === 1 &&
-                    result.b === this.config.values[1]
-                );
-            }
-        });
-        syntax('function-default-parameters-refer-previous', {
-            run: '\
-                function f(a = 1, b = a) {\
-                    return {a: a, b: b};\
-                }\
-                return f.apply(null, values);\
-            ',
-            test: function(result) {
-                return (
-                    result.a === this.config.values[0] &&
-                    result.b === this.config.values[0]
-                );
-            }
-        });
-        syntax('function-default-parameters-arguments', {
-            config: {
-                values: [5, 6]
-            },
-            run: '\
-                function f(a = 1, b = 2, c = 3) {\
-                    a = 10;\
-                    return arguments;\
-                }\
-                return f.apply(null, values);\
-            ',
-            test: function(result) {
-                return sameValues(result, this.config.values);
-            }
-        });
-        syntax('function-default-parameters-temporal-dead-zone', {
-            run: '\
-                (function(a = a) {}());\
-                (function(a = b, b){}());\
-            ',
-            test: function() {
-                return true;
-            }
-        });
-        syntax('function-default-parameters-scope-separated', {
-            run: '\
-                function fn(a = function() {\
-                    return {b: b};\
-                }) {\
-                    var b = 1;\
-                    return a;\
-                }\
-                return fn;\
-            ',
-            test: function(result) {
-                return typeof result().b === 'undefined';
-            }
-        });
-        syntax('function-default-parameters-new-function', {
-            config: {
-                defaultValues: [1, 2],
-                values: [3]
-            },
-            run: function() {
-                return new Function( // eslint-disable-line no-new-func
-                    "a = " + this.config.defaultValues[0], "b = " + this.config.defaultValues[1],
-                    "return {a: a, b: b}"
-                ).apply(null, this.config.values);
-            },
-            test: function(result) {
-                return (
-                    result.a === this.config.values[0] &&
-                    result.b === this.config.defaultValues[1]
-                );
-            }
-        });
-
-        syntax('function-rest-parameters', {
-            config: {
-                values: [0, 1, 2]
-            },
-            run: '\
-                function fn(foo, ...rest) {\
-                    return {foo: foo, rest: rest};\
-                }\
-                return fn.apply(null, values);\
-            ',
-            test: function(result) {
-                return (
-                    result.rest instanceof Array &&
-                    sameValues(result.rest, this.config.values.slice(1))
-                );
-            }
-        });
-        syntax('function-rest-parameters-throw-setter', {
-            run: '\
-                return {\
-                    set e(...args) {}\
-                };\
-            ',
-            phase: 'compile',
-            test: function(error) {
-                return error instanceof Error;
-            }
-        });
-        syntax('function-rest-parameters-length', {
-            run: '\
-                return [\
-                    function(a, ...b) {},\
-                    function(...c) {}\
-                ];\
-            ',
-            test: function(result) {
-                return (
-                    result[0].length === 1 &&
-                    result[1].length === 0
-                );
-            }
-        });
-        syntax('function-rest-parameters-arguments', {
-            run: '\
-                function fn(foo, ...rest) {\
-                    foo = 10;\
-                    return arguments;\
-                }\
-                return fn.apply(null, values);\
-            ',
-            test: function(result) {
-                return sameValues(result, this.config.values);
-            }
-        });
-
-        syntax('function-rest-parameters-new-function', {
-            run: function() {
-                return new Function( // eslint-disable-line no-new-func
-                    "a", "...rest",
-                    "return {a: a, rest: rest}"
-                ).apply(null, this.config.values);
-            },
-            test: function(result) {
-                return (
-                    result.a === this.config.values[0] &&
-                    sameValues(result.rest, this.config.values.slice(1))
-                );
-            }
-        });
-
-        // internal dependency level: 1
-        syntax('const-scoped-for-of-body', {
-            dependencies: ['for-of'],
-            config: {
-                value: [0, 1]
-            },
-            run: '\
-                var scopes = [];\
-                for(const i of value) {\
-                    scopes.push(function() {\
-                        return i;\
-                    });\
-                }\
-                return scopes;\
-            ',
-            test: function(result) {
-                var scopedValues = jsenv.Iterable.map(result, function(fn) {
-                    return fn();
+                    });
+                    syntax('iterable', {
+                        config: {
+                            value: createIterableObject([1, 2])
+                        },
+                        run: '\
+                            var [a, b, c] = value;\
+                            return [a, b, c];\
+                        ',
+                        test: function(result) {
+                            return sameValues(result, [1, 2, undefined]);
+                        }
+                    });
+                    syntax('iterable-instance', {
+                        config: {
+                            value: Object.create(createIterableObject([1, 2]))
+                        },
+                        test: function(result) {
+                            return sameValues(result, [1, 2, undefined]);
+                        }
+                    });
+                    syntax('sparse', {
+                        config: {
+                            value: [1, 2, 3]
+                        },
+                        run: '\
+                            var [a, ,b] = value;\
+                            return [a, b];\
+                        ',
+                        test: function(result) {
+                            return sameValues(result, [this.config.value[0], this.config.value[2]]);
+                        }
+                    });
+                    syntax('nested', {
+                        config: {
+                            value: [[1]]
+                        },
+                        run: '\
+                            var [[a]] = value;\
+                            return a;\
+                        ',
+                        test: function(result) {
+                            return result === this.config.value[0][0];
+                        }
+                    });
+                    syntax('for-in-statement', {
+                        config: {
+                            value: {
+                                fo: 1
+                            }
+                        },
+                        run: '\
+                            for (var [a, b] in value);\
+                            return [a, b];\
+                        ',
+                        test: function(result) {
+                            return result.join('') === 'fo';
+                        }
+                    });
+                    syntax('for-of-statement', {
+                        dependencies: ['for-of'],
+                        config: {
+                            value: [[0, 1]]
+                        },
+                        run: '\
+                            for(var [a, b] of value);\
+                            return [a, b];\
+                        ',
+                        test: function(result) {
+                            return sameValues(result, this.config.value[0]);
+                        }
+                    });
+                    syntax('catch-statement', {
+                        config: {
+                            value: [1]
+                        },
+                        run: '\
+                            try {\
+                                throw value;\
+                            } catch ([a]) {\
+                                return a;\
+                            }\
+                        ',
+                        test: function(result) {
+                            return result === this.config.value[0];
+                        }
+                    });
+                    syntax('rest', {
+                        config: {
+                            value: [1, 2, 3],
+                            secondValue: [4]
+                        },
+                        run: '\
+                            var [a, ...b] = value;\
+                            var [c, ...d] = secondValue;\
+                            return [a, b, c, d];\
+                        ',
+                        test: function(result) {
+                            return (
+                                result[0] === this.config.value[0] &&
+                                sameValues(result[1], this.config.value.slice(1)) &&
+                                result[2] === this.config.secondValue[0] &&
+                                result[3] instanceof Array && result[3].length === 0
+                            );
+                        }
+                    });
+                    syntax('default', {
+                        run: '\
+                            var [a = 4, b = 5, c = 6] = [0,,undefined];\
+                            return [a, b, c];\
+                        ',
+                        test: function(result) {
+                            return sameValues(result, [0, 5, 6]);
+                        }
+                    });
                 });
-                return sameValues(scopedValues, collectKeys(this.config.value));
-            }
+
+                group('object', function() {
+                    syntax({
+                        config: {
+                            value: {
+                                a: 1
+                            }
+                        },
+                        run: '\
+                            var {a} = value;\
+                            return a;\
+                        ',
+                        test: function(result) {
+                            return result === this.config.value.a;
+                        }
+                    });
+                    syntax('throw-null', {
+                        config: {
+                            value: null
+                        },
+                        phase: 'call',
+                        test: function(result) {
+                            return result instanceof TypeError;
+                        }
+                    });
+                    syntax('throw-undefined', {
+                        config: {
+                            value: undefined
+                        },
+                        phase: 'call',
+                        test: function(result) {
+                            return result instanceof TypeError;
+                        }
+                    });
+                    syntax('primitive-return-prototype', {
+                        config: function() {
+                            var value = 2;
+                            var prototypeValue = 'foo';
+                            value.constructor.prototype.a = prototypeValue;
+                            return {
+                                prototypeValue: prototypeValue,
+                                value: value
+                            };
+                        },
+                        test: function(result) {
+                            delete this.config.value.constructor.prototype.a;
+                            return result === this.config.prototypeValue;
+                        }
+                    });
+                    syntax('trailing-commas', {
+                        config: {
+                            value: 1
+                        },
+                        run: '\
+                            var {a,} = {a:value};\
+                            return a;\
+                        ',
+                        test: function(result) {
+                            return result === this.config.value;
+                        }
+                    });
+                    syntax('double-dot-as', {
+                        config: {
+                            value: {
+                                x: 1
+                            }
+                        },
+                        run: '\
+                            var {x:a} = value;\
+                            return a;\
+                        ',
+                        test: function(result) {
+                            return result === this.config.value.x;
+                        }
+                    });
+                    syntax('computed-properties', {
+                        dependencies: ['computed-properties'],
+                        config: {
+                            name: 'b',
+                            value: {
+                                b: 1
+                            }
+                        },
+                        run: '\
+                            var {[name]: a} = value;\
+                            return a;\
+                        ',
+                        test: function(result) {
+                            return result === this.config.value.b;
+                        }
+                    });
+                    syntax('catch-statement', {
+                        config: {
+                            value: {a: 1}
+                        },
+                        run: '\
+                            try {\
+                                throw value;\
+                            } catch ({a}) {\
+                                return a;\
+                            }\
+                        ',
+                        test: function(result) {
+                            return result === this.config.value.a;
+                        }
+                    });
+                    syntax('default', {
+                        run: '\
+                            var {a = 4, b = 5, c = 6} = {a: 0, c: undefined};\
+                            return [a, b, c];\
+                        ',
+                        test: function(result) {
+                            return sameValues(result, [0, 5, 6]);
+                        }
+                    });
+                    syntax('default-let-temporal-dead-zone', {
+                        dependencies: ['let'],
+                        run: '\
+                            let {c = c} = {};\
+                            let {c = d, d} = {d: 1};\
+                        ',
+                        phase: 'compile',
+                        test: function(result) {
+                            return result instanceof Error;
+                        }
+                    });
+                });
+
+                syntax('array-chain-object', {
+                    dependencies: [
+                        'destructuring-declaration-array',
+                        'destructuring-declaration-object'
+                    ],
+                    config: {
+                        arrayValue: [0, 1],
+                        objectValue: {
+                            c: 2,
+                            d: 3
+                        }
+                    },
+                    run: '\
+                        var [a,b] = arrayValue, {c,d} = objectValue;\
+                        return [a, b, c, d];\
+                    ',
+                    test: function(result) {
+                        return sameValues(result, [
+                            this.config.arrayValue[0],
+                            this.config.arrayValue[1],
+                            this.config.objectValue.c,
+                            this.config.objectValue.d
+                        ]);
+                    }
+                });
+                syntax('array-nest-object', {
+                    dependencies: [
+                        'destructuring-declaration-array',
+                        'destructuring-declaration-object'
+                    ],
+                    config: {
+                        value: [
+                            {a: 1}
+                        ]
+                    },
+                    run: '\
+                        var [{a}] = value;\
+                        return a;\
+                    ',
+                    test: function(result) {
+                        return result === this.config.value[0].a;
+                    }
+                });
+                syntax('object-nest-array', {
+                    dependencies: [
+                        'destructuring-declaration-array',
+                        'destructuring-declaration-object',
+                        'destructuring-declaration-object-double-dot-as'
+                    ],
+                    config: {
+                        value: {
+                            x: [1]
+                        }
+                    },
+                    run: '\
+                        var {x:[a]} = value;\
+                        return a;\
+                    ',
+                    test: function(result) {
+                        return result === this.config.value.x[0];
+                    }
+                });
+            });
+
+            group('assignment', function() {
+                group('array', function() {
+                    syntax('empty', {
+                        run: '[] = [1,2];',
+                        test: function() {
+                            return true;
+                        }
+                    });
+                    syntax('rest-nest', {
+                        run: '\
+                            var value = [1, 2, 3], first, last;\
+                            [first, ...[value[2], last]] = value;\
+                            return [value, first, last];\
+                        ',
+                        test: function(result) {
+                            return (
+                                sameValues(result[0], [1, 2, 2]) &&
+                                result[1] === 1 &&
+                                result[2] === 3
+                            );
+                        }
+                    });
+                    syntax('expression-return', {
+                        config: {
+                            value: []
+                        },
+                        run: '\
+                            var a;\
+                            return ([a] = value);\
+                        ',
+                        test: function(result) {
+                            return result === this.config.value;
+                        }
+                    });
+                    syntax('chain', {
+                        config: {
+                            value: 1
+                        },
+                        run: '\
+                            var a, b;\
+                            ([a] = [b] = [value]);\
+                            return [a, b];\
+                        ',
+                        test: function(result) {
+                            return sameValues(result, [this.config.value, this.config.value]);
+                        }
+                    });
+                });
+
+                group('object', function() {
+                    syntax('empty', {
+                        run: '({} = {a:1,b:2});',
+                        test: function() {
+                            return true;
+                        }
+                    });
+                    syntax('expression-return', {
+                        config: {
+                            value: {}
+                        },
+                        run: '\
+                            var a;\
+                            return ({a} = value);\
+                        ',
+                        test: function(result) {
+                            return result === this.config.value;
+                        }
+                    });
+                    syntax('throw-left-parenthesis', {
+                        config: {
+                            value: {}
+                        },
+                        phase: 'compile',
+                        run: '\
+                            var a;\
+                            ({a}) = value;\
+                        ',
+                        test: function(result) {
+                            return result instanceof SyntaxError;
+                        }
+                    });
+                    syntax('chain', {
+                        config: {
+                            value: 1
+                        },
+                        run: '\
+                            var a, b;\
+                            ({a} = {b} = {a: value, b: value});\
+                            return [a, b];\
+                        ',
+                        test: function(result) {
+                            return sameValues(result, [this.config.value, this.config.value]);
+                        }
+                    });
+                });
+            });
+
+            group('parameters', function() {
+                group('array', function() {
+                    syntax('arguments', {
+                        config: {
+                            value: [10]
+                        },
+                        run: '\
+                            return (function([a]) {\
+                                return arguments;\
+                            })(value);\
+                        ',
+                        test: function(result) {
+                            return result[0] === this.config.value;
+                        }
+                    });
+                    syntax('new-function', {
+                        config: {
+                            value: [1]
+                        },
+                        run: function() {
+                            return new Function( // eslint-disable-line no-new-func
+                                '[a]',
+                                'return a;'
+                            )(this.config.value);
+                        },
+                        test: function(result) {
+                            return result === this.config.value[0];
+                        }
+                    });
+                    syntax('function-length', {
+                        run: 'return function([a]) {};',
+                        test: function(result) {
+                            return result.length === 1;
+                        }
+                    });
+                });
+
+                group('object', function() {
+                    syntax('arguments', {
+                        config: {
+                            value: {a: 10}
+                        },
+                        run: '\
+                            return (function({a}) {\
+                                return arguments;\
+                            })(value);\
+                        ',
+                        test: function(result) {
+                            return result[0] === this.config.value;
+                        }
+                    });
+                    syntax('new-function', {
+                        config: {
+                            value: {a: 10}
+                        },
+                        run: function() {
+                            return new Function( // eslint-disable-line no-new-func
+                                '{a}',
+                                'return a;'
+                            )(this.config.value);
+                        },
+                        test: function(result) {
+                            return result === this.config.value.a;
+                        }
+                    });
+                    syntax('function-length', {
+                        run: 'return function({a}) {};',
+                        test: function(result) {
+                            return result.length === 1;
+                        }
+                    });
+                });
+            });
         });
-        syntax('function-prototype-name-method-shorthand', {
-            dependencies: [
-                'shorthand-methods'
-            ],
-            run: '\
-                return {\
-                    foo() {}\
-                };\
-            ',
-            test: function(result) {
-                return result.foo.name === 'foo';
-            }
+
+        group('spread', function() {
+            group('function-call', function() {
+                syntax({
+                    config: {
+                        method: Math.max,
+                        value: [1, 2, 3]
+                    },
+                    run: '\
+                        return method(...value);\
+                    ',
+                    test: function(result) {
+                        return result === this.config.method.apply(null, this.config.value);
+                    }
+                });
+
+                syntax('throw-non-iterable', {
+                    config: {
+                        value: true
+                    },
+                    phase: 'call',
+                    test: function(error) {
+                        return error instanceof Error;
+                    }
+                });
+
+                syntax('iterable', {
+                    dependencies: [
+                        'symbol-iterator'
+                    ],
+                    config: {
+                        method: Math.max,
+                        value: createIterableObject([1, 2, 3])
+                    },
+                    test: function(result) {
+                        return result === this.config.method.apply(null, [1, 2, 3]);
+                    }
+                });
+
+                syntax('iterable-instance', {
+                    config: {
+                        method: Math.max,
+                        value: Object.create(createIterableObject([1, 2, 3]))
+                    },
+                    test: function(result) {
+                        return result === this.config.method.apply(null, [1, 2, 3]);
+                    }
+                });
+            });
+            group('literal-array', function() {
+                syntax({
+                    config: {
+                        value: [1, 2, 3]
+                    },
+                    run: '\
+                        return [...value];\
+                    ',
+                    test: function(result) {
+                        return sameValues(result, this.config.value);
+                    }
+                });
+
+                syntax('iterable', {
+                    dependencies: [
+                        'symbol-iterator'
+                    ],
+                    config: {
+                        value: createIterableObject([1, 2, 3])
+                    },
+                    test: function(result) {
+                        return sameValues(result, [1, 2, 3]);
+                    }
+                });
+
+                syntax('iterable-instance', {
+                    config: {
+                        value: Object.create(createIterableObject([1, 2, 3]))
+                    },
+                    test: function(result) {
+                        return sameValues(result, [1, 2, 3]);
+                    }
+                });
+            });
         });
-        syntax('function-prototype-name-method-shorthand-lexical-binding', {
-            dependencies: [
-                'shorthand-methods'
-            ],
-            run: '\
-                var f = \'foo\';\
-                return ({\
-                    f() {\
-                        return f;\
+
+        group('function-prototype-name', function() {
+            syntax('statement', {
+                run: function() {
+                    function foo() {}
+
+                    return [
+                        foo,
+                        (function() {})
+                    ];
+                },
+                test: function(result) {
+                    return (
+                        result[0].name === 'foo' &&
+                        result[1].name === ''
+                    );
+                }
+            });
+            syntax('expression', {
+                run: function() {
+                    return [
+                        (function foo() {}),
+                        (function() {})
+                    ];
+                },
+                test: function(result) {
+                    return (
+                        result[0].name === 'foo' &&
+                        result[1].name === ''
+                    );
+                }
+            });
+            syntax('new', {
+                run: function() {
+                    return (new Function()); // eslint-disable-line no-new-func
+                },
+                test: function(result) {
+                    return result.name === 'anonymous';
+                }
+            });
+            syntax('bind', {
+                run: function() {
+                    function foo() {}
+
+                    return {
+                        boundFoo: foo.bind({}),
+                        boundAnonymous: (function() {}).bind({}) // eslint-disable-line no-extra-bind
+                    };
+                },
+                test: function(result) {
+                    return (
+                        result.boundFoo.name === "bound foo" &&
+                        result.boundAnonymous.name === "bound "
+                    );
+                }
+            });
+            syntax('var', {
+                run: function() {
+                    var foo = function() {};
+                    var bar = function baz() {};
+
+                    return {
+                        foo: foo,
+                        bar: bar
+                    };
+                },
+                test: function(result) {
+                    return (
+                        result.foo.name === "foo" &&
+                        result.bar.name === "baz"
+                    );
+                }
+            });
+            syntax('accessor', {
+                run: '\
+                    return {\
+                        get foo() {},\
+                        set foo(x) {}\
+                    };\
+                ',
+                test: function(result) {
+                    var descriptor = Object.getOwnPropertyDescriptor(result, 'foo');
+
+                    return (
+                        descriptor.get.name === 'get foo' &&
+                        descriptor.set.name === 'set foo'
+                    );
+                }
+            });
+            syntax('method', {
+                run: function() {
+                    var o = {
+                        foo: function() {},
+                        bar: function baz() {}
+                    };
+                    o.qux = function() {};
+                    return o;
+                },
+                test: function(result) {
+                    return (
+                        result.foo.name === 'foo' &&
+                        result.bar.name === 'baz' &&
+                        result.qux.name === ''
+                    );
+                }
+            });
+            syntax('method-shorthand', {
+                dependencies: [
+                    'shorthand-methods'
+                ],
+                run: '\
+                    return {\
+                        foo() {}\
+                    };\
+                ',
+                test: function(result) {
+                    return result.foo.name === 'foo';
+                }
+            });
+            syntax('method-shorthand-lexical-binding', {
+                run: '\
+                    var f = \'foo\';\
+                    return ({\
+                        f() {\
+                            return f;\
+                        }\
+                    });\
+                ',
+                test: function(result) {
+                    return result.f() === 'foo';
+                }
+            });
+            syntax('method-computed-symbol', {
+                dependencies: [
+                    'symbol',
+                    'computed-properties'
+                ],
+                config: function() {
+                    return {
+                        first: Symbol("foo"),
+                        second: Symbol()
+                    };
+                },
+                run: '\
+                    return {\
+                        [first]: function() {},\
+                        [second]: function() {}\
+                    };\
+                ',
+                test: function(result) {
+                    return (
+                        result[this.config.first].name === '[foo]' &&
+                        result[this.config.second].name === ''
+                    );
+                }
+            });
+        });
+
+        group('function-default-parameters', function() {
+            syntax({
+                config: {
+                    values: [3]
+                },
+                run: '\
+                    function f(a = 1, b = 2) {\
+                        return {a: a, b: b};\
                     }\
-                });\
-            ',
-            test: function(result) {
-                return result.f() === 'foo';
-            }
+                    return f.apply(null, values);\
+                ',
+                test: function(result) {
+                    return (
+                        result.a === this.config.values[0] &&
+                        result.b === 2
+                    );
+                }
+            });
+            syntax('explicit-undefined', {
+                config: {
+                    values: [undefined, 3]
+                },
+                test: function(result) {
+                    return (
+                        result.a === 1 &&
+                        result.b === this.config.values[1]
+                    );
+                }
+            });
+            syntax('refer-previous', {
+                run: '\
+                    function f(a = 1, b = a) {\
+                        return {a: a, b: b};\
+                    }\
+                    return f.apply(null, values);\
+                ',
+                test: function(result) {
+                    return (
+                        result.a === this.config.values[0] &&
+                        result.b === this.config.values[0]
+                    );
+                }
+            });
+            syntax('arguments', {
+                config: {
+                    values: [5, 6]
+                },
+                run: '\
+                    function f(a = 1, b = 2, c = 3) {\
+                        a = 10;\
+                        return arguments;\
+                    }\
+                    return f.apply(null, values);\
+                ',
+                test: function(result) {
+                    return sameValues(result, this.config.values);
+                }
+            });
+            syntax('temporal-dead-zone', {
+                run: '\
+                    (function(a = a) {}());\
+                    (function(a = b, b){}());\
+                ',
+                test: function() {
+                    return true;
+                }
+            });
+            syntax('scope-own', {
+                run: '\
+                    function fn(a = function() {\
+                        return typeof b;\
+                    }) {\
+                        var b = 1;\
+                        return a();\
+                    }\
+                    return fn();\
+                ',
+                test: function(result) {
+                    return result === 'undefined';
+                }
+            });
+            syntax('new-function', {
+                config: {
+                    defaultValues: [1, 2],
+                    values: [3]
+                },
+                run: function() {
+                    return new Function( // eslint-disable-line no-new-func
+                        "a = " + this.config.defaultValues[0], "b = " + this.config.defaultValues[1],
+                        "return {a: a, b: b}"
+                    ).apply(null, this.config.values);
+                },
+                test: function(result) {
+                    return (
+                        result.a === this.config.values[0] &&
+                        result.b === this.config.defaultValues[1]
+                    );
+                }
+            });
         });
-        syntax('function-prototype-name-method-computed-symbol', {
-            dependencies: [
-                'symbol',
-                'computed-properties'
-            ],
-            config: function() {
-                return {
-                    first: Symbol("foo"),
-                    second: Symbol()
-                };
-            },
-            run: '\
-                return {\
-                    [first]: function() {},\
-                    [second]: function() {}\
-                };\
-            ',
-            test: function(result) {
-                return (
-                    result[this.config.first].name === '[foo]' &&
-                    result[this.config.second].name === ''
-                );
-            }
+
+        group('function-rest-parameters', function() {
+            syntax({
+                config: {
+                    values: [0, 1, 2]
+                },
+                run: '\
+                    function fn(foo, ...rest) {\
+                        return {foo: foo, rest: rest};\
+                    }\
+                    return fn.apply(null, values);\
+                ',
+                test: function(result) {
+                    return (
+                        result.rest instanceof Array &&
+                        sameValues(result.rest, this.config.values.slice(1))
+                    );
+                }
+            });
+            syntax('throw-setter', {
+                run: '\
+                    return {\
+                        set e(...args) {}\
+                    };\
+                ',
+                phase: 'compile',
+                test: function(error) {
+                    return error instanceof Error;
+                }
+            });
+            syntax('length', {
+                run: '\
+                    return [\
+                        function(a, ...b) {},\
+                        function(...c) {}\
+                    ];\
+                ',
+                test: function(result) {
+                    return (
+                        result[0].length === 1 &&
+                        result[1].length === 0
+                    );
+                }
+            });
+            syntax('arguments', {
+                run: '\
+                    function fn(foo, ...rest) {\
+                        foo = 10;\
+                        return arguments;\
+                    }\
+                    return fn.apply(null, values);\
+                ',
+                test: function(result) {
+                    return sameValues(result, this.config.values);
+                }
+            });
+            syntax('new-function', {
+                run: function() {
+                    return new Function( // eslint-disable-line no-new-func
+                        "a", "...rest",
+                        "return {a: a, rest: rest}"
+                    ).apply(null, this.config.values);
+                },
+                test: function(result) {
+                    return (
+                        result.a === this.config.values[0] &&
+                        sameValues(result.rest, this.config.values.slice(1))
+                    );
+                }
+            });
         });
+
         // syntax('spread-function-call-generator', {
         //     // dependencies: ['yield'],
         //     args: '\
@@ -2615,5 +3181,7 @@ en fonction du résultat de ces tests
         //         return result === '123';
         //     }
         // });
+        // syntax('destructuring-assignement-generator')
+        // https://github.com/kangax/compat-table/blob/gh-pages/data-es6.js#L10247
     });
 })(jsenv);
