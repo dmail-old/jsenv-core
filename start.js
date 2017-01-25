@@ -32,6 +32,120 @@ mais on retarde ça le plus possible parce que ça a des impacts (comment invali
 
 require('./index.js');
 var fs = require('fs');
+
+function add() {
+    var i = arguments.length;
+    var total = 0;
+    while (i--) {
+        total += arguments[i];
+    }
+    return total;
+}
+function createExecutorCallback(resolve, reject) {
+    return function(error, result) {
+        if (error) {
+            reject(error);
+        } else {
+            resolve(result);
+        }
+    };
+}
+function getFileStat(path) {
+    return new Promise(function(resolve, reject) {
+        fs.stat(path, createExecutorCallback(resolve, reject));
+    }).catch(function(error) {
+        if (error.code === 'ENOENT') {
+            return null;
+        }
+        return Promise.reject(error);
+    });
+}
+function getFileContent(path, defaultContent) {
+    if (arguments.length === 0) {
+        throw new Error('missing arg to createFile');
+    }
+
+    return new Promise(function(resolve, reject) {
+        fs.readFile(path, createExecutorCallback(resolve, reject));
+    }).then(
+        function(buffer) {
+            var content = String(buffer);
+            return content;
+        },
+        function(e) {
+            if (e.code === 'ENOENT') {
+                var content = defaultContent || '';
+
+                return new Promise(function(resolve, reject) {
+                    fs.writeFile(path, content, createExecutorCallback(resolve, reject));
+                }).then(function() {
+                    return content;
+                });
+            }
+            return Promise.reject(e);
+        }
+    );
+}
+function getFolderContent(path) {
+    return new Promise(function(resolve, reject) {
+        fs.readdir(path, createExecutorCallback(resolve, reject));
+    }).catch(function(error) {
+        if (error.code === 'ENOENT') {
+            return new Promise(function(resolve, reject) {
+                fs.mkdir(path, createExecutorCallback(resolve, reject));
+            }).then(function() {
+                return [];
+            });
+        }
+        return Promise.reject(error);
+    });
+}
+function createFolder(path) {
+    return new Promise(function(resolve, reject) {
+        fs.mkdir(path, createExecutorCallback(resolve, reject));
+    }).catch(function(error) {
+        // au cas ou deux script essayent de crée un dossier peu importe qui y arrive c'est ok
+        if (error.code === 'EEXIST') {
+            // vérifie que c'est bien un dossier
+            return getFileStat(path).then(function(stat) {
+                if (stat) {
+                    if (stat.isDirectory()) {
+                        return;
+                    }
+                    // on pourrais essayer de supprimer le fichier/symlink/... mais bon pour le moment on throw
+                    // plus tard on supprimera puis on referas createFolder
+                    // ce cas peut se produire lorsque durant la vie du projet
+                    // je crée un fichier puis un dossier ayant le même nom alors le cache se retrouve dans cet état
+                    throw error;
+                }
+                // sinon c'est que la ressource a été supprimée entre temps
+                // soit on rapelle createFolder dessus, soit on se dit ok laisse tomber c'est
+            });
+        }
+        return Promise.reject(error);
+    });
+}
+function createFoldersTo(path) {
+    var folders = path.replace(/\\/g, '/').split('/');
+
+    folders.pop();
+
+    return folders.reduce(function(previous, directory, index) {
+        var folderPath = folders.slice(0, index + 1).join('/');
+
+        return previous.then(function() {
+            return createFolder(folderPath);
+        });
+    }, Promise.resolve());
+}
+function setFileContent(path, content) {
+    return createFoldersTo(path).then(function() {
+        return new Promise(function(resolve, reject) {
+            fs.writeFile(path, content, createExecutorCallback(resolve, reject));
+        });
+    });
+}
+
 var jsenv = global.jsenv;
 var implementation = jsenv.implementation;
 var Iterable = jsenv.Iterable;
@@ -49,7 +163,7 @@ var disabledFeatures = [
     'string-unescape-html'
 ];
 disabledFeatures.forEach(function() {
-    // implementation.exclude(excludedFeature, 'npm corejs@2.4.1 does not have thoose polyfill');
+    // implementation.disable(excludedFeature, 'npm corejs@2.4.1 does not have thoose polyfill');
 });
 implementation.disable('function-prototype-name-description');
 
@@ -427,8 +541,114 @@ babelPlugin('transform-es2015-destructuring', {
     ]
 });
 
-function start() {
-    return ensureFeatures().then(function() {
+function createUpToDateValidator(otherFilePath) {
+    var debug = false;
+
+    return function upToDateValidator() {
+        var self = this;
+
+        return getFileStat(otherFilePath).then(function(otherFileStat) {
+            if (otherFileStat) {
+                if (self.stat.mtime >= otherFileStat.mtime) {
+                    if (debug) {
+                        console.log(self.path, 'uptodate with', otherFilePath);
+                    }
+                    return true;
+                }
+                if (debug) {
+                    console.log(self.path, 'outdated against', otherFilePath);
+                }
+                return false;
+            }
+            if (debug) {
+                console.log('otherFile does no exists', otherFilePath);
+            }
+            return false;
+        });
+    };
+}
+function composeValidators(validators) {
+    var rejectedBecauseInvalid = {};
+
+    return function composedValidator() {
+        var self = this;
+        var args = arguments;
+        var validationPromises = validators.map(function(validator) {
+            return validator.apply(self, args).then(function(valid) {
+                if (valid) {
+                    return true;
+                }
+                return Promise.reject(rejectedBecauseInvalid);
+            });
+        });
+
+        return Promise.all(validationPromises).then(function() {
+            return true;
+        }).catch(function(e) {
+            if (e === rejectedBecauseInvalid) {
+                return false;
+            }
+            return Promise.reject(e);
+        });
+    };
+}
+function createContent(generator) {
+    var linkedFile = null;
+
+    var content = {
+        produce: function() {
+            // check first if the linkedfile already have a valid content (cache)
+            if (linkedFile) {
+                return getFileStat(linkedFile.path).then(function(stat) {
+                    linkedFile.stat = stat;
+                    if (stat) {
+                        return linkedFile.validate(linkedFile);
+                    }
+                    return false;
+                }).then(function(valid) {
+                    if (valid) {
+                        return getFileContent(linkedFile.path).then(function(content) {
+                            return linkedFile.readTransform(content);
+                        });
+                    }
+                    return Promise.resolve(generator()).then(function(content) {
+                        // we do not care if setFileContent succeeds or fails
+                        // and we don't want to do anything special in both case, so let it like that
+                        Promise.resolve(linkedFile.writeTransform(content)).then(function(content) {
+                            setFileContent(linkedFile.path, content);
+                        });
+                        return content;
+                    });
+                });
+            }
+            return Promise.resolve(generator());
+        },
+
+        linkFile: function(path, options) {
+            linkedFile = {
+                path: path,
+
+                readTransform: function(content) {
+                    return content;
+                },
+
+                writeTransform: function(content) {
+                    return content;
+                },
+
+                validate: function() {
+                    return true;
+                }
+            };
+            jsenv.assign(linkedFile, options);
+        }
+    };
+
+    return content;
+}
+
+function start(options) {
+    return ensureFeatures(options).then(function() {
         System.trace = true;
         System.meta['*.json'] = {format: 'json'};
         System.config({
@@ -486,139 +706,55 @@ function start() {
         return System.import('./setup.js').then(function(exports) {
             return exports.default(jsenv);
         });
-    }).then(function() {
-        return System.import('./server.js');
-    }).catch(function(e) {
-        if (e) {
-            // because unhandled rejection may not be available so error gets ignored
-            setTimeout(function() {
-                throw e;
-            });
-        }
+    });
+    // .then(function() {
+    //     return System.import('./server.js');
+    // });
+}
+function scan() {
+    console.log('scanning implementation');
+    return new Promise(function(resolve) {
+        implementation.scan(resolve);
     });
 }
-function fsStat(path) {
-    return new Promise(function(resolve, reject) {
-        fs.stat(path, function(error, content) {
-            if (error) {
-                if (error.code === 'ENOENT') {
-                    resolve(null);
-                } else {
-                    reject(error);
-                }
+function ensureFeatures(options) {
+    function callEveryHook(hookName) {
+        var args = Array.prototype.slice.call(arguments, 1);
+        callEveryTaskHook.apply(null, [coreJSTasks, hookName].concat(args));
+        callEveryTaskHook.apply(null, [fileTasks, hookName].concat(args));
+        callEveryTaskHook.apply(null, [babelTasks, hookName].concat(args));
+    }
+    function callEveryTaskHook(tasks, hookName) {
+        var args = Array.prototype.slice.call(arguments, 2);
+        Iterable.forEach(tasks, function(task) {
+            task[hookName].apply(task, args);
+        });
+    }
+
+    return getReport(options).then(function(report) {
+        var invalidFeatureNames = report.invalids;
+        var features = Iterable.map(implementation.features, function(feature) {
+            var featureCopy = jsenv.createFeature(feature.name, feature.version);
+            var featureIsInvalid = Iterable.find(invalidFeatureNames, function(invalidFeatureName) {
+                return feature.match(invalidFeatureName);
+            });
+            if (featureIsInvalid) {
+                featureCopy.status = 'invalid';
             } else {
-                resolve(content);
+                featureCopy.status = 'valid';
             }
-        });
-    });
-}
-function readFile(path) {
-    return new Promise(function(resolve, reject) {
-        fs.readFile(path, function(error, content) {
-            if (error) {
-                reject(error);
-            } else {
-                resolve(content);
-            }
-        });
-    });
-}
-function writeFile(path, content) {
-    return new Promise(function(resolve, reject) {
-        fs.writeFile(path, content, function(error, content) {
-            if (error) {
-                reject(error);
-            } else {
-                resolve(content);
-            }
-        });
-    });
-}
-function ensureFeatures() {
-    function getReport() {
-        var agentString = String(jsenv.agent);
-        var reportPath = getReportCacheFilePath(agentString);
-        var scanPath = './index.js';
-
-        return Promise.all([
-            fsStat(reportPath).catch(function(e) {
-                if (e.code === 'ENOENT') {
-                    return null;
-                }
-                return Promise.reject(e);
-            }),
-            fsStat(scanPath)
-        ]).then(function(stats) {
-            var reportStat = stats[0];
-            var scanStat = stats[1];
-
-            // si le fichier report n'existe pas -> laisse tomber
-            // ou si le fichier dont il provient est plus récent
-            if (!reportStat || scanStat.mtime > reportStat.mtime) {
-                return generateReport(reportPath);
-            }
-            return readFile(reportPath).then(function(content) {
-                return JSON.parse(content.toString());
-            });
-        });
-    }
-    function getReportCacheFilePath(agentString) {
-        return './cache/agent-report/' + agentString + '.json';
-    }
-    function generateReport(reportPath) {
-        // il est possible que 2 report soit les mêmes
-        // pour deux agents différents aussi
-        // il serais mieux de ne pas stocker l'agent directement mais plutot
-        // d'avoir une liste de report et une sorte de dictionnaire qui assigne chaque report à
-        // un ou plusieurs agent genre
-        // 0.json, 1.json, 2.json
-        // et agent.json {"node@0.12": 0, "firefox@30.0": 1}
-        // comme ça on lit juste index.json pour savoir si user agent à un profile
-        // puis on lit le profile
-        // y'aurais aussi un polyfill correspondant à chaque profile
-        // (pour le moment les polyfill sont directement lié aux features)
-        // que l'on souhaite avoir au final mais ça pourrais changer
-        // comme je l'avais dit tout ce truc de mettre en cache c'est trop tôt
-
-        return scan().then(function(report) {
-            var simplifiedReport = {};
-            report.features.forEach(function(feature) {
-                simplifiedReport[feature.name] = feature.status;
-            });
-            var simplifiedReportJSON = JSON.stringify(simplifiedReport, null, '\t');
-            return writeFile(reportPath, simplifiedReportJSON).then(function() {
-                return simplifiedReport;
-            });
-        });
-    }
-    function scan() {
-        console.log('scanning implementation');
-        return new Promise(function(resolve) {
-            implementation.scan(resolve);
-        });
-    }
-    function reviveReport(report) {
-        var features = [];
-
-        Object.keys(report).forEach(function(featureName) {
-            var feature = jsenv.createFeature(featureName);
-            feature.status = report[featureName];
-
-            var currentFeature = jsenv.implementation.get(featureName);
-            feature.enabled = currentFeature.enabled;
-
-            features.push(feature);
+            featureCopy.enabled = feature.enabled;
+            return featureCopy;
         });
 
         return {
             features: features
         };
-    }
-    function fixReport(report) {
+    }).then(function(report) {
         var features = report.features;
-        var problematicFeatures = features.filter(function(feature) {
-            return feature.isEnabled() && feature.isInvalid();
-        });
+        // var problematicFeatures = features.filter(function(feature) {
+        //     return feature.isEnabled() && feature.isInvalid();
+        // });
         callEveryHook('afterScanHook', features);
         var unhandledProblematicFeatures = features.filter(function(feature) {
             return feature.isEnabled() && feature.isInvalid();
@@ -627,9 +763,27 @@ function ensureFeatures() {
             throw new Error('no solution for: ' + unhandledProblematicFeatures.join(','));
         }
 
-        return createPolyfill().then(installPolyfill).then(function() {
-            return createTranspiler();
-        }).then(installTranspiler).then(function() {
+        return getPolyfill(options).then(function(content) {
+            callEveryTaskHook(coreJSTasks, 'beforeInstallHook');
+            callEveryTaskHook(fileTasks, 'beforeInstallHook');
+            return content;
+        }).then(function(content) {
+            if (content) {
+                eval(content); // eslint-disable-line
+            }
+        }).then(function() {
+            callEveryTaskHook(coreJSTasks, 'afterInstallHook');
+            callEveryTaskHook(fileTasks, 'afterInstallHook');
+        }).then(function() {
+            return getTranspiler(options);
+        }).then(function(transpiler) {
+            callEveryTaskHook(babelTasks, 'beforeInstallHook');
+            return transpiler;
+        }).then(function(transpiler) {
+            return installTranspiler(transpiler, options);
+        }).then(function() {
+            callEveryTaskHook(babelTasks, 'afterInstallHook');
+        }).then(function() {
             // le fait de tester une fois le polyfill créer
             // n'a besoin d'être fait qu'une seule fois
             // mais ne se fait pas direct ici
@@ -640,75 +794,64 @@ function ensureFeatures() {
             // et c'est surement ce qu'on fera sauf que
             // lorsqu'on est dans lemême thread, et c'est le cas pour ce script
             // le status des features doit être mis correctement à jour afin de pouvoir retester
-            function findFeatureTask(feature) {
-                var tasks = coreJSTasks.concat(fileTasks, babelTasks);
-                return Iterable.find(tasks, function(task) {
-                    return Iterable.find(task.features, function(taskFeature) {
-                        return taskFeature.match(feature);
-                    });
-                });
-            }
+            // function findFeatureTask(feature) {
+            //     var tasks = coreJSTasks.concat(fileTasks, babelTasks);
+            //     return Iterable.find(tasks, function(task) {
+            //         return Iterable.find(task.features, function(taskFeature) {
+            //             return taskFeature.match(feature);
+            //         });
+            //     });
+            // }
 
-            // jsenv.implementation.features.forEach(function(feature) {
-            //     feature.status = 'unspecified';
+            // // jsenv.implementation.features.forEach(function(feature) {
+            // //     feature.status = 'unspecified';
+            // // });
+
+            // return scan().then(function(secondReport) {
+            //     var remainingProblematicFeatures = secondReport.features.filter(function(feature) {
+            //         var currentFeature = jsenv.implementation.get(feature.name);
+            //         return currentFeature.isEnabled() && feature.isInvalid() && currentFeature.type !== 'syntax';
+            //     });
+            //     if (remainingProblematicFeatures.length) {
+            //         remainingProblematicFeatures.forEach(function(feature) {
+            //             var featureTask = findFeatureTask(feature);
+            //             if (!featureTask) {
+            //                 throw new Error('cannot find task for feature ' + feature.name);
+            //             }
+            //             console.log(featureTask.name, 'is not a valid alternative for feature ' + feature.name);
+            //         });
+            //         return Promise.reject();
+            //     }
+            //     // console.log(problematicFeatures.length, 'feature have been provided by alternative');
             // });
+        });
+    });
+}
+function getReport(options) {
+    var reportContent = createContent(function() {
+        return scan();
+    });
 
-            return scan().then(function(secondReport) {
-                var remainingProblematicFeatures = secondReport.features.filter(function(feature) {
-                    var currentFeature = jsenv.implementation.get(feature.name);
-                    return currentFeature.isEnabled() && feature.isInvalid() && currentFeature.type !== 'syntax';
-                });
-                if (remainingProblematicFeatures.length) {
-                    remainingProblematicFeatures.forEach(function(feature) {
-                        var featureTask = findFeatureTask(feature);
-                        if (!featureTask) {
-                            throw new Error('cannot find task for feature ' + feature.name);
-                        }
-                        console.log(featureTask.name, 'is not a valid alternative for feature ' + feature.name);
-                    });
-                    return Promise.reject();
-                }
-                console.log(problematicFeatures.length, 'feature have been provided by alternative');
-            });
+    if (options.cacheFolder) {
+        var cacheFolder = options.cacheFolder;
+        var cachedReportPath = cacheFolder + '/implementation-report.json';
+
+        reportContent.linkFile(cachedReportPath, {
+            readTransform: function(content) {
+                return JSON.parse(content);
+            },
+
+            writeTransform: function(content) {
+                return JSON.stringify(content, null, '\t');
+            },
+
+            validate: createUpToDateValidator('./index.js')
         });
     }
-    return getReport().then(reviveReport).then(fixReport);
-}
-function callEveryHook(hookName) {
-    var args = Array.prototype.slice.call(arguments, 1);
-    callEveryTaskHook.apply(null, [coreJSTasks, hookName].concat(args));
-    callEveryTaskHook.apply(null, [fileTasks, hookName].concat(args));
-    callEveryTaskHook.apply(null, [babelTasks, hookName].concat(args));
-}
-function callEveryTaskHook(tasks, hookName) {
-    var args = Array.prototype.slice.call(arguments, 2);
-    Iterable.forEach(tasks, function(task) {
-        task[hookName].apply(task, args);
-    });
-}
-function createPolyfill() {
-    return Promise.all([
-        getCoreJSPolyfill(),
-        createOwnFilePolyfill()
-    ]).then(function(sources) {
-        return sources.join('\n\n');
-    });
-}
-function getCoreJSPolyfill() {
-    var agentString = String(jsenv.agent);
-    var buildPath = './cache/corejs-build/' + agentString + '.js';
 
-    return fsStat(buildPath).then(function(stat) {
-        if (stat) {
-            return readFile(buildPath).then(String);
-        }
-        return createCoreJSPolyfill().then(function(code) {
-            return writeFile(buildPath, code).then(function() {
-                return code;
-            });
-        });
-    });
-
+    return reportContent.produce();
+}
+function getPolyfill(options) {
     function createCoreJSPolyfill() {
         var requiredModules = coreJSTasks.filter(function(module) {
             return module.required;
@@ -729,48 +872,58 @@ function getCoreJSPolyfill() {
             resolve(promise);
         });
     }
-}
-function createOwnFilePolyfill() {
-    var requiredFiles = Iterable.filter(fileTasks, function(file) {
-        return file.required;
-    });
-    var requiredFilePaths = Iterable.map(requiredFiles, function(file) {
-        return file.name;
-    });
-    console.log('required files', requiredFilePaths);
+    function createOwnFilePolyfill() {
+        var requiredFiles = Iterable.filter(fileTasks, function(file) {
+            return file.required;
+        });
+        var requiredFilePaths = Iterable.map(requiredFiles, function(file) {
+            return file.name;
+        });
+        console.log('required files', requiredFilePaths);
 
-    var fs = require('fs');
-    var sourcesPromises = Iterable.map(requiredFilePaths, function(filePath) {
-        return new Promise(function(resolve, reject) {
-            fs.readFile(filePath, function(error, buffer) {
-                if (error) {
-                    reject(error);
-                } else {
-                    resolve(buffer.toString());
-                }
+        var fs = require('fs');
+        var sourcesPromises = Iterable.map(requiredFilePaths, function(filePath) {
+            return new Promise(function(resolve, reject) {
+                fs.readFile(filePath, function(error, buffer) {
+                    if (error) {
+                        reject(error);
+                    } else {
+                        resolve(buffer.toString());
+                    }
+                });
             });
         });
-    });
-    return Promise.all(sourcesPromises).then(function(sources) {
-        return sources.join('\n\n');
-    });
-}
-function installPolyfill(content) {
-    callEveryTaskHook(coreJSTasks, 'beforeInstallHook');
-    callEveryTaskHook(fileTasks, 'beforeInstallHook');
-
-    if (content) {
-        eval(content); // eslint-disable-line
+        return Promise.all(sourcesPromises).then(function(sources) {
+            return sources.join('\n\n');
+        });
     }
 
-    callEveryTaskHook(coreJSTasks, 'afterInstallHook');
-    callEveryTaskHook(fileTasks, 'afterInstallHook');
+    var polyfill = createContent(function() {
+        return Promise.all([
+            createCoreJSPolyfill(),
+            createOwnFilePolyfill()
+        ]).then(function(sources) {
+            return sources.join('\n\n');
+        });
+    });
+
+    if (options.cacheFolder) {
+        var cacheFolder = options.cacheFolder;
+        var requiredFiles = Iterable.filter(fileTasks, function(file) {
+            return file.required;
+        });
+        var upToDateWithEveryFiles = composeValidators(requiredFiles.map(function(file) {
+            return createUpToDateValidator(file.name);
+        }));
+
+        polyfill.linkFile(cacheFolder + '/polyfill.js', {
+            validate: upToDateWithEveryFiles
+        });
+    }
+
+    return polyfill.produce();
 }
-function createTranspiler() {
-    callEveryTaskHook(babelTasks, 'beforeInstallHook');
-    return createBabelTranspiler();
-}
-function createBabelTranspiler() {
+function getTranspiler() {
     var requiredPlugins = babelTasks.filter(function(plugin) {
         return plugin.required;
     });
@@ -797,31 +950,147 @@ function createBabelTranspiler() {
         transpile: transpile
     });
 }
-function installTranspiler(transpiler) {
-    callEveryTaskHook(babelTasks, 'beforeInstallHook');
+function installTranspiler(transpiler, options) {
     jsenv.global.System.translate = function(load) {
-        load.metadata.format = 'register';
         var code = load.source;
         var filename = load.address;
-        var result = transpiler.transpile(code, filename);
 
-        // ici on pourras avoir un cache des fichier transpilé
-        // attention ce cahce doit correspondre aux options du transpiler
-        // autrement dit il doit y avoir un cache par transpiler
-        // cela fera exploser les perfs en positif lorsqu'on aura ça
-        // premier lancement un poil plus lourds mais tous les suivants rapide comme l'éclair
-        // et ça je dis oui
-        // par contre encore une fois cela ressemble aux polyfill
-        // il ne faut pas un cache par userAgent mais bien un cache
-        // par option de transpilation qu'on a mise donc si j'utilise deux plugins
-        // ou trois c'est pas le même cache
-        // si j'utilise une option différente non plus
+        load.metadata.format = 'register';
 
-        result += '\n//# sourceURL=' + filename + '!transpiled';
+        var module = createContent(function() {
+            var result = transpiler.transpile(code, filename);
+            result += '\n//# sourceURL=' + filename + '!transpiled';
+            return result;
+        });
 
-        return result;
+        if (options.cacheFolder) {
+            var baseURL = String(jsenv.baseURL);
+
+            if (filename.indexOf(baseURL) === 0) {
+                var relativeFilePath = filename.slice(baseURL.length);
+                var nodeFilePath = filename.slice('file:///'.length);
+                module.linkFile(options.cacheFolder + '/modules/' + relativeFilePath, {
+                    validate: createUpToDateValidator(nodeFilePath)
+                });
+            }
+        }
+
+        return module.produce();
     };
-    callEveryTaskHook(babelTasks, 'afterInstallHook');
 }
+function getCache(folderPath) {
+    var entriesPath = folderPath + '/entries.json';
 
-start();
+    function getEntryLastMatch(entry) {
+        return Math.max.apply(null, entry.branches.map(function(branch) {
+            return branch.lastMatch;
+        }));
+    }
+    function getEntryMatchCount(entry) {
+        return add.apply(null, entry.branches.map(function(branch) {
+            return branch.matchCount;
+        }));
+    }
+    function compareEntry(a, b) {
+        var order;
+        var aLastMatch = getEntryLastMatch(a);
+        var bLastMatch = getEntryLastMatch(b);
+        var lastMatchDiff = aLastMatch - bLastMatch;
+
+        if (lastMatchDiff === 0) {
+            var aMatchCount = getEntryMatchCount(a);
+            var bMatchCount = getEntryMatchCount(b);
+            var matchCountDiff = aMatchCount - bMatchCount;
+
+            order = matchCountDiff;
+        } else {
+            order = lastMatchDiff;
+        }
+
+        return order;
+    }
+
+    return getFileContent(entriesPath, '[]').then(JSON.parse).then(function(entries) {
+        var cache = {
+            match: function(state) {
+                var foundBranch;
+                var foundEntry = Iterable.find(entries, function(entry) {
+                    foundBranch = Iterable.find(entry.branches, function(branch) {
+                        return (
+                            state.agent.match(branch.condition.agent) &&
+                            state.platform.match(branch.condition.platform)
+                        );
+                    });
+                    return Boolean(foundBranch);
+                });
+
+                if (foundEntry) {
+                    foundBranch.matchCount = 'matchCount' in foundBranch ? foundBranch.matchCount + 1 : 1;
+                    foundBranch.lastMatch = Number(Date.now());
+                    return cache.update().then(function() {
+                        return foundEntry;
+                    });
+                }
+
+                return getFolderContent(folderPath).then(function(names) {
+                    var folderName = '0';
+                    while (Iterable.includes(names, folderName)) {
+                        folderName = String(Number(folderName) + 1);
+                    }
+                    return folderName;
+                }).then(function(entryName) {
+                    return {
+                        name: entryName,
+                        branches: [
+                            {
+                                condition: {
+                                    agent: String(state.agent),
+                                    platform: String(state.platform)
+                                },
+                                matchCount: 1,
+                                lastMatch: Number(Date.now())
+                            }
+                        ]
+                    };
+                }).then(function(entry) {
+                    // il faut créer le dossier sinon celui-ci serait considéré comme libre
+                    return getFolderContent(folderPath + '/' + entry.name).then(function() {
+                        entries.push(entry);
+                        return cache.update();
+                    }).then(function() {
+                        return entry;
+                    });
+                });
+            },
+
+            update: function() {
+                entries = entries.sort(compareEntry);
+
+                return setFileContent(entriesPath, JSON.stringify(entries, null, '\t')).then(function() {
+                    return entries;
+                });
+            }
+        };
+
+        return cache;
+    });
+}
+var mainCacheFolder = './cache';
+getCache(mainCacheFolder).then(function(cache) {
+    return cache.match({
+        agent: jsenv.agent,
+        platform: jsenv.platform
+    }).then(function(entry) {
+        return start({
+            cacheFolder: mainCacheFolder + '/' + entry.name
+        });
+    });
+}).catch(function(e) {
+    if (e) {
+        // because unhandled rejection may not be available so error gets ignored
+        setTimeout(function() {
+            // console.log('the error', e);
+            throw e;
+        });
+    }
+});

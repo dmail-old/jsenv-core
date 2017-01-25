@@ -526,7 +526,7 @@ ainsi que quelques utilitaires comme assign, Iterable et Predicate
         }
 
         return {
-            baseURL: baseURL, // from where am I running system-run
+            baseURL: baseURL, // from where am I running jsenv
             internalURL: internalURL, // where is this file
             dirname: parentPath(internalURL), // dirname of this file
             cleanPath: cleanPath,
@@ -1087,15 +1087,15 @@ en fonction du résultat de ces tests
                 var groupIndex = -1;
                 var groupCount = groups.length;
                 var done = function() {
-                    var simplifiedFeatures = jsenv.Iterable.map(self.features, function(feature) {
-                        var simplifiedFeature = jsenv.createFeature(feature.name, feature.version);
-                        simplifiedFeature.enabled = feature.enabled;
-                        simplifiedFeature.status = feature.status;
-                        return simplifiedFeature;
+                    var invalidFeatures = jsenv.Iterable.filter(self.features, function(feature) {
+                        return feature.isInvalid();
+                    });
+                    var invalidFeaturesNames = invalidFeatures.map(function(feature) {
+                        return feature.name;
                     });
                     self.preventScanReason = undefined;
                     callback({
-                        features: simplifiedFeatures
+                        invalids: invalidFeaturesNames
                     });
                 };
 
