@@ -1234,7 +1234,7 @@ en fonction du résultat de ces tests
         //     return /[a-z]/.test(letter);
         // }
         var noValue = {novalue: true};
-        function runStandard(feature) {
+        function getStandardResult(feature) {
             var result;
             // désactive hasOwnProperty result sinon on ne peut pas relancer le test
             // puisque une fois le test fait une fois, feature.result existe
@@ -1370,75 +1370,6 @@ en fonction du résultat de ces tests
         }
 
         var featurePrototype = Object.getPrototypeOf(jsenv.createFeature());
-        featurePrototype.test = function() {
-            return false;
-        };
-        featurePrototype.compileTest = function() {
-            var test;
-            if (this.hasOwnProperty('test')) {
-                var ownTest = this.test;
-                if (typeof ownTest === 'function') {
-                    test = ownTest;
-                } else {
-                    throw new TypeError('feature test must be a function');
-                }
-            } else {
-                test = this.parent ? this.parent.test : this.test;
-            }
-            return test;
-        };
-        featurePrototype.config = {};
-        featurePrototype.compileConfig = function() {
-            var config = {};
-            if (this.hasOwnProperty('config')) {
-                var ownConfig = this.config;
-
-                if (typeof ownConfig === 'function') {
-                    config = ownConfig.call(this);
-                } else if (typeof ownConfig === 'object') {
-                    config = ownConfig;
-                } else {
-                    throw new TypeError('feature config must be an object or function');
-                }
-
-                var parent = this.parent;
-                if (parent) {
-                    var inheritedConfig = {};
-                    jsenv.assign(inheritedConfig, parent.config);
-                    jsenv.assign(inheritedConfig, config);
-                    config = inheritedConfig;
-                }
-            } else {
-                config = this.parent ? this.parent.config : this.config;
-            }
-            this.config = config;
-            return config;
-        };
-        featurePrototype.compileRunArgs = function() {
-            var config = this.config;
-            var runArgs = Object.keys(config).map(function(key) {
-                return config[key];
-            });
-            return runArgs;
-        };
-        featurePrototype.compileRun = function() {
-            var run;
-            if (this.hasOwnProperty('run')) {
-                var ownRun = this.run;
-                if (typeof ownRun === 'string') {
-                    run = compileFunction(Object.keys(this.config), ownRun);
-                } else if (typeof ownRun === 'function') {
-                    run = ownRun;
-                } else {
-                    throw new TypeError('feature run must be a string or function');
-                }
-            } else {
-                run = this.parent ? this.parent.run : undefined;
-            }
-            this.run = run;
-            return run;
-        };
-        featurePrototype.testPhase = 'return';
         featurePrototype.updateStatus = function(callback) {
             var feature = this;
 
@@ -1472,70 +1403,31 @@ en fonction du résultat de ces tests
                 if (invalidDependency) {
                     settle(false, 'dependency-is-invalid', invalidDependency);
                 } else {
-                    var config;
-                    var runArgs;
-                    var run;
-                    var test = this.compileTest();
-                    var throwedValue;
-                    var hasThrowed = false;
-                    var phase;
-
-                    if (!test) {
-                        throw new Error('feature ' + this + ' has no test method');
-                    }
-
-                    phase = 'compile';
-                    try {
-                        config = this.compileConfig();
-                        runArgs = this.compileRunArgs(config);
-                        run = this.compileRun();
-                    } catch (e) {
-                        hasThrowed = true;
-                        throwedValue = e;
-                    }
-
-                    var result;
-                    if (hasThrowed) {
-                        result = throwedValue;
-                    } else {
-                        if (!run) {
-                            throw new Error('feature ' + this + ' has no run method');
-                        }
-
-                        phase = 'call';
-                        try {
-                            result = run.apply(this, runArgs);
-                        } catch (e) {
-                            hasThrowed = true;
-                            throwedValue = e;
-                        }
-
-                        if (hasThrowed) {
-                            result = throwedValue;
+                    var branch = this.getTestBranch();
+                    if (this.when === branch.name) {
+                        var test;
+                        if (this.hasOwnProperty('test')) {
+                            test = this.test;
+                            if (typeof test !== 'function') {
+                                throw new TypeError('feature test must be a function');
+                            }
+                        } else if (this.parent) {
+                            test = this.parent.test;
                         } else {
-                            phase = 'return';
+                            throw new Error('feature ' + this + ' has no test method');
                         }
-                    }
-
-                    this.phase = phase;
-                    if (this.phase === phase) {
-                        this.result = result;
 
                         var testArgs = [];
-                        var testHasThrowed = false;
-                        var testThrowedValue;
-
-                        testArgs.push(result);
+                        testArgs.push(branch.value);
                         Iterable.forEach(this.parameters, function(parameter) {
                             testArgs.push(parameter);
                         });
                         testArgs.push(settle);
-
                         var testSettler = convertToSettler(test);
 
                         try {
                             testSettler.apply(
-                                feature,
+                                this,
                                 testArgs
                             );
 
@@ -1544,20 +1436,167 @@ en fonction du résultat de ces tests
                                 settle(false, 'timeout', maxDuration);
                             }, maxDuration);
                         } catch (e) {
-                            testHasThrowed = true;
-                            testThrowedValue = e;
-                        }
-
-                        if (testHasThrowed) {
-                            settle(false, 'throwed', testThrowedValue);
+                            settle(false, 'throwed', e);
                         }
                     } else {
-                        settle(false, 'unexpected-phase:' + phase, result);
+                        settle(false, 'unexpected-' + branch.name, branch.value);
                     }
                 }
             }
 
             return this;
+        };
+        featurePrototype.when = 'code-runtime-result';
+        featurePrototype.getTestBranch = function() {
+            var expectedBranchName = this.when;
+
+            var configGetter;
+            try {
+                configGetter = this.compileConfig();
+            } catch (e) {
+                return {
+                    name: 'config-compilation-error',
+                    value: e
+                };
+            }
+            if (!configGetter) {
+                throw new Error('feature ' + this + ' has no config method');
+            }
+            if (expectedBranchName === 'config-compilation-result') {
+                return {
+                    name: expectedBranchName,
+                    value: configGetter
+                };
+            }
+
+            var configResult;
+            try {
+                configResult = configGetter.call(this);
+            } catch (e) {
+                return {
+                    name: 'config-runtime-error',
+                    value: e
+                };
+            }
+            this.config = configResult;
+            if (expectedBranchName === 'config-runtime-result') {
+                return {
+                    name: expectedBranchName,
+                    value: configResult
+                };
+            }
+
+            var codeGetter;
+            try {
+                codeGetter = this.compileCode(configResult);
+            } catch (e) {
+                return {
+                    name: 'code-compilation-error',
+                    value: e
+                };
+            }
+            if (!codeGetter) {
+                throw new Error('feature ' + this + ' has no code method');
+            }
+            this.code = codeGetter;
+            if (expectedBranchName === 'code-compilation-result') {
+                return {
+                    name: expectedBranchName,
+                    value: codeGetter
+                };
+            }
+
+            var codeResult;
+            var codeArgs = Object.keys(configResult).map(function(key) {
+                return configResult[key];
+            });
+            try {
+                codeResult = codeGetter.apply(this, codeArgs);
+            } catch (e) {
+                return {
+                    name: 'code-runtime-error',
+                    value: e
+                };
+            }
+            this.result = codeResult;
+            if (expectedBranchName === 'code-runtime-result') {
+                return {
+                    name: expectedBranchName,
+                    value: codeResult
+                };
+            }
+
+            throw new Error('unknown test.when value: ' + expectedBranchName);
+        };
+        featurePrototype.config = {};
+        featurePrototype.compileConfig = function() {
+            var configGetter;
+
+            if (this.hasOwnProperty('config')) {
+                var ownConfig = this.config;
+                var type = typeof ownConfig;
+                var ownConfigGetter;
+
+                if (type === 'function') {
+                    ownConfigGetter = function() {
+                        return ownConfig.call(this);
+                    };
+                } else if (type === 'object') {
+                    ownConfigGetter = function() {
+                        return ownConfig;
+                    };
+                } else if (type === 'string') {
+                    var compiledFunction = compileFunction([], ownConfig);
+                    ownConfigGetter = function() {
+                        return compiledFunction.call(this);
+                    };
+                } else {
+                    throw new TypeError('test.config must be a function, object or string, not ' + type);
+                }
+
+                configGetter = function() {
+                    var configResult = ownConfigGetter.apply(this, arguments);
+                    var parent = this.parent;
+                    if (parent) {
+                        var inheritedConfigResult = {};
+                        jsenv.assign(inheritedConfigResult, parent.config);
+                        jsenv.assign(inheritedConfigResult, configResult);
+                        configResult = inheritedConfigResult;
+                    }
+                    return configResult;
+                };
+            } else if (this.parent) {
+                configGetter = function() {
+                    return this.parent.config;
+                };
+            } else {
+                configGetter = function() {
+                    return this.config;
+                };
+            }
+
+            return configGetter;
+        };
+        featurePrototype.compileCode = function(config) {
+            var codeGetter;
+
+            if (this.hasOwnProperty('code')) {
+                var ownCode = this.code;
+
+                if (typeof ownCode === 'string') {
+                    codeGetter = compileFunction(Object.keys(config), ownCode);
+                } else if (typeof ownCode === 'function') {
+                    codeGetter = ownCode;
+                } else {
+                    throw new TypeError('feature code must be a string or function');
+                }
+            } else if (this.parent) {
+                codeGetter = this.parent.code;
+            } else {
+                codeGetter = null;
+            }
+
+            return codeGetter;
         };
         featurePrototype.ensure = function(dependentFeature) {
             dependentFeature.parent = this;
@@ -1569,7 +1608,7 @@ en fonction du résultat de ces tests
         var globalStandard = jsenv.createFeature('global');
         globalStandard.type = 'standard';
         // globalStandard.result = jsenv.global;
-        globalStandard.run = function() {
+        globalStandard.code = function() {
             return jsenv.global;
         };
         globalStandard.test = presence;
@@ -1589,13 +1628,13 @@ en fonction du résultat de ces tests
 
             if (typeof test === 'string') {
                 feature.path = test;
-                feature.run = function() {
-                    return runStandard(this);
+                feature.code = function() {
+                    return getStandardResult(this);
                 };
                 feature.test = presence;
             } else if (typeof test === 'function') {
                 feature.test = test;
-                feature.run = function() {
+                feature.code = function() {
                     return parent.result;
                 };
                 feature.test = test;
@@ -1603,7 +1642,7 @@ en fonction du résultat de ces tests
                 var dependency = test;
                 feature.relyOn(dependency);
                 feature.path = parent.getPath() + '[' + dependency.getPath() + ']';
-                feature.run = function() {
+                feature.code = function() {
                     var fromValue = parent.result;
                     var dependencyValue = dependency.result;
 
@@ -1643,14 +1682,14 @@ en fonction du résultat de ces tests
             if ('config' in descriptor) {
                 feature.config = descriptor.config;
             }
-            if ('run' in descriptor) {
-                feature.run = descriptor.run;
+            if ('code' in descriptor) {
+                feature.code = descriptor.code;
             }
             if ('test' in descriptor) {
                 feature.test = descriptor.test;
             }
-            if ('phase' in descriptor) {
-                feature.phase = descriptor.phase;
+            if ('when' in descriptor) {
+                feature.when = descriptor.when;
             }
 
             implementation.add(feature);
@@ -1873,7 +1912,7 @@ en fonction du résultat de ces tests
                 config: {
                     value: [5]
                 },
-                run: '\
+                code: '\
                     var result = [];\
                     for (var entry of value) {\
                         result.push(entry);\
@@ -1918,7 +1957,7 @@ en fonction du résultat de ces tests
                         })
                     };
                 },
-                run: '\
+                code: '\
                     for (var it of value) {\
                         break;\
                     }\
@@ -1939,12 +1978,12 @@ en fonction du résultat de ces tests
                         })
                     };
                 },
-                run: '\
+                code: '\
                     for (var it of value) {\
                         throw throwedValue;\
                     }\
                 ',
-                phase: 'call',
+                when: 'code-runtime-error',
                 test: function(error) {
                     return (
                         error === this.config.throwedValue &&
@@ -1959,7 +1998,7 @@ en fonction du résultat de ces tests
                 config: {
                     value: 123
                 },
-                run: '\
+                code: '\
                     const result = value;\
                     return result;\
                 ',
@@ -1968,20 +2007,20 @@ en fonction du résultat de ces tests
                 }
             });
             syntax('throw-statement', {
-                run: '\
+                code: '\
                     if (true) const bar = 1;\
                 ',
-                phase: 'compile',
+                when: 'code-compilation-error',
                 test: function(error) {
                     return error instanceof Error;
                 }
             });
             syntax('throw-redefine', {
-                run: '\
+                code: '\
                     const foo = 1;\
                     foo = 2;\
                 ',
-                phase: 'call',
+                when: 'code-runtime-error',
                 test: function(error) {
                     return error instanceof Error;
                 }
@@ -1990,7 +2029,7 @@ en fonction du résultat de ces tests
                 config: {
                     value: 10
                 },
-                run: '\
+                code: '\
                     var result;\
                     function fn() {\
                         result = foo;\
@@ -2008,7 +2047,7 @@ en fonction du résultat de ces tests
                     outsideValue: 0,
                     insideValue: 1
                 },
-                run: '\
+                code: '\
                     const result = outsideValue;\
                     {\
                         const result = insideValue;\
@@ -2020,7 +2059,7 @@ en fonction du résultat de ces tests
                 }
             });
             syntax('scoped-for-statement', {
-                run: '\
+                code: '\
                     const foo = outsideValue;\
                     for(const foo = insideValue; false;) {}\
                     return foo;\
@@ -2033,7 +2072,7 @@ en fonction du résultat de ces tests
                 config: {
                     value: [0, 1]
                 },
-                run: '\
+                code: '\
                     var scopes = [];\
                     for(const i in value) {\
                         scopes.push(function() {\
@@ -2059,7 +2098,7 @@ en fonction du résultat de ces tests
                 config: {
                     value: [0, 1]
                 },
-                run: '\
+                code: '\
                     var scopes = [];\
                     for(const i of value) {\
                         scopes.push(function() {\
@@ -2082,7 +2121,7 @@ en fonction du résultat de ces tests
                 config: {
                     value: 123
                 },
-                run: '\
+                code: '\
                     let result = value;\
                     return result;\
                 ',
@@ -2091,10 +2130,10 @@ en fonction du résultat de ces tests
                 }
             });
             syntax('throw-statement', {
-                run: '\
+                code: '\
                     if (true) let result = 1;\
                 ',
-                phase: 'compile',
+                when: 'code-compilation-error',
                 test: function(error) {
                     return error instanceof Error;
                 }
@@ -2103,7 +2142,7 @@ en fonction du résultat de ces tests
                 config: {
                     value: 10
                 },
-                run: '\
+                code: '\
                     var result;\
                     function fn() {\
                         result = foo;\
@@ -2121,7 +2160,7 @@ en fonction du résultat de ces tests
                     outsideValue: 0,
                     insideValue: 1
                 },
-                run: '\
+                code: '\
                     let result = outsideValue;\
                     {\
                         let result = insideValue;\
@@ -2133,7 +2172,7 @@ en fonction du résultat de ces tests
                 }
             });
             syntax('scoped-for-statement', {
-                run: '\
+                code: '\
                     let result = outsideValue;\
                     for(let result = insideValue; false;) {}\
                     return result;\
@@ -2146,7 +2185,7 @@ en fonction du résultat de ces tests
                 config: {
                     value: [0, 1]
                 },
-                run: '\
+                code: '\
                     var scopes = [];\
                     for(let i in value) {\
                         scopes.push(function() {\
@@ -2175,7 +2214,7 @@ en fonction du résultat de ces tests
                     name: 'y',
                     value: 1
                 },
-                run: '\
+                code: '\
                     return {[name]: value};\
                 ',
                 test: function(result) {
@@ -2190,7 +2229,7 @@ en fonction du résultat de ces tests
                     a: 1,
                     b: 2
                 },
-                run: '\
+                code: '\
                     return {a, b};\
                 ',
                 test: function(result) {
@@ -2207,7 +2246,7 @@ en fonction du résultat de ces tests
                 config: {
                     value: {}
                 },
-                run: '\
+                code: '\
                     return {\
                         y() {\
                             return value;\
@@ -2227,7 +2266,7 @@ en fonction du résultat de ces tests
                         config: {
                             value: [1]
                         },
-                        run: '\
+                        code: '\
                             var [a] = value;\
                             return a;\
                         ',
@@ -2236,7 +2275,7 @@ en fonction du résultat de ces tests
                         }
                     });
                     syntax('trailing-commas', {
-                        run: '\
+                        code: '\
                             var [a,] = value;\
                             return a;\
                         ',
@@ -2248,7 +2287,7 @@ en fonction du résultat de ces tests
                         config: {
                             value: createIterableObject([1, 2])
                         },
-                        run: '\
+                        code: '\
                             var [a, b, c] = value;\
                             return [a, b, c];\
                         ',
@@ -2268,7 +2307,7 @@ en fonction du résultat de ces tests
                         config: {
                             value: [1, 2, 3]
                         },
-                        run: '\
+                        code: '\
                             var [a, ,b] = value;\
                             return [a, b];\
                         ',
@@ -2280,7 +2319,7 @@ en fonction du résultat de ces tests
                         config: {
                             value: [[1]]
                         },
-                        run: '\
+                        code: '\
                             var [[a]] = value;\
                             return a;\
                         ',
@@ -2294,7 +2333,7 @@ en fonction du résultat de ces tests
                                 fo: 1
                             }
                         },
-                        run: '\
+                        code: '\
                             for (var [a, b] in value);\
                             return [a, b];\
                         ',
@@ -2307,7 +2346,7 @@ en fonction du résultat de ces tests
                         config: {
                             value: [[0, 1]]
                         },
-                        run: '\
+                        code: '\
                             for(var [a, b] of value);\
                             return [a, b];\
                         ',
@@ -2319,7 +2358,7 @@ en fonction du résultat de ces tests
                         config: {
                             value: [1]
                         },
-                        run: '\
+                        code: '\
                             try {\
                                 throw value;\
                             } catch ([a]) {\
@@ -2335,7 +2374,7 @@ en fonction du résultat de ces tests
                             value: [1, 2, 3],
                             secondValue: [4]
                         },
-                        run: '\
+                        code: '\
                             var [a, ...b] = value;\
                             var [c, ...d] = secondValue;\
                             return [a, b, c, d];\
@@ -2350,7 +2389,7 @@ en fonction du résultat de ces tests
                         }
                     });
                     syntax('default', {
-                        run: '\
+                        code: '\
                             var [a = 4, b = 5, c = 6] = [0,,undefined];\
                             return [a, b, c];\
                         ',
@@ -2367,7 +2406,7 @@ en fonction du résultat de ces tests
                                 a: 1
                             }
                         },
-                        run: '\
+                        code: '\
                             var {a} = value;\
                             return a;\
                         ',
@@ -2379,7 +2418,7 @@ en fonction du résultat de ces tests
                         config: {
                             value: null
                         },
-                        phase: 'call',
+                        when: 'code-runtime-error',
                         test: function(result) {
                             return result instanceof TypeError;
                         }
@@ -2388,7 +2427,7 @@ en fonction du résultat de ces tests
                         config: {
                             value: undefined
                         },
-                        phase: 'call',
+                        when: 'code-runtime-error',
                         test: function(result) {
                             return result instanceof TypeError;
                         }
@@ -2412,7 +2451,7 @@ en fonction du résultat de ces tests
                         config: {
                             value: 1
                         },
-                        run: '\
+                        code: '\
                             var {a,} = {a:value};\
                             return a;\
                         ',
@@ -2426,7 +2465,7 @@ en fonction du résultat de ces tests
                                 x: 1
                             }
                         },
-                        run: '\
+                        code: '\
                             var {x:a} = value;\
                             return a;\
                         ',
@@ -2442,7 +2481,7 @@ en fonction du résultat de ces tests
                                 b: 1
                             }
                         },
-                        run: '\
+                        code: '\
                             var {[name]: a} = value;\
                             return a;\
                         ',
@@ -2454,7 +2493,7 @@ en fonction du résultat de ces tests
                         config: {
                             value: {a: 1}
                         },
-                        run: '\
+                        code: '\
                             try {\
                                 throw value;\
                             } catch ({a}) {\
@@ -2466,7 +2505,7 @@ en fonction du résultat de ces tests
                         }
                     });
                     syntax('default', {
-                        run: '\
+                        code: '\
                             var {a = 4, b = 5, c = 6} = {a: 0, c: undefined};\
                             return [a, b, c];\
                         ',
@@ -2476,11 +2515,11 @@ en fonction du résultat de ces tests
                     });
                     syntax('default-let-temporal-dead-zone', {
                         dependencies: ['let'],
-                        run: '\
+                        code: '\
                             let {c = c} = {};\
                             let {c = d, d} = {d: 1};\
                         ',
-                        phase: 'compile',
+                        when: 'code-compilation-error',
                         test: function(result) {
                             return result instanceof Error;
                         }
@@ -2499,7 +2538,7 @@ en fonction du résultat de ces tests
                             d: 3
                         }
                     },
-                    run: '\
+                    code: '\
                         var [a,b] = arrayValue, {c,d} = objectValue;\
                         return [a, b, c, d];\
                     ',
@@ -2522,7 +2561,7 @@ en fonction du résultat de ces tests
                             {a: 1}
                         ]
                     },
-                    run: '\
+                    code: '\
                         var [{a}] = value;\
                         return a;\
                     ',
@@ -2541,7 +2580,7 @@ en fonction du résultat de ces tests
                             x: [1]
                         }
                     },
-                    run: '\
+                    code: '\
                         var {x:[a]} = value;\
                         return a;\
                     ',
@@ -2554,13 +2593,13 @@ en fonction du résultat de ces tests
             group('assignment', function() {
                 group('array', function() {
                     syntax('empty', {
-                        run: '[] = [1,2];',
+                        code: '[] = [1,2];',
                         test: function() {
                             return true;
                         }
                     });
                     syntax('rest-nest', {
-                        run: '\
+                        code: '\
                             var value = [1, 2, 3], first, last;\
                             [first, ...[value[2], last]] = value;\
                             return [value, first, last];\
@@ -2577,7 +2616,7 @@ en fonction du résultat de ces tests
                         config: {
                             value: []
                         },
-                        run: '\
+                        code: '\
                             var a;\
                             return ([a] = value);\
                         ',
@@ -2589,7 +2628,7 @@ en fonction du résultat de ces tests
                         config: {
                             value: 1
                         },
-                        run: '\
+                        code: '\
                             var a, b;\
                             ([a] = [b] = [value]);\
                             return [a, b];\
@@ -2602,7 +2641,7 @@ en fonction du résultat de ces tests
 
                 group('object', function() {
                     syntax('empty', {
-                        run: '({} = {a:1,b:2});',
+                        code: '({} = {a:1,b:2});',
                         test: function() {
                             return true;
                         }
@@ -2611,7 +2650,7 @@ en fonction du résultat de ces tests
                         config: {
                             value: {}
                         },
-                        run: '\
+                        code: '\
                             var a;\
                             return ({a} = value);\
                         ',
@@ -2623,8 +2662,8 @@ en fonction du résultat de ces tests
                         config: {
                             value: {}
                         },
-                        phase: 'compile',
-                        run: '\
+                        when: 'code-compilation-error',
+                        code: '\
                             var a;\
                             ({a}) = value;\
                         ',
@@ -2636,7 +2675,7 @@ en fonction du résultat de ces tests
                         config: {
                             value: 1
                         },
-                        run: '\
+                        code: '\
                             var a, b;\
                             ({a} = {b} = {a: value, b: value});\
                             return [a, b];\
@@ -2654,7 +2693,7 @@ en fonction du résultat de ces tests
                         config: {
                             value: [10]
                         },
-                        run: '\
+                        code: '\
                             return (function([a]) {\
                                 return arguments;\
                             })(value);\
@@ -2667,7 +2706,7 @@ en fonction du résultat de ces tests
                         config: {
                             value: [1]
                         },
-                        run: function() {
+                        code: function() {
                             return new Function( // eslint-disable-line no-new-func
                                 '[a]',
                                 'return a;'
@@ -2678,7 +2717,7 @@ en fonction du résultat de ces tests
                         }
                     });
                     syntax('function-length', {
-                        run: 'return function([a]) {};',
+                        code: 'return function([a]) {};',
                         test: function(result) {
                             return result.length === 1;
                         }
@@ -2690,7 +2729,7 @@ en fonction du résultat de ces tests
                         config: {
                             value: {a: 10}
                         },
-                        run: '\
+                        code: '\
                             return (function({a}) {\
                                 return arguments;\
                             })(value);\
@@ -2703,7 +2742,7 @@ en fonction du résultat de ces tests
                         config: {
                             value: {a: 10}
                         },
-                        run: function() {
+                        code: function() {
                             return new Function( // eslint-disable-line no-new-func
                                 '{a}',
                                 'return a;'
@@ -2714,7 +2753,7 @@ en fonction du résultat de ces tests
                         }
                     });
                     syntax('function-length', {
-                        run: 'return function({a}) {};',
+                        code: 'return function({a}) {};',
                         test: function(result) {
                             return result.length === 1;
                         }
@@ -2730,7 +2769,7 @@ en fonction du résultat de ces tests
                         method: Math.max,
                         value: [1, 2, 3]
                     },
-                    run: '\
+                    code: '\
                         return method(...value);\
                     ',
                     test: function(result) {
@@ -2742,7 +2781,7 @@ en fonction du résultat de ces tests
                     config: {
                         value: true
                     },
-                    phase: 'call',
+                    when: 'code-runtime-error',
                     test: function(error) {
                         return error instanceof Error;
                     }
@@ -2776,7 +2815,7 @@ en fonction du résultat de ces tests
                     config: {
                         value: [1, 2, 3]
                     },
-                    run: '\
+                    code: '\
                         return [...value];\
                     ',
                     test: function(result) {
@@ -2809,7 +2848,7 @@ en fonction du résultat de ces tests
 
         group('function-prototype-name', function() {
             syntax('statement', {
-                run: function() {
+                code: function() {
                     function foo() {}
 
                     return [
@@ -2825,7 +2864,7 @@ en fonction du résultat de ces tests
                 }
             });
             syntax('expression', {
-                run: function() {
+                code: function() {
                     return [
                         (function foo() {}),
                         (function() {})
@@ -2839,7 +2878,7 @@ en fonction du résultat de ces tests
                 }
             });
             syntax('new', {
-                run: function() {
+                code: function() {
                     return (new Function()); // eslint-disable-line no-new-func
                 },
                 test: function(result) {
@@ -2847,7 +2886,7 @@ en fonction du résultat de ces tests
                 }
             });
             syntax('bind', {
-                run: function() {
+                code: function() {
                     function foo() {}
 
                     return {
@@ -2863,7 +2902,7 @@ en fonction du résultat de ces tests
                 }
             });
             syntax('var', {
-                run: function() {
+                code: function() {
                     var foo = function() {};
                     var bar = function baz() {};
 
@@ -2880,7 +2919,7 @@ en fonction du résultat de ces tests
                 }
             });
             syntax('accessor', {
-                run: '\
+                code: '\
                     return {\
                         get foo() {},\
                         set foo(x) {}\
@@ -2896,7 +2935,7 @@ en fonction du résultat de ces tests
                 }
             });
             syntax('method', {
-                run: function() {
+                code: function() {
                     var o = {
                         foo: function() {},
                         bar: function baz() {}
@@ -2916,7 +2955,7 @@ en fonction du résultat de ces tests
                 dependencies: [
                     'shorthand-methods'
                 ],
-                run: '\
+                code: '\
                     return {\
                         foo() {}\
                     };\
@@ -2926,7 +2965,7 @@ en fonction du résultat de ces tests
                 }
             });
             syntax('method-shorthand-lexical-binding', {
-                run: '\
+                code: '\
                     var f = \'foo\';\
                     return ({\
                         f() {\
@@ -2949,7 +2988,7 @@ en fonction du résultat de ces tests
                         second: Symbol()
                     };
                 },
-                run: '\
+                code: '\
                     return {\
                         [first]: function() {},\
                         [second]: function() {}\
@@ -2969,7 +3008,7 @@ en fonction du résultat de ces tests
                 config: {
                     values: [3]
                 },
-                run: '\
+                code: '\
                     function f(a = 1, b = 2) {\
                         return {a: a, b: b};\
                     }\
@@ -2994,7 +3033,7 @@ en fonction du résultat de ces tests
                 }
             });
             syntax('refer-previous', {
-                run: '\
+                code: '\
                     function f(a = 1, b = a) {\
                         return {a: a, b: b};\
                     }\
@@ -3011,7 +3050,7 @@ en fonction du résultat de ces tests
                 config: {
                     values: [5, 6]
                 },
-                run: '\
+                code: '\
                     function f(a = 1, b = 2, c = 3) {\
                         a = 10;\
                         return arguments;\
@@ -3023,16 +3062,17 @@ en fonction du résultat de ces tests
                 }
             });
             syntax('temporal-dead-zone', {
-                run: '\
+                code: '\
                     (function(a = a) {}());\
                     (function(a = b, b){}());\
                 ',
-                test: function() {
-                    return true;
+                when: 'code-runtime-error',
+                test: function(error) {
+                    return error instanceof Error;
                 }
             });
             syntax('scope-own', {
-                run: '\
+                code: '\
                     function fn(a = function() {\
                         return typeof b;\
                     }) {\
@@ -3050,7 +3090,7 @@ en fonction du résultat de ces tests
                     defaultValues: [1, 2],
                     values: [3]
                 },
-                run: function() {
+                code: function() {
                     return new Function( // eslint-disable-line no-new-func
                         "a = " + this.config.defaultValues[0], "b = " + this.config.defaultValues[1],
                         "return {a: a, b: b}"
@@ -3070,7 +3110,7 @@ en fonction du résultat de ces tests
                 config: {
                     values: [0, 1, 2]
                 },
-                run: '\
+                code: '\
                     function fn(foo, ...rest) {\
                         return {foo: foo, rest: rest};\
                     }\
@@ -3084,18 +3124,18 @@ en fonction du résultat de ces tests
                 }
             });
             syntax('throw-setter', {
-                run: '\
+                code: '\
                     return {\
                         set e(...args) {}\
                     };\
                 ',
-                phase: 'compile',
+                when: 'code-compilation-error',
                 test: function(error) {
                     return error instanceof Error;
                 }
             });
             syntax('length', {
-                run: '\
+                code: '\
                     return [\
                         function(a, ...b) {},\
                         function(...c) {}\
@@ -3109,7 +3149,7 @@ en fonction du résultat de ces tests
                 }
             });
             syntax('arguments', {
-                run: '\
+                code: '\
                     function fn(foo, ...rest) {\
                         foo = 10;\
                         return arguments;\
@@ -3121,7 +3161,7 @@ en fonction du résultat de ces tests
                 }
             });
             syntax('new-function', {
-                run: function() {
+                code: function() {
                     return new Function( // eslint-disable-line no-new-func
                         "a", "...rest",
                         "return {a: a, rest: rest}"

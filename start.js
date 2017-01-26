@@ -2,29 +2,47 @@
 
 /*
 
-- pouvoir importer server.js sans problème
+- continuer sur l'import de server.js
 
-- trover une solution de cache qui permet de dire
-j'ai a, b, c en entrée -> c'est là
-si j'ai a, b -> c'est là
-puisqu'on ne peut pas utiliser directement le nom du fichier peut être
-qu'un md5 de a+b+c ou alors un mapping.json qui dit "0": "a,b,c", "1": "a, b"
-en gros ce mapping sers à savoir à quoi correspond chaque fichier
+- une fois que le serveur peut être lancé celui-ci va être capable de plusieurs chose
 
-- démarrer un serveur de dev qui sera charger de fournir le polyfill et de transpiler
-le js d'un client qui s'y connecte
+1 : lorsqu'on le requête, si le client qui le demande est inconnu au bataillon
+alors il lui dit hey client veut tu bien lancer ces tests pour que je sache si on est compatible ?
+ensuite le client lui donne le résultats des tests
+le serveur répond alors avec un polyfill.js que le client doit éxécuter
+le client doit aussi rerun les tests pour vérifier que polyfill.js fonctionne bien
+    si tout se passe bien alors le client envoit une requête au serveur
+    pour lui dire hey mec nickel chrome merci
+    là le serveur stocke cette info pour savoir que pour ce type de client tout va bien
 
-pour faire ça faut pouvoir charger les modules en utilisant SystemJS
-pour le moment je vois aucune raison de ne pas s'en servir directement
-sans se prendre la tête plus que ça
+    si ça ne se passe pas bien le client affiche une erreur et envoie au serveur
+    mec ça marche ton truc
+    le serveur stocke cette info pour savoir que pour ce type de client y'a un souci
 
-- une fois que ça marcheras faudra reporter ce comportement sur le browser qui demandera au serveur
-un build de polyfill et communiquera aussi les babel plugins dont il a besoin
+- où stocker l'info pour dire ce type de client a pu être polyfillé correctement ou non ?
+-> ptet avec before-polyfill-implementation-report.json + after-polfyill-implementation-report.json
+(le after consisterais en un objet genre {invalids: []})
+- quand et comment le client lance-t-il une première requête de compatibilité avec les features requises ?
+-> au chargement de la page, avant toute chose et à chaque fois on demande au serveur si on est ok
+- sous quel format dit-on au client: voici les tests que tu dois lancer ?
+-> 200 + une sorte de json contenant tous les tests serais top, le prob étant que ce n'est pas leur forme actuelle
+autre souci du JSON: les fonctions devraient être eval, un peu relou
+le plus simple serait donc de renvoyer un js
+- sous quel format dit-on au client: c'est mort tu n'est pas polyfillable ?
+-> on lui renvoit un code d'erreur genre pas 200 avec un message associé
+- sous quel format dit-on au client: voici le polyfill que tu dois éxécuter, pas besoin de test ?
+-> 200 + le pollyfill en tant que fichier js qu'on éxécute sans se poser de question
+
+- utiliser un hash (md5) du fichier index.js et pas mtime pour implementation-report.json
+parce que implementation-report.json n'est pas dans le .gitignore
+autrement dit le mtime de implementation-report.json peut ne pas correspondre au mtime du dépot distant
+voir http://stackoverflow.com/questions/2458042/restore-files-modification-time-in-git
+donc il faudrais stocker le md5 dans le json et le comparer au md5 de index.js
+les autres fichier de cahce ne sont pas concerné puisqu'il sont généré sur chaque machine
+
+- externaliser sourcemap au lie de inline base64, enfin faire une option
 
 - yield, async, generator, prévoir les features/plugins/polyfill correspondant
-
-- à un moment il faudrais mettre en cache les builds de polyfill pour éviter de les reconstruire tout le temps
-mais on retarde ça le plus possible parce que ça a des impacts (comment invalider ce cache etc) et c'est dispensable
 
 - more : npm install dynamique
 
