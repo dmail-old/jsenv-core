@@ -47,4 +47,5 @@ Temporary Items
 node_modules/
 coverage-final.json
 cache/*/*
-!cache/*/implementation-report.json
+!cache/*/implementation-report-before-poyfill.json
+!cache/*/implementation-report-after-poyfill.json

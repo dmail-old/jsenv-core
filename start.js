@@ -2,10 +2,8 @@
 
 /*
 
-- continuer sur l'import de server.js
-
-- une fois que le serveur peut être lancé celui-ci va être capable de plusieurs chose
-
+- faire en sorte que même avant de démarrer le serveur on est du code qui se comporte comme son propre client
+vis-a-vis du comportement qu'aura le client plus tard
 1 : lorsqu'on le requête, si le client qui le demande est inconnu au bataillon
 alors il lui dit hey client veut tu bien lancer ces tests pour que je sache si on est compatible ?
 ensuite le client lui donne le résultats des tests
@@ -20,27 +18,27 @@ le client doit aussi rerun les tests pour vérifier que polyfill.js fonctionne b
     le serveur stocke cette info pour savoir que pour ce type de client y'a un souci
 
 - où stocker l'info pour dire ce type de client a pu être polyfillé correctement ou non ?
--> ptet avec before-polyfill-implementation-report.json + after-polfyill-implementation-report.json
-(le after consisterais en un objet genre {invalids: []})
+
 - quand et comment le client lance-t-il une première requête de compatibilité avec les features requises ?
--> au chargement de la page, avant toute chose et à chaque fois on demande au serveur si on est ok
+-> au chargement de la page, avant toute chose et à chaque fois on demande au serveur si on est compatiblez
 - sous quel format dit-on au client: voici les tests que tu dois lancer ?
 -> 200 + une sorte de json contenant tous les tests serais top, le prob étant que ce n'est pas leur forme actuelle
 autre souci du JSON: les fonctions devraient être eval, un peu relou
 le plus simple serait donc de renvoyer un js
+peut être que les tests resteront dans index.js mais que on les lance pas si pas besoin
+de sorte qu'on garde la possibilité de les lancer si on le souhaite pour whatever raison
 - sous quel format dit-on au client: c'est mort tu n'est pas polyfillable ?
 -> on lui renvoit un code d'erreur genre pas 200 avec un message associé
 - sous quel format dit-on au client: voici le polyfill que tu dois éxécuter, pas besoin de test ?
 -> 200 + le pollyfill en tant que fichier js qu'on éxécute sans se poser de question
 
-- utiliser un hash (md5) du fichier index.js et pas mtime pour implementation-report.json
-parce que implementation-report.json n'est pas dans le .gitignore
-autrement dit le mtime de implementation-report.json peut ne pas correspondre au mtime du dépot distant
-voir http://stackoverflow.com/questions/2458042/restore-files-modification-time-in-git
-donc il faudrais stocker le md5 dans le json et le comparer au md5 de index.js
-les autres fichier de cahce ne sont pas concerné puisqu'il sont généré sur chaque machine
+- continuer sur l'import de server.js
+
+- une fois que le serveur peut être lancé celui-ci va être capable de plusieurs chose
 
 - externaliser sourcemap au lie de inline base64, enfin faire une option
+cela signifie que pour que le cache soit valide il faudra aussi check l'existance de son fichier sourcemap
+ou alors toruver une autre soluce
 
 - yield, async, generator, prévoir les features/plugins/polyfill correspondant
 
@@ -49,7 +47,260 @@ les autres fichier de cahce ne sont pas concerné puisqu'il sont généré sur c
 */
 
 require('./index.js');
+var jsenv = global.jsenv;
+var Iterable = jsenv.Iterable;
+var implementation = jsenv.implementation;
 var fs = require('fs');
+var crypto = require('crypto');
+
+function memoizeAsync(fn, store) {
+    if (typeof fn !== 'function') {
+        throw new TypeError('memoizeAsync first arg must be a function');
+    }
+
+    function memoizedFn() {
+        var bind = this;
+        var args = arguments;
+        return store.read().then(function(entry) {
+            if (entry.valid) {
+                return entry.value;
+            }
+            return Promise.resolve(fn.apply(bind, args)).then(function(value) {
+                // even if store.write is asynx we ignore if it fails
+                // and we don't wait before returning the value
+                store.write(value).catch(function(e) {
+                    console.warn('error while storing value', e);
+                });
+                return value;
+            });
+        });
+    }
+
+    return memoizedFn;
+}
+function fileStore(path, customOptions) {
+    var defaultOptions = {
+        prevalidate: function() {
+            return true;
+        },
+        postvalidate: function() {
+            return true;
+        },
+        encode: function(value) {
+            return value;
+        },
+        decode: function(value) {
+            return value;
+        },
+        wrap: function(value) {
+            return value;
+        },
+        unwrap: function(value) {
+            return value;
+        }
+    };
+    var options = {};
+    jsenv.assign(options, defaultOptions);
+    jsenv.assign(options, customOptions || {});
+
+    var invalidEntry = {
+        valid: false,
+        value: undefined
+    };
+    function prevalidate() {
+        return getFileStat(path).then(function(stat) {
+            if (stat) {
+                return Promise.resolve(options.prevalidate(stat)).then(function(preValidity) {
+                    if (preValidity) {
+                        return stat;
+                    }
+                    return Promise.reject(invalidEntry);
+                });
+            }
+            return Promise.reject(invalidEntry);
+        });
+    }
+    function postvalidate(value) {
+        return Promise.resolve(options.postvalidate(value)).then(function(postValidity) {
+            if (postValidity) {
+                return value;
+            }
+            return Promise.reject(invalidEntry);
+        });
+    }
+
+    var store = {
+        read: function() {
+            return prevalidate().then(function() {
+                return getFileContent(path);
+            }).then(
+                options.decode
+            ).then(
+                postvalidate
+            ).then(
+                options.unwrap
+            ).then(function(value) {
+                return {
+                    valid: true,
+                    value: value
+                };
+            }).catch(function(value) {
+                if (value === invalidEntry) {
+                    return invalidEntry;
+                }
+                return Promise.reject(value);
+            });
+        },
+
+        write: function(value) {
+            return Promise.resolve(value).then(
+                options.wrap
+            ).then(
+                options.encode
+            ).then(function(value) {
+                return setFileContent(path, value);
+            });
+        }
+    };
+
+    return store;
+}
+function composeValidators(validators) {
+    var rejectedBecauseInvalid = {};
+
+    return function composedValidator() {
+        var self = this;
+        var args = arguments;
+        var validationPromises = validators.map(function(validator) {
+            return Promise.resolve(validator.apply(self, args)).then(function(valid) {
+                if (valid) {
+                    return true;
+                }
+                return Promise.reject(rejectedBecauseInvalid);
+            });
+        });
+
+        return Promise.all(validationPromises).then(function() {
+            return true;
+        }).catch(function(e) {
+            if (e === rejectedBecauseInvalid) {
+                return false;
+            }
+            return Promise.reject(e);
+        });
+    };
+}
+var base64PadCharRegExp = /\=+$/;
+function createEtag(string) {
+    if (string.length === 0) {
+        // fast-path empty
+        return '"0-2jmj7l5rSw0yVb/vlWAYkK/YBwk"';
+    }
+
+    var hash = crypto.createHash('sha1');
+    hash.update(string, 'utf8');
+    var result = hash.digest('base64');
+    result = result.replace(base64PadCharRegExp, '');
+
+    return '"' + string.length.toString(16) + '-' + result + '"';
+}
+function memoizeUsingFile(fn, path, sources, validationStrategy) {
+    if (typeof sources === 'string') {
+        sources = [sources];
+    }
+    var format = (function() {
+        var dotLastIndex = path.lastIndexOf('.');
+        if (dotLastIndex === -1) {
+            return 'raw';
+        }
+        var extension = path.slice(dotLastIndex + 1);
+        if (extension === 'json') {
+            return 'json';
+        }
+        return 'raw';
+    })();
+    var options = {};
+    options.format = format;
+
+    if (format === 'json') {
+        options.encode = function(value) {
+            return JSON.stringify(value, null, '\t');
+        };
+        options.decode = function(value) {
+            return JSON.parse(value);
+        };
+    }
+    if (validationStrategy === 'mtime') {
+        options.prevalidate = composeValidators(Iterable.map(sources, function(source) {
+            var debug = false;
+
+            return function(fileStat) {
+                var self = this;
+
+                return getFileStat(source).then(function(sourceStat) {
+                    if (sourceStat) {
+                        if (fileStat.mtime >= sourceStat.mtime) {
+                            if (debug) {
+                                console.log(self.path, 'uptodate with', source);
+                            }
+                            return true;
+                        }
+                        if (debug) {
+                            console.log(self.path, 'outdated against', source);
+                        }
+                        return false;
+                    }
+                    if (debug) {
+                        console.log('source not found', source);
+                    }
+                    return false;
+                });
+            };
+        }));
+    } else if (validationStrategy === 'eTag') {
+        if (format !== 'json') {
+            throw new Error('eTag strategy only supported with JSON format');
+        }
+
+        options.wrap = function(value) {
+            return Promise.all(
+                sources.map(function(source) {
+                    return getFileContentEtag(source);
+                })
+            ).then(function(eTags) {
+                return {
+                    sourceEtags: eTags,
+                    value: value
+                };
+            });
+        };
+        options.postvalidate = composeValidators(Iterable.map(sources, function(source, index) {
+            var debug = false;
+
+            return function(value) {
+                return getFileContentEtag(source).then(function(sourceEtag) {
+                    if (value.sourceEtags[index] === sourceEtag) {
+                        if (debug) {
+                            console.log('etag matching', path, source);
+                        }
+                        return true;
+                    }
+                    if (debug) {
+                        console.log('etag mismatch between', path, 'and', source);
+                    }
+                    return false;
+                });
+            };
+        }));
+        options.unwrap = function(wrappedValue) {
+            return wrappedValue.value;
+        };
+    }
+
+    var store = fileStore(path, options);
+
+    return memoizeAsync(fn, store);
+}
 
 function add() {
     var i = arguments.length;
@@ -163,27 +414,9 @@ function setFileContent(path, content) {
         });
     });
 }
-
-var jsenv = global.jsenv;
-var implementation = jsenv.implementation;
-var Iterable = jsenv.Iterable;
-
-var disabledFeatures = [
-    'math-clamp',
-    'math-deg-per-rad',
-    'math-degrees',
-    'math-fscale',
-    'math-radians',
-    'math-rad-per-deg',
-    'math-scale',
-    'string-escape-html',
-    'string-match-all',
-    'string-unescape-html'
-];
-disabledFeatures.forEach(function() {
-    // implementation.disable(excludedFeature, 'npm corejs@2.4.1 does not have thoose polyfill');
-});
-implementation.disable('function-prototype-name-description');
+function getFileContentEtag(path) {
+    return getFileContent(path).then(createEtag);
+}
 
 var createTask = (function() {
     function Task(name, descriptor) {
@@ -559,112 +792,6 @@ babelPlugin('transform-es2015-destructuring', {
     ]
 });
 
-function createUpToDateValidator(otherFilePath) {
-    var debug = false;
-
-    return function upToDateValidator() {
-        var self = this;
-
-        return getFileStat(otherFilePath).then(function(otherFileStat) {
-            if (otherFileStat) {
-                if (self.stat.mtime >= otherFileStat.mtime) {
-                    if (debug) {
-                        console.log(self.path, 'uptodate with', otherFilePath);
-                    }
-                    return true;
-                }
-                if (debug) {
-                    console.log(self.path, 'outdated against', otherFilePath);
-                }
-                return false;
-            }
-            if (debug) {
-                console.log('otherFile does no exists', otherFilePath);
-            }
-            return false;
-        });
-    };
-}
-function composeValidators(validators) {
-    var rejectedBecauseInvalid = {};
-
-    return function composedValidator() {
-        var self = this;
-        var args = arguments;
-        var validationPromises = validators.map(function(validator) {
-            return validator.apply(self, args).then(function(valid) {
-                if (valid) {
-                    return true;
-                }
-                return Promise.reject(rejectedBecauseInvalid);
-            });
-        });
-
-        return Promise.all(validationPromises).then(function() {
-            return true;
-        }).catch(function(e) {
-            if (e === rejectedBecauseInvalid) {
-                return false;
-            }
-            return Promise.reject(e);
-        });
-    };
-}
-function createContent(generator) {
-    var linkedFile = null;
-
-    var content = {
-        produce: function() {
-            // check first if the linkedfile already have a valid content (cache)
-            if (linkedFile) {
-                return getFileStat(linkedFile.path).then(function(stat) {
-                    linkedFile.stat = stat;
-                    if (stat) {
-                        return linkedFile.validate(linkedFile);
-                    }
-                    return false;
-                }).then(function(valid) {
-                    if (valid) {
-                        return getFileContent(linkedFile.path).then(function(content) {
-                            return linkedFile.readTransform(content);
-                        });
-                    }
-                    return Promise.resolve(generator()).then(function(content) {
-                        // we do not care if setFileContent succeeds or fails
-                        // and we don't want to do anything special in both case, so let it like that
-                        Promise.resolve(linkedFile.writeTransform(content)).then(function(content) {
-                            setFileContent(linkedFile.path, content);
-                        });
-                        return content;
-                    });
-                });
-            }
-            return Promise.resolve(generator());
-        },
-
-        linkFile: function(path, options) {
-            linkedFile = {
-                path: path,
-
-                readTransform: function(content) {
-                    return content;
-                },
-
-                writeTransform: function(content) {
-                    return content;
-                },
-
-                validate: function() {
-                    return true;
-                }
-            };
-            jsenv.assign(linkedFile, options);
-        }
-    };
-
-    return content;
-}
-
 function start(options) {
     return ensureFeatures(options).then(function() {
         System.trace = true;
@@ -717,6 +844,20 @@ function start(options) {
             System.paths[prefixModule(libName)] = libPath;
         }, this);
 
+        var oldImport = System.import;
+        System.import = function() {
+            return oldImport.apply(this, arguments).catch(function(error) {
+                if (error && error instanceof Error) {
+                    var originalError = error;
+                    while ('originalErr' in originalError) {
+                        originalError = originalError.originalErr;
+                    }
+                    return Promise.reject(originalError);
+                }
+                return error;
+            });
+        };
+
         registerCoreModule(prefixModule(jsenv.rootModuleName), jsenv);
         registerCoreModule(prefixModule(jsenv.moduleName), jsenv);
         registerCoreModule('@node/require', require);
@@ -750,6 +891,8 @@ function ensureFeatures(options) {
     }
 
     return getReport(options).then(function(report) {
+        implementation.disable('function-prototype-name-description');
+
         var invalidFeatureNames = report.invalids;
         var features = Iterable.map(implementation.features, function(feature) {
             var featureCopy = jsenv.createFeature(feature.name, feature.version);
@@ -773,6 +916,7 @@ function ensureFeatures(options) {
         // var problematicFeatures = features.filter(function(feature) {
         //     return feature.isEnabled() && feature.isInvalid();
         // });
+
         callEveryHook('afterScanHook', features);
         var unhandledProblematicFeatures = features.filter(function(feature) {
             return feature.isEnabled() && feature.isInvalid();
@@ -846,28 +990,18 @@ function ensureFeatures(options) {
     });
 }
 function getReport(options) {
-    var reportContent = createContent(function() {
-        return scan();
-    });
+    var createReport = scan;
 
     if (options.cacheFolder) {
-        var cacheFolder = options.cacheFolder;
-        var cachedReportPath = cacheFolder + '/implementation-report.json';
-
-        reportContent.linkFile(cachedReportPath, {
-            readTransform: function(content) {
-                return JSON.parse(content);
-            },
-
-            writeTransform: function(content) {
-                return JSON.stringify(content, null, '\t');
-            },
-
-            validate: createUpToDateValidator('./index.js')
-        });
+        createReport = memoizeUsingFile(
+            createReport,
+            options.cacheFolder + '/implementation-report-before-polyfill.json',
+            './index.js',
+            'eTag'
+        );
     }
 
-    return reportContent.produce();
+    return createReport();
 }
 function getPolyfill(options) {
     function createCoreJSPolyfill() {
@@ -916,30 +1050,32 @@ function getPolyfill(options) {
         });
     }
 
-    var polyfill = createContent(function() {
+    var createPolyfill = function() {
         return Promise.all([
             createCoreJSPolyfill(),
             createOwnFilePolyfill()
         ]).then(function(sources) {
             return sources.join('\n\n');
         });
-    });
+    };
 
     if (options.cacheFolder) {
-        var cacheFolder = options.cacheFolder;
         var requiredFiles = Iterable.filter(fileTasks, function(file) {
             return file.required;
         });
-        var upToDateWithEveryFiles = composeValidators(requiredFiles.map(function(file) {
-            return createUpToDateValidator(file.name);
+        var requiredFilesNames = composeValidators(requiredFiles.map(function(file) {
+            return file.name;
         }));
 
-        polyfill.linkFile(cacheFolder + '/polyfill.js', {
-            validate: upToDateWithEveryFiles
-        });
+        createPolyfill = memoizeUsingFile(
+            createPolyfill,
+            options.cacheFolder + '/polyfill.js',
+            requiredFilesNames,
+            'mtime'
+        );
     }
 
-    return polyfill.produce();
+    return createPolyfill();
 }
 function getTranspiler() {
     var requiredPlugins = babelTasks.filter(function(plugin) {
@@ -975,11 +1111,11 @@ function installTranspiler(transpiler, options) {
 
         load.metadata.format = 'register';
 
-        var module = createContent(function() {
+        var transpile = function() {
             var result = transpiler.transpile(code, filename);
             result += '\n//# sourceURL=' + filename + '!transpiled';
             return result;
-        });
+        };
 
         if (options.cacheFolder) {
             var baseURL = String(jsenv.baseURL);
@@ -987,13 +1123,16 @@ function installTranspiler(transpiler, options) {
             if (filename.indexOf(baseURL) === 0) {
                 var relativeFilePath = filename.slice(baseURL.length);
                 var nodeFilePath = filename.slice('file:///'.length);
-                module.linkFile(options.cacheFolder + '/modules/' + relativeFilePath, {
-                    validate: createUpToDateValidator(nodeFilePath)
-                });
+                transpile = memoizeUsingFile(
+                    transpile,
+                    options.cacheFolder + '/modules/' + relativeFilePath,
+                    nodeFilePath,
+                    'mtime'
+                );
             }
         }
 
-        return module.produce();
+        return transpile();
     };
 }
 function getCache(folderPath) {

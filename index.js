@@ -1404,7 +1404,7 @@ en fonction du résultat de ces tests
                     settle(false, 'dependency-is-invalid', invalidDependency);
                 } else {
                     var branch = this.getTestBranch();
-                    if (this.when === branch.name) {
+                    if (branch.name === this.when) {
                         var test;
                         if (this.hasOwnProperty('test')) {
                             test = this.test;
@@ -1519,14 +1519,10 @@ en fonction du résultat de ces tests
                 };
             }
             this.result = codeResult;
-            if (expectedBranchName === 'code-runtime-result') {
-                return {
-                    name: expectedBranchName,
-                    value: codeResult
-                };
-            }
-
-            throw new Error('unknown test.when value: ' + expectedBranchName);
+            return {
+                name: 'code-runtime-result',
+                value: codeResult
+            };
         };
         featurePrototype.config = {};
         featurePrototype.compileConfig = function() {
