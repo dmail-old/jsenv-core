@@ -42,6 +42,10 @@ ou alors toruver une autre soluce
 
 - yield, async, generator, prévoir les features/plugins/polyfill correspondant
 
+- race condition writefile ?
+si oui faudrais une queue de write pour s'assurer que la dernière version est bien celle
+qui est finalement écrit
+
 - more : npm install dynamique
 
 */
@@ -52,6 +56,7 @@ var Iterable = jsenv.Iterable;
 var implementation = jsenv.implementation;
 var fs = require('fs');
 var crypto = require('crypto');
+var cuid = require('cuid');
 
 function memoizeAsync(fn, store) {
     if (typeof fn !== 'function') {
@@ -108,17 +113,19 @@ function fileStore(path, customOptions) {
         value: undefined
     };
     function prevalidate() {
-        return getFileStat(path).then(function(stat) {
-            if (stat) {
-                return Promise.resolve(options.prevalidate(stat)).then(function(preValidity) {
-                    if (preValidity) {
-                        return stat;
+        var visible = (fs.constants || fs).F_OK;
+        return callback(fs.access, path, visible).then(
+            function() {
+                return Promise.resolve(options.prevalidate(path)).then(function(preValidity) {
+                    if (!preValidity) {
+                        return Promise.reject(invalidEntry);
                     }
-                    return Promise.reject(invalidEntry);
                 });
+            },
+            function() {
+                return Promise.reject(invalidEntry);
             }
-            return Promise.reject(invalidEntry);
-        });
+        );
     }
     function postvalidate(value) {
         return Promise.resolve(options.postvalidate(value)).then(function(postValidity) {
@@ -234,24 +241,31 @@ function memoizeUsingFile(fn, path, sources, validationStrategy) {
         options.prevalidate = composeValidators(Iterable.map(sources, function(source) {
             var debug = false;
 
-            return function(fileStat) {
-                var self = this;
+            function ensureFileStat(path) {
+                return callback(fs.stat, path).then(function(stat) {
+                    if (stat.isFile()) {
+                        return stat;
+                    }
+                    throw new Error(path + ' must be a file');
+                });
+            }
 
-                return getFileStat(source).then(function(sourceStat) {
-                    if (sourceStat) {
-                        if (fileStat.mtime >= sourceStat.mtime) {
-                            if (debug) {
-                                console.log(self.path, 'uptodate with', source);
-                            }
-                            return true;
-                        }
+            return function(path) {
+                return Promise.all([
+                    ensureFileStat(path),
+                    ensureFileStat(source)
+                ]).then(function(stats) {
+                    var storeStat = stats[0];
+                    var sourceStat = stats[1];
+
+                    if (storeStat.mtime >= sourceStat.mtime) {
                         if (debug) {
-                            console.log(self.path, 'outdated against', source);
+                            console.log(path, 'uptodate with', source);
                         }
-                        return false;
+                        return true;
                     }
                     if (debug) {
-                        console.log('source not found', source);
+                        console.log(path, 'outdated against', source);
                     }
                     return false;
                 });
@@ -319,80 +333,34 @@ function createExecutorCallback(resolve, reject) {
         }
     };
 }
-function getFileStat(path) {
+function callback(fn, bind) {
+    var args = Array.prototype.slice.call(arguments, 2);
+
     return new Promise(function(resolve, reject) {
-        fs.stat(path, createExecutorCallback(resolve, reject));
-    }).catch(function(error) {
-        if (error.code === 'ENOENT') {
-            return null;
-        }
-        return Promise.reject(error);
+        args.push(createExecutorCallback(resolve, reject));
+        fn.apply(bind, args);
     });
 }
 function getFileContent(path, defaultContent) {
     if (arguments.length === 0) {
         throw new Error('missing arg to createFile');
     }
+    var hasDefaultContent = arguments.length > 1;
 
-    return new Promise(function(resolve, reject) {
-        fs.readFile(path, createExecutorCallback(resolve, reject));
-    }).then(
+    return callback(fs.readFile, fs, path).then(
         function(buffer) {
             var content = String(buffer);
             return content;
         },
         function(e) {
             if (e.code === 'ENOENT') {
-                var content = defaultContent || '';
-
-                return new Promise(function(resolve, reject) {
-                    fs.writeFile(path, content, createExecutorCallback(resolve, reject));
-                }).then(function() {
-                    return content;
-                });
+                if (hasDefaultContent) {
+                    return setFileContent(path, defaultContent);
+                }
             }
             return Promise.reject(e);
         }
     );
-}
-function getFolderContent(path) {
-    return new Promise(function(resolve, reject) {
-        fs.readdir(path, createExecutorCallback(resolve, reject));
-    }).catch(function(error) {
-        if (error.code === 'ENOENT') {
-            return new Promise(function(resolve, reject) {
-                fs.mkdir(path, createExecutorCallback(resolve, reject));
-            }).then(function() {
-                return [];
-            });
-        }
-        return Promise.reject(error);
-    });
-}
-function createFolder(path) {
-    return new Promise(function(resolve, reject) {
-        fs.mkdir(path, createExecutorCallback(resolve, reject));
-    }).catch(function(error) {
-        // au cas ou deux script essayent de crée un dossier peu importe qui y arrive c'est ok
-        if (error.code === 'EEXIST') {
-            // vérifie que c'est bien un dossier
-            return getFileStat(path).then(function(stat) {
-                if (stat) {
-                    if (stat.isDirectory()) {
-                        return;
-                    }
-                    // on pourrais essayer de supprimer le fichier/symlink/... mais bon pour le moment on throw
-                    // plus tard on supprimera puis on referas createFolder
-                    // ce cas peut se produire lorsque durant la vie du projet
-                    // je crée un fichier puis un dossier ayant le même nom alors le cache se retrouve dans cet état
-                    throw error;
-                }
-                // sinon c'est que la ressource a été supprimée entre temps
-                // soit on rapelle createFolder dessus, soit on se dit ok laisse tomber c'est
-            });
-        }
-        return Promise.reject(error);
-    });
 }
 function createFoldersTo(path) {
     var folders = path.replace(/\\/g, '/').split('/');
@@ -407,13 +375,7 @@ function createFoldersTo(path) {
         });
     }, Promise.resolve());
 }
-function setFileContent(path, content) {
-    return createFoldersTo(path).then(function() {
-        return new Promise(function(resolve, reject) {
-            fs.writeFile(path, content, createExecutorCallback(resolve, reject));
-        });
-    });
-}
+
 function getFileContentEtag(path) {
     return getFileContent(path).then(createEtag);
 }
@@ -1183,40 +1145,29 @@ function getCache(folderPath) {
 
                 if (foundEntry) {
                     foundBranch.matchCount = 'matchCount' in foundBranch ? foundBranch.matchCount + 1 : 1;
-                    foundBranch.lastMatch = Number(Date.now());
+                    foundBranch.lastMatch = Math.max(foundBranch.lastMatch, Number(Date.now()));
                     return cache.update().then(function() {
                         return foundEntry;
                     });
                 }
 
-                return getFolderContent(folderPath).then(function(names) {
-                    var folderName = '0';
-                    while (Iterable.includes(names, folderName)) {
-                        folderName = String(Number(folderName) + 1);
-                    }
-                    return folderName;
-                }).then(function(entryName) {
-                    return {
-                        name: entryName,
-                        branches: [
-                            {
-                                condition: {
-                                    agent: String(state.agent),
-                                    platform: String(state.platform)
-                                },
-                                matchCount: 1,
-                                lastMatch: Number(Date.now())
-                            }
-                        ]
-                    };
-                }).then(function(entry) {
-                    // il faut créer le dossier sinon celui-ci serait considéré comme libre
-                    return getFolderContent(folderPath + '/' + entry.name).then(function() {
-                        entries.push(entry);
-                        return cache.update();
-                    }).then(function() {
-                        return entry;
-                    });
+                var entry = {
+                    name: cuid(),
+                    branches: [
+                        {
+                            condition: {
+                                agent: String(state.agent),
+                                platform: String(state.platform)
+                            },
+                            matchCount: 1,
+                            lastMatch: Number(Date.now())
+                        }
+                    ]
+                };
+
+                entries.push(entry);
+                return cache.update().then(function() {
+                    return entry;
                 });
             },
 
