@@ -854,23 +854,24 @@ en fonction du résultat de ces tests
         return result;
     }
     function createIterableObject(arr, methods) {
-        var i = -1;
         var j = arr.length;
-        var iterator = {
-            next: function() {
-                i++;
-                return {
-                    value: i === j ? undefined : arr[i],
-                    done: i === j
-                };
-            }
-        };
-        jsenv.assign(iterator, methods || {});
         var iterable = {};
         iterable[Symbol.iterator] = function() {
+            var i = -1;
+            var iterator = {
+                next: function() {
+                    i++;
+                    return {
+                        value: i === j ? undefined : arr[i],
+                        done: i === j
+                    };
+                }
+            };
+            jsenv.assign(iterator, methods || {});
+            iterator.iterable = iterable;
+
             return iterator;
         };
-        iterator.iterable = iterable;
         return iterable;
     }
     function collectKeys(value) {
@@ -1377,8 +1378,13 @@ en fonction du résultat de ces tests
                 callback(feature);
             } else {
                 var settled = false;
+                var timeout;
                 var settle = function(valid, reason, detail) {
                     if (settled === false) {
+                        if (timeout) {
+                            clearTimeout(timeout);
+                            timeout = null;
+                        }
                         var arity = arguments.length;
 
                         if (arity === 0) {
@@ -1432,7 +1438,7 @@ en fonction du résultat de ces tests
                             );
 
                             var maxDuration = 100;
-                            setTimeout(function() {
+                            timeout = setTimeout(function() {
                                 settle(false, 'timeout', maxDuration);
                             }, maxDuration);
                         } catch (e) {
