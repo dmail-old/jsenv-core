@@ -341,6 +341,9 @@ function callback(fn, bind) {
         fn.apply(bind, args);
     });
 }
+function getFileLStat(path) {
+    return callback(fs.lstat, fs, path);
+}
 function getFileContent(path, defaultContent) {
     if (arguments.length === 0) {
         throw new Error('missing arg to createFile');
@@ -362,6 +365,23 @@ function getFileContent(path, defaultContent) {
         }
     );
 }
+function createFolder(path) {
+    return callback(fs.mkdir, fs, path).catch(function(error) {
+        // au cas ou deux script essayent de crée un dossier peu importe qui y arrive c'est ok
+        if (error.code === 'EEXIST') {
+            // vérifie que c'est bien un dossier
+            return getFileLStat(path).then(function(stat) {
+                if (stat) {
+                    if (stat.isDirectory()) {
+                        return;
+                    }
+                    throw error;
+                }
+            });
+        }
+        return Promise.reject(error);
+    });
+}
 function createFoldersTo(path) {
     var folders = path.replace(/\\/g, '/').split('/');
 
@@ -375,7 +395,13 @@ function createFoldersTo(path) {
         });
     }, Promise.resolve());
 }
-
+function setFileContent(path, content) {
+    return createFoldersTo(path).then(function() {
+        return callback(fs.writeFile, path, content);
+    }).then(function() {
+        return content;
+    });
+}
 function getFileContentEtag(path) {
     return getFileContent(path).then(createEtag);
 }
