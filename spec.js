@@ -1022,47 +1022,49 @@
 
                 group('object', function() {
                     syntax('empty', {
-                        code: '({} = {a:1,b:2});',
+                        code: transpile`(function() {
+                            ({} = {a:1, b:2});
+                        })`,
                         test: function() {
                             return true;
                         }
                     });
                     syntax('expression-return', {
-                        config: {
-                            value: {}
-                        },
-                        code: '\
-                            var a;\
-                            return ({a} = value);\
-                        ',
+                        config: [
+                            {}
+                        ],
+                        code: transpile`(function(value) {
+                            var a;
+                            return ({a} = value);
+                        })`,
                         test: function(result) {
-                            return result === this.config.value;
+                            return result === this.config[0];
                         }
                     });
                     syntax('throw-left-parenthesis', {
-                        config: {
-                            value: {}
-                        },
+                        config: [
+                            {}
+                        ],
                         when: 'code-compilation-error',
-                        code: '\
-                            var a;\
-                            ({a}) = value;\
-                        ',
+                        code: transpile`(function(value) {
+                            var a;
+                            ({a}) = value;
+                        })`,
                         test: function(result) {
                             return result instanceof SyntaxError;
                         }
                     });
                     syntax('chain', {
-                        config: {
-                            value: 1
-                        },
-                        code: '\
-                            var a, b;\
-                            ({a} = {b} = {a: value, b: value});\
-                            return [a, b];\
-                        ',
+                        config: [
+                            1
+                        ],
+                        code: transpile`(function(value) {
+                            var a, b;
+                            ({a} = {b} = {a: value, b: value});
+                            return [a, b];
+                        })`,
                         test: function(result) {
-                            return sameValues(result, [this.config.value, this.config.value]);
+                            return sameValues(result, [this.config[0], this.config[0]]);
                         }
                     });
                 });
@@ -1071,34 +1073,36 @@
             group('parameters', function() {
                 group('array', function() {
                     syntax('arguments', {
-                        config: {
-                            value: [10]
-                        },
-                        code: '\
-                            return (function([a]) {\
-                                return arguments;\
-                            })(value);\
-                        ',
+                        config: [
+                            [10]
+                        ],
+                        code: transpile`(function(value) {
+                            return (function([a]) {
+                                return arguments;
+                            })(value);
+                        })`,
                         test: function(result) {
-                            return result[0] === this.config.value;
+                            return result[0] === this.config[0];
                         }
                     });
                     syntax('new-function', {
-                        config: {
-                            value: [1]
-                        },
+                        config: [
+                            [1]
+                        ],
                         code: function() {
                             return new Function( // eslint-disable-line no-new-func
                                 '[a]',
                                 'return a;'
-                            )(this.config.value);
+                            )(this.config[0]);
                         },
                         test: function(result) {
-                            return result === this.config.value[0];
+                            return result === this.config[0];
                         }
                     });
                     syntax('function-length', {
-                        code: 'return function([a]) {};',
+                        code: transpile`(function() {
+                            return function([a]) {};
+                        })`,
                         test: function(result) {
                             return result.length === 1;
                         }
@@ -1107,34 +1111,36 @@
 
                 group('object', function() {
                     syntax('arguments', {
-                        config: {
-                            value: {a: 10}
-                        },
-                        code: '\
-                            return (function({a}) {\
-                                return arguments;\
-                            })(value);\
-                        ',
+                        config: [
+                            {a: 10}
+                        ],
+                        code: transpile`(function(value) {
+                            return (function({a}) {
+                                return arguments;
+                            })(value);
+                        })`,
                         test: function(result) {
-                            return result[0] === this.config.value;
+                            return result[0] === this.config[0];
                         }
                     });
                     syntax('new-function', {
-                        config: {
-                            value: {a: 10}
-                        },
+                        config: [
+                            {a: 10}
+                        ],
                         code: function() {
                             return new Function( // eslint-disable-line no-new-func
                                 '{a}',
                                 'return a;'
-                            )(this.config.value);
+                            )(this.config[0]);
                         },
                         test: function(result) {
-                            return result === this.config.value.a;
+                            return result === this.config[0].a;
                         }
                     });
                     syntax('function-length', {
-                        code: 'return function({a}) {};',
+                        code: transpile`(function() {
+                            return function({a}) {};
+                        })`,
                         test: function(result) {
                             return result.length === 1;
                         }
@@ -1146,22 +1152,23 @@
         group('spread', function() {
             group('function-call', function() {
                 syntax({
-                    config: {
-                        method: Math.max,
-                        value: [1, 2, 3]
-                    },
-                    code: '\
-                        return method(...value);\
-                    ',
+                    config: [
+                        Math.max,
+                        [1, 2, 3]
+                    ],
+                    code: transpile`(function(method, args) {
+                        return method(...args);
+                    })`,
                     test: function(result) {
-                        return result === this.config.method.apply(null, this.config.value);
+                        return result === this.config[0].apply(null, this.config[1]);
                     }
                 });
 
                 syntax('throw-non-iterable', {
-                    config: {
-                        value: true
-                    },
+                    config: [
+                        Math.max,
+                        true
+                    ],
                     when: 'code-runtime-error',
                     test: function(error) {
                         return error instanceof Error;
@@ -1172,35 +1179,35 @@
                     dependencies: [
                         'symbol-iterator'
                     ],
-                    config: {
-                        method: Math.max,
-                        value: createIterableObject([1, 2, 3])
-                    },
+                    config: [
+                        Math.max,
+                        createIterableObject([1, 2, 3])
+                    ],
                     test: function(result) {
-                        return result === this.config.method.apply(null, [1, 2, 3]);
+                        return result === this.config[0].apply(null, [1, 2, 3]);
                     }
                 });
 
                 syntax('iterable-instance', {
-                    config: {
-                        method: Math.max,
-                        value: Object.create(createIterableObject([1, 2, 3]))
-                    },
+                    config: [
+                        Math.max,
+                        Object.create(createIterableObject([1, 2, 3]))
+                    ],
                     test: function(result) {
-                        return result === this.config.method.apply(null, [1, 2, 3]);
+                        return result === this.config[0].apply(null, [1, 2, 3]);
                     }
                 });
             });
             group('literal-array', function() {
                 syntax({
-                    config: {
-                        value: [1, 2, 3]
-                    },
-                    code: '\
-                        return [...value];\
-                    ',
+                    config: [
+                        [1, 2, 3]
+                    ],
+                    code: transpile`(function(value) {
+                        return [...value];
+                    })`,
                     test: function(result) {
-                        return sameValues(result, this.config.value);
+                        return sameValues(result, this.config[0]);
                     }
                 });
 
@@ -1208,18 +1215,18 @@
                     dependencies: [
                         'symbol-iterator'
                     ],
-                    config: {
-                        value: createIterableObject([1, 2, 3])
-                    },
+                    config: [
+                        createIterableObject([1, 2, 3])
+                    ],
                     test: function(result) {
                         return sameValues(result, [1, 2, 3]);
                     }
                 });
 
                 syntax('iterable-instance', {
-                    config: {
-                        value: Object.create(createIterableObject([1, 2, 3]))
-                    },
+                    config: [
+                        Object.create(createIterableObject([1, 2, 3]))
+                    ],
                     test: function(result) {
                         return sameValues(result, [1, 2, 3]);
                     }
@@ -1300,12 +1307,12 @@
                 }
             });
             syntax('accessor', {
-                code: '\
-                    return {\
-                        get foo() {},\
-                        set foo(x) {}\
-                    };\
-                ',
+                code: transpile`(function() {
+                    return {
+                        get foo() {},
+                        set foo(x) {}
+                    };
+                })`,
                 test: function(result) {
                     var descriptor = Object.getOwnPropertyDescriptor(result, 'foo');
 
@@ -1336,26 +1343,29 @@
                 dependencies: [
                     'shorthand-methods'
                 ],
-                code: '\
-                    return {\
-                        foo() {}\
-                    };\
-                ',
+                code: transpile`(function() {
+                    return {
+                        foo() {}
+                    };
+                })`,
                 test: function(result) {
                     return result.foo.name === 'foo';
                 }
             });
             syntax('method-shorthand-lexical-binding', {
-                code: '\
-                    var f = \'foo\';\
-                    return ({\
-                        f() {\
-                            return f;\
-                        }\
-                    });\
-                ',
+                config: [
+                    1
+                ],
+                code: transpile`(function(value) {
+                    var f = value;
+                    return ({
+                        f() {
+                            return f;
+                        }
+                    });
+                })`,
                 test: function(result) {
-                    return result.f() === 'foo';
+                    return result.f() === this.config[0];
                 }
             });
             syntax('method-computed-symbol', {
@@ -1364,21 +1374,21 @@
                     'computed-properties'
                 ],
                 config: function() {
-                    return {
-                        first: Symbol("foo"),
-                        second: Symbol()
-                    };
+                    return [
+                        Symbol("foo"),
+                        Symbol()
+                    ];
                 },
-                code: '\
-                    return {\
-                        [first]: function() {},\
-                        [second]: function() {}\
-                    };\
-                ',
+                code: transpile`(function(first, second) {
+                    return {
+                        [first]: function() {},
+                        [second]: function() {}
+                    };
+                })`,
                 test: function(result) {
                     return (
-                        result[this.config.first].name === '[foo]' &&
-                        result[this.config.second].name === ''
+                        result[this.config[0]].name === '[foo]' &&
+                        result[this.config[1]].name === ''
                     );
                 }
             });
@@ -1386,101 +1396,103 @@
 
         group('function-default-parameters', function() {
             syntax({
-                config: {
-                    values: [3]
-                },
-                code: '\
-                    function f(a = 1, b = 2) {\
-                        return {a: a, b: b};\
-                    }\
-                    return f.apply(null, values);\
-                ',
+                config: [
+                    3
+                ],
+                code: transpile`(function(value) {
+                    function f(a = 1, b = 2) {
+                        return {a: a, b: b};
+                    }
+                    return f.apply(null, arguments);
+                })`,
                 test: function(result) {
                     return (
-                        result.a === this.config.values[0] &&
+                        result.a === this.config[0] &&
                         result.b === 2
                     );
                 }
             });
             syntax('explicit-undefined', {
-                config: {
-                    values: [undefined, 3]
-                },
+                config: [
+                    undefined,
+                    3
+                ],
                 test: function(result) {
                     return (
                         result.a === 1 &&
-                        result.b === this.config.values[1]
+                        result.b === this.config[1]
                     );
                 }
             });
             syntax('refer-previous', {
-                code: '\
-                    function f(a = 1, b = a) {\
-                        return {a: a, b: b};\
-                    }\
-                    return f.apply(null, values);\
-                ',
+                code: transpile`(function() {
+                    function f(a = 1, b = a) {
+                        return {a: a, b: b};
+                    }
+                    return f.apply(null, arguments);
+                })`,
                 test: function(result) {
                     return (
-                        result.a === this.config.values[0] &&
-                        result.b === this.config.values[0]
+                        result.a === this.config[0] &&
+                        result.b === this.config[0]
                     );
                 }
             });
             syntax('arguments', {
-                config: {
-                    values: [5, 6]
-                },
-                code: '\
-                    function f(a = 1, b = 2, c = 3) {\
-                        a = 10;\
-                        return arguments;\
-                    }\
-                    return f.apply(null, values);\
-                ',
+                config: [
+                    5,
+                    6
+                ],
+                code: transpile`(function() {
+                    function f(a = 1, b = 2, c = 3) {
+                        a = 10;
+                        return arguments;
+                    }
+                    return f.apply(null, arguments);
+                })`,
                 test: function(result) {
-                    return sameValues(result, this.config.values);
+                    return sameValues(result, this.config);
                 }
             });
             syntax('temporal-dead-zone', {
-                code: '\
-                    (function(a = a) {}());\
-                    (function(a = b, b){}());\
-                ',
+                code: transpile`(function() {
+                    (function(a = a) {}());
+                    (function(a = b, b){}());
+                })`,
                 when: 'code-runtime-error',
                 test: function(error) {
                     return error instanceof Error;
                 }
             });
             syntax('scope-own', {
-                code: '\
-                    function fn(a = function() {\
-                        return typeof b;\
-                    }) {\
-                        var b = 1;\
-                        return a();\
-                    }\
-                    return fn();\
-                ',
+                code: transpile`(function() {
+                    function fn(a = function() {
+                        return typeof b;
+                    }) {
+                        var b = 1;
+                        return a();
+                    }
+                    return fn();
+                })`,
                 test: function(result) {
                     return result === 'undefined';
                 }
             });
             syntax('new-function', {
-                config: {
-                    defaultValues: [1, 2],
-                    values: [3]
-                },
+                config: [
+                    [1, 2],
+                    [3]
+                ],
                 code: function() {
                     return new Function( // eslint-disable-line no-new-func
-                        "a = " + this.config.defaultValues[0], "b = " + this.config.defaultValues[1],
+                        "a = " + this.config[0][0], "b = " + this.config[0][1],
                         "return {a: a, b: b}"
-                    ).apply(null, this.config.values);
+                    ).apply(null, this.config[1]);
                 },
                 test: function(result) {
                     return (
-                        result.a === this.config.values[0] &&
-                        result.b === this.config.defaultValues[1]
+                        result.a === this.config[1][0] &&
+                        result.b === this.config[0][1]
                     );
                 }
             });
@@ -1488,40 +1500,42 @@
 
         group('function-rest-parameters', function() {
             syntax({
-                config: {
-                    values: [0, 1, 2]
-                },
-                code: '\
-                    function fn(foo, ...rest) {\
-                        return {foo: foo, rest: rest};\
-                    }\
-                    return fn.apply(null, values);\
-                ',
+                config: [
+                    0,
+                    1,
+                    2
+                ],
+                code: transpile`(function() {
+                    function fn(foo, ...rest) {
+                        return {foo: foo, rest: rest};
+                    }
+                    return fn.apply(null, arguments);
+                })`,
                 test: function(result) {
                     return (
                         result.rest instanceof Array &&
-                        sameValues(result.rest, this.config.values.slice(1))
+                        sameValues(result.rest, this.config.slice(1))
                     );
                 }
             });
             syntax('throw-setter', {
-                code: '\
-                    return {\
-                        set e(...args) {}\
-                    };\
-                ',
+                code: transpile`(function() {
+                    return {
+                        set e(...args) {}
+                    };
+                })`,
                 when: 'code-compilation-error',
                 test: function(error) {
                     return error instanceof Error;
                 }
             });
             syntax('length', {
-                code: '\
-                    return [\
-                        function(a, ...b) {},\
-                        function(...c) {}\
-                    ];\
-                ',
+                code: transpile`(function() {
+                    return [
+                        function(a, ...b) {},
+                        function(...c) {}
+                    ];
+                })`,
                 test: function(result) {
                     return (
                         result[0].length === 1 &&
@@ -1530,15 +1544,15 @@
                 }
             });
             syntax('arguments', {
-                code: '\
-                    function fn(foo, ...rest) {\
-                        foo = 10;\
-                        return arguments;\
-                    }\
-                    return fn.apply(null, values);\
-                ',
+                code: transpile`(function() {
+                    function fn(foo, ...rest) {
+                        foo = 10;
+                        return arguments;
+                    }
+                    return fn.apply(null, arguments);
+                })`,
                 test: function(result) {
-                    return sameValues(result, this.config.values);
+                    return sameValues(result, this.config);
                 }
             });
             syntax('new-function', {
@@ -1546,12 +1560,12 @@
                     return new Function( // eslint-disable-line no-new-func
                         "a", "...rest",
                         "return {a: a, rest: rest}"
-                    ).apply(null, this.config.values);
+                    ).apply(null, this.config);
                 },
                 test: function(result) {
                     return (
-                        result.a === this.config.values[0] &&
-                        sameValues(result.rest, this.config.values.slice(1))
+                        result.a === this.config[0][0] &&
+                        sameValues(result.rest, this.config.slice(1))
                     );
                 }
             });
