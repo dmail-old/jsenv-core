@@ -8,6 +8,21 @@
 - voir s'il est possible d'utiliser babel-plugin-transform-eval pour transpiler
 et créer un fichiuer de test spécifique au transpileur
 
+- changer memoize.file pour une écriture comme suit:
+memoize.file(fn, path, {
+    sources: [
+        {path: , strategy: 'mtime'},
+        {path: , strategy: 'eTag'},
+    ],
+    mode: 'default'
+    // pour voir comment le cache http fonctionne (pas utile pour le moment)
+    https://fetch.spec.whatwg.org/#requests
+    // default : peut écrire et lire depuis le cache (cas par défaut)
+    // read-only : peut lire depuis le cache, n'écrira pas dedans (pour travis)
+    // write-only : ne peut pas lire depuis le cache, écrira dedans (inutile)
+    // only-if-cached: peut lire et throw si le cache est invalide au lieu d'apeller la fonction (inutile mais pourra le devenir un jour)    
+})
+
 - faire en sorte que même avant de démarrer le serveur on est du code qui se comporte comme son propre client
 vis-a-vis du comportement qu'aura le client plus tard
 1 : lorsqu'on le requête, si le client qui le demande est inconnu au bataillon
@@ -58,6 +73,11 @@ qui est finalement écrit
 
 require('../../index.js');
 
+var options = {
+    cache: true // ptet proposer un no-store ou équivalent pour qu'on puisse lire depuis le cache
+    // mais pas y écrire
+};
+
 var jsenv = global.jsenv;
 var Iterable = jsenv.Iterable;
 var implementation = jsenv.implementation;
@@ -65,6 +85,7 @@ var cuid = require('cuid');
 var memoize = require('./memoize.js');
 var fsAsync = require('./fs-async.js');
 var rootPath = jsenv.dirname.slice('file:///'.length);
+var mainCacheFolder = rootPath + '/cache';
 
 var createTask = (function() {
     function Task(name, descriptor) {
@@ -518,12 +539,6 @@ function start(options) {
     //     return System.import('./server.js');
     // });
 }
-function scan() {
-    console.log('scanning implementation');
-    return new Promise(function(resolve) {
-        implementation.scan(resolve);
-    });
-}
 function flattenImplementation(options) {
     function callEveryHook(hookName) {
         var args = Array.prototype.slice.call(arguments, 1);
@@ -630,7 +645,13 @@ function flattenImplementation(options) {
     });
 }
 function getBeforeFlattenReport(options) {
-    var createReport = scan;
+    var createReport = function() {
+        return getBeforeFlattenSpec(options).then(function(code) {
+            eval(code);
+        }).then(function() {
+            return scan();
+        });
+    };
 
     if (options.cacheFolder) {
         createReport = memoize.file(
@@ -642,6 +663,36 @@ function getBeforeFlattenReport(options) {
     }
 
     return createReport();
+}
+function scan() {
+    console.log('scanning implementation');
+    return new Promise(function(resolve) {
+        implementation.scan(resolve);
+    });
+}
+function getBeforeFlattenSpec(options) {
+    var createBeforeFlattenSpec = function() {
+        return fsAsync.getFileContent('./spec.js').then(function(code) {
+            var babel = require('babel-core');
+            var result = babel.transform(code, {
+                plugins: [
+                    'transform-es2015-template-literals'
+                ]
+            });
+            return result.code;
+        });        
+    };
+
+    if (otions.cacheFolder) {
+        createBeforeFlattenSpec = memoize.file(
+            createBeforeFlattenSpec,
+            options.cacheFolder + '/spec-before-flatten.js',
+            ['./spec.js'],
+            'mtime'
+        );
+    }
+
+    return createBeforeFlattenSpec;    
 }
 function getAfterFlattenReport(options) {
     var createReport = scan;
@@ -656,6 +707,71 @@ function getAfterFlattenReport(options) {
     }
 
     return createReport();
+}
+function getAfterFlattenSpec(options) {
+    // ici j'ai besoin de pluginsAsOptions
+    // qu'on a en dessous
+
+    var createAfterFlattenSpec = function() {
+        return fsAsync.getFileContent('./spec.js').then(function(code) {
+            var babel = require('babel-core');
+            var customPlugin = function(babel) {
+                var parse = babel.parse;
+                var traverse = babel.traverse;
+                var t = babel.types;                
+                var pluginAsOptions = [];
+
+                function visitTaggedTemplateExpression(path, state) {
+                    var TAG_NAME = state.options.tag || 'transpile';
+                    var node = path.node;
+                    if (!t.isIdentifier(node.tag, {name: TAG_NAME})) {
+                        return;
+                    }
+                    var expressions = node.quasi.expressions;
+                    var strings = node.quasi.quasis;                    
+                    var raw = '';
+                    var handleString = function(n) {
+                        raw += n.value.raw;
+                    };
+
+                    for (var i=0; i<expressions.length; i++) {
+                        handleString(strings[i]);
+                    }
+                    handleString(strings[strings.length - 1]);
+
+                    var result = babel.transform(raw, {
+                        plugins: pluginAsOptions
+                    });
+
+                    var newNode = t.expressionStatement(t.stringLiteral(result.code));
+                    path.replaceWith(newNode);
+                }
+
+                return {
+                    visitor: {
+                        TaggedTemplateExpression: visitTaggedTemplateExpression    
+                    }
+                };
+            };
+            var result = babel.transform(code, {
+                plugins: [
+                    [customPlugin, {tag: 'transpile'}]
+                ]
+            });
+            return result.code;
+        });        
+    };
+
+    if (otions.cacheFolder) {
+        createAfterFlattenSpec = memoize.file(
+            createAfterFlattenSpec,
+            options.cacheFolder + '/spec-after-flatten.js',
+            ['./spec.js'],
+            'mtime'
+        );
+    }
+
+    return createAfterFlattenSpec;
 }
 
 function getPolyfill(options) {
@@ -886,16 +1002,23 @@ function getCache(folderPath) {
         return cache;
     });
 }
-var mainCacheFolder = rootPath + '/cache';
-getCache(mainCacheFolder).then(function(cache) {
-    return cache.match({
-        agent: jsenv.agent,
-        platform: jsenv.platform
-    }).then(function(entry) {
-        return start({
-            cacheFolder: mainCacheFolder + '/' + entry.name
+
+var promise = Promise.resolve();
+if (options.cache) {
+    promise = promise.then(function() {
+        return getCache(mainCacheFolder);
+    }).then(function(cache) {
+        return cache.match({
+            agent: jsenv.agent,
+            platform: jsenv.platform
         });
+    }).then(function(entry) {
+        options.cacheFolder = mainCacheFolder + '/' + entry.name;
     });
+}
+
+promise.then(function() {
+    return start(options);
 }).catch(function(e) {
     if (e) {
         // because unhandled rejection may not be available so error gets ignored
