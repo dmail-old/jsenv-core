@@ -715,6 +715,8 @@ function getAfterFlattenSpec(options) {
     var createAfterFlattenSpec = function() {
         return fsAsync.getFileContent('./spec.js').then(function(code) {
             var babel = require('babel-core');
+            // inspired from babel-transform-template-literals
+            // https://github.com/babel/babel/blob/master/packages/babel-plugin-transform-es2015-template-literals/src/index.js#L36
             var customPlugin = function(babel) {
                 var t = babel.types;
                 var pluginAsOptions = [];
@@ -725,24 +727,56 @@ function getAfterFlattenSpec(options) {
                     if (!t.isIdentifier(node.tag, {name: TAG_NAME})) {
                         return;
                     }
-                    var expressions = node.quasi.expressions;
-                    var strings = node.quasi.quasis;
-                    var raw = '';
-                    var handleString = function(n) {
-                        raw += n.value.raw;
+                    var quasi = node.quasi;
+                    var quasis = quasi.quasis;
+                    var expressions = quasi.expressions;
+
+                    var values = expressions.map(function(expression) {
+                        return expression.evaluate().value;
+                    });
+                    var strings = quasis.map(function(quasi) {
+                        return quasi.value.cooked;
+                    });
+                    var raw = quasis.map(function(quasi) {
+                        return quasi.value.raw;
+                    });
+                    strings.raw = raw;
+
+                    var transpileTemplate = function(strings) {
+                        var result;
+                        var raw = strings.raw;
+                        var i = 0;
+                        var j = raw.length;
+                        result = raw[i];
+                        i++;
+                        while (i < j) {
+                            result += arguments[i];
+                            result += raw[i];
+                            i++;
+                        }
+                        var transformedResult = babel.transform(result, {
+                            plugins: pluginAsOptions
+                        });
+                        return transformedResult.code;
                     };
 
-                    for (var i = 0; i < expressions.length; i++) {
-                        handleString(strings[i]);
-                    }
-                    handleString(strings[strings.length - 1]);
+                    var tanspileArgs = [];
+                    tanspileArgs.push(strings);
+                    tanspileArgs.push.apply(tanspileArgs, values);
+                    var transpiled = transpileTemplate.apply(null, tanspileArgs);
 
-                    var result = babel.transform(raw, {
-                        plugins: pluginAsOptions
-                    });
-
-                    var newNode = t.expressionStatement(t.stringLiteral(result.code));
-                    path.replaceWith(newNode);
+                    var args = [];
+                    var templateObject = state.file.addTemplateObject(
+                        'taggedTemplateLiteral',
+                        t.arrayExpression([
+                            t.stringLiteral(transpiled)
+                        ]),
+                        t.arrayExpression([
+                            t.stringLiteral(transpiled)
+                        ])
+                    );
+                    args.push(templateObject);
+                    path.replaceWith(t.callExpression(node.tag, args));
                 }
 
                 return {

@@ -4,8 +4,19 @@
 (function() {
     var Predicate = jsenv.Predicate;
 
-    function transpile(code) {
-        return code;
+    function transpile(strings) {
+        var result;
+        var raw = strings.raw;
+        var i = 0;
+        var j = raw.length;
+        result = raw[i];
+        i++;
+        while (i < j) {
+            result += arguments[i];
+            result += raw[i];
+            i++;
+        }
+        return result;
     }
     function sameValues(a, b) {
         if (typeof a === 'string') {
