@@ -1,6 +1,12 @@
+/* eslint-env browser, node */
 /* globals jsenv */
 
 (function() {
+    var Predicate = jsenv.Predicate;
+
+    function transpile(code) {
+        return code;
+    }
     function sameValues(a, b) {
         if (typeof a === 'string') {
             a = convertStringToArray(a);
@@ -423,7 +429,7 @@
                 config: {
                     value: 10
                 },
-                code: tanspile`(function(value) {
+                code: transpile`(function(value) {
                     var result;
                     function fn() {
                         result = foo;
@@ -606,7 +612,7 @@
             syntax({
                 config: [
                     'y',
-                     1
+                    1
                 ],
                 code: transpile`(function(name, value) {
                     return {[name]: value};
@@ -852,7 +858,7 @@
                     syntax('double-dot-as', {
                         config: [
                             {x: 1}
-                        },
+                        ],
                         code: transpile`(function(value) {
                             var {x:a} = value;
                             return a;
@@ -866,13 +872,13 @@
                         config: [
                             'b',
                             {b: 1}
-                        },
+                        ],
                         code: transpile`(function(value) {
                             var {[name]: a} = value;
                             return a;
                         })`,
                         test: function(result) {
-                            return result === this.config[1][this.config[0];
+                            return result === this.config[1][this.config[0]];
                         }
                     });
                     syntax('catch-statement', {
@@ -920,7 +926,7 @@
                     config: [
                         [0, 1],
                         {c: 2, d: 3}
-                    },
+                    ],
                     code: transpile`(function(array, object) {
                         var [a,b] = array, {c,d} = object;
                         return [a, b, c, d];
@@ -956,9 +962,9 @@
                         'destructuring-declaration-object',
                         'destructuring-declaration-object-double-dot-as'
                     ],
-                    config: {
+                    config: [
                         {x: [1]}
-                    },
+                    ],
                     code: transpile`(function(value) {
                         var {x:[a]} = value;
                         return a;
