@@ -683,7 +683,7 @@ function getBeforeFlattenSpec(options) {
         });
     };
 
-    if (otions.cacheFolder) {
+    if (options.cacheFolder) {
         createBeforeFlattenSpec = memoize.file(
             createBeforeFlattenSpec,
             options.cacheFolder + '/spec-before-flatten.js',
@@ -716,8 +716,6 @@ function getAfterFlattenSpec(options) {
         return fsAsync.getFileContent('./spec.js').then(function(code) {
             var babel = require('babel-core');
             var customPlugin = function(babel) {
-                var parse = babel.parse;
-                var traverse = babel.traverse;
                 var t = babel.types;
                 var pluginAsOptions = [];
 
@@ -734,7 +732,7 @@ function getAfterFlattenSpec(options) {
                         raw += n.value.raw;
                     };
 
-                    for (var i=0; i<expressions.length; i++) {
+                    for (var i = 0; i < expressions.length; i++) {
                         handleString(strings[i]);
                     }
                     handleString(strings[strings.length - 1]);
@@ -762,7 +760,7 @@ function getAfterFlattenSpec(options) {
         });
     };
 
-    if (otions.cacheFolder) {
+    if (options.cacheFolder) {
         createAfterFlattenSpec = memoize.file(
             createAfterFlattenSpec,
             options.cacheFolder + '/spec-after-flatten.js',
