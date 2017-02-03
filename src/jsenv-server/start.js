@@ -20,7 +20,7 @@ memoize.file(fn, path, {
     // default : peut écrire et lire depuis le cache (cas par défaut)
     // read-only : peut lire depuis le cache, n'écrira pas dedans (pour travis)
     // write-only : ne peut pas lire depuis le cache, écrira dedans (inutile)
-    // only-if-cached: peut lire et throw si le cache est invalide au lieu d'apeller la fonction (inutile mais pourra le devenir un jour)    
+    // only-if-cached: peut lire et throw si le cache est invalide au lieu d'apeller la fonction (inutile mais pourra le devenir un jour)
 })
 
 - faire en sorte que même avant de démarrer le serveur on est du code qui se comporte comme son propre client
@@ -647,7 +647,7 @@ function flattenImplementation(options) {
 function getBeforeFlattenReport(options) {
     var createReport = function() {
         return getBeforeFlattenSpec(options).then(function(code) {
-            eval(code);
+            eval(code); // eslint-disable-line no-eval
         }).then(function() {
             return scan();
         });
@@ -680,7 +680,7 @@ function getBeforeFlattenSpec(options) {
                 ]
             });
             return result.code;
-        });        
+        });
     };
 
     if (otions.cacheFolder) {
@@ -692,7 +692,7 @@ function getBeforeFlattenSpec(options) {
         );
     }
 
-    return createBeforeFlattenSpec;    
+    return createBeforeFlattenSpec;
 }
 function getAfterFlattenReport(options) {
     var createReport = scan;
@@ -718,7 +718,7 @@ function getAfterFlattenSpec(options) {
             var customPlugin = function(babel) {
                 var parse = babel.parse;
                 var traverse = babel.traverse;
-                var t = babel.types;                
+                var t = babel.types;
                 var pluginAsOptions = [];
 
                 function visitTaggedTemplateExpression(path, state) {
@@ -728,7 +728,7 @@ function getAfterFlattenSpec(options) {
                         return;
                     }
                     var expressions = node.quasi.expressions;
-                    var strings = node.quasi.quasis;                    
+                    var strings = node.quasi.quasis;
                     var raw = '';
                     var handleString = function(n) {
                         raw += n.value.raw;
@@ -749,7 +749,7 @@ function getAfterFlattenSpec(options) {
 
                 return {
                     visitor: {
-                        TaggedTemplateExpression: visitTaggedTemplateExpression    
+                        TaggedTemplateExpression: visitTaggedTemplateExpression
                     }
                 };
             };
@@ -759,7 +759,7 @@ function getAfterFlattenSpec(options) {
                 ]
             });
             return result.code;
-        });        
+        });
     };
 
     if (otions.cacheFolder) {
