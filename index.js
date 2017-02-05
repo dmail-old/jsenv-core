@@ -841,7 +841,7 @@ en fonction du résultat de ces tests
                 return this.status === 'invalid';
             },
 
-            addDependency: function(dependency, asParameter) {
+            addDependency: function(dependency, options) {
                 if (dependency instanceof VersionnedFeature === false) {
                     throw new Error('addDependency first arg must be a feature');
                 }
@@ -850,25 +850,33 @@ en fonction du résultat de ces tests
                     throw new Error('cyclic dependency between ' + dependency.name + ' and ' + this.name);
                 }
 
+                var asParameter = options && options.as === 'parameter';
+                var asParent = options && options.as === 'parent';
+
                 if (asParameter) {
                     this.parameters.push(dependency);
                 } else if (dependency.isDisabled()) {
                     this.disable();
                 }
 
-                this.dependencies.push(dependency);
+                if (asParent) {
+                    this.parent = dependency;
+                    this.dependencies.unshift(dependency);
+                } else {
+                    this.dependencies.push(dependency);
+                }
                 dependency.dependents.push(this);
             },
 
             relyOn: function() {
                 Iterable.forEach(arguments, function(arg) {
-                    this.addDependency(arg, false);
+                    this.addDependency(arg);
                 }, this);
             },
 
             parameterizedBy: function() {
                 Iterable.forEach(arguments, function(arg) {
-                    this.addDependency(arg, true);
+                    this.addDependency(arg, {as: 'parameter'});
                 }, this);
             },
             // isParameterizedBy: function(feature) {
@@ -1260,10 +1268,8 @@ en fonction du résultat de ces tests
 
             return codeGetter;
         };
-        featurePrototype.addDependent = function(dependentFeature) {
-            dependentFeature.parent = this;
-            dependentFeature.type = this.type;
-            dependentFeature.relyOn(this);
+        featurePrototype.addDependent = function(dependentFeature, options) {
+            dependentFeature.addDependency(this, options);
             return this;
         };
         var implementation = jsenv.implementation;
@@ -1275,11 +1281,18 @@ en fonction du résultat de ces tests
             });
             if (existingFeature) {
                 if (throwWhenFound) {
-                    throw new Error('feature named ' + name + ' already exists');
+                    if (existingFeature.preventConflict) {
+                        existingFeature.preventConflict = false;
+                        feature = existingFeature;
+                    } else {
+                        throw new Error('feature named ' + name + ' already exists');
+                    }
+                } else {
+                    feature = existingFeature;
                 }
-                feature = existingFeature;
             } else {
                 feature = jsenv.createFeature(name);
+                feature.preventConflict = Boolean(throwWhenFound) === false;
                 features.push(feature);
             }
             return feature;
@@ -1288,21 +1301,35 @@ en fonction du résultat de ces tests
             var self = this;
 
             function register(name, properties) {
-                var feature = getFeature(name, true);
+                var ancestorNames = [name];
+                var ancestor = self;
+                while (ancestor) {
+                    var ancestorName = ancestor.name;
+                    if (ancestorName) {
+                        if (ancestorName !== 'global') {
+                            ancestorNames.unshift(ancestorName);
+                        }
+                    }
+                    ancestor = ancestor.ancestor;
+                }
+                var featureName = ancestorNames.join('-');
+                var feature = getFeature(featureName, true);
 
-                feature.relyOn(self);
+                feature.addDependency(self, {as: 'parent'});
 
                 properties = properties || {};
                 if ('dependencies' in properties) {
                     Iterable.forEach(properties.dependencies, function(dependencyName) {
-                        var dependency = getFeature(dependencyName);
-                        feature.relyOn(dependency);
+                        var dependency = getFeature(dependencyName, false);
+                        feature.addDependency(dependency);
                     });
                 }
-                // if ('parameters' in descriptor) {
-                //     var parameters = Iterable.map(descriptor.parameters, function(name) {
-                //     });
-                // }
+                if ('parameters' in properties) {
+                    Iterable.forEach(properties.parameters, function(parameterName) {
+                        var parameter = getFeature(parameterName, false);
+                        feature.addDependency(parameter, {as: 'parameter'});
+                    });
+                }
                 if ('result' in properties) {
                     feature.result = properties.result;
                 }
@@ -1320,6 +1347,7 @@ en fonction du résultat de ces tests
             }
 
             fn(register);
+            return this;
         };
 
         function registerFeatures(fn) {

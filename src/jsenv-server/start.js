@@ -2,8 +2,6 @@
 
 /*
 
-- utiliser getAfterFlattenSpec, le mettre dans polyfill.js qu'il faut renommer flatten.js
-
 - faire en sorte que même avant de démarrer le serveur on est du code qui se comporte comme son propre client
 vis-a-vis du comportement qu'aura le client plus tard
 1 : lorsqu'on le requête, si le client qui le demande est inconnu au bataillon
@@ -274,9 +272,6 @@ function babelPlugin(name, descriptor) {
     babelTasks.push(task);
     return task;
 }
-babelPlugin('transform-es2015-modules-systemjs', {
-    required: true
-});
 babelPlugin('check-es2015-constants', {
     required: true
 });
@@ -456,95 +451,143 @@ babelPlugin('transform-es2015-destructuring', {
     ]
 });
 
-function start(options) {
-    return flattenImplementation(options).then(function() {
-        System.trace = true;
-        System.meta['*.json'] = {format: 'json'};
-        System.config({
-            map: {
-                '@jsenv/compose': jsenv.dirname + '/node_modules/jsenv-compose'
-            },
-            packages: {
-                '@jsenv/compose': {
-                    main: 'index.js',
-                    format: 'es6'
-                }
+function start() {
+    System.trace = true;
+    System.meta['*.json'] = {format: 'json'};
+    System.config({
+        map: {
+            '@jsenv/compose': jsenv.dirname + '/node_modules/jsenv-compose'
+        },
+        packages: {
+            '@jsenv/compose': {
+                main: 'index.js',
+                format: 'es6'
             }
-        });
-
-        function createModuleExportingDefault(defaultExportsValue) {
-            return this.System.newModule({
-                "default": defaultExportsValue // eslint-disable-line quote-props
-            });
         }
-        function registerCoreModule(moduleName, defaultExport) {
-            System.set(moduleName, createModuleExportingDefault(defaultExport));
-        }
-        function prefixModule(name) {
-            var prefix = jsenv.modulePrefix;
-            var prefixedName;
-            if (prefix) {
-                prefixedName = prefix + '/' + name;
-            } else {
-                prefixedName = name;
-            }
-
-            return prefixedName;
-        }
-
-        [
-            'action',
-            'fetch-as-text',
-            'iterable',
-            'lazy-module',
-            'options',
-            'thenable',
-            'rest',
-            'server',
-            'timeout',
-            'url'
-        ].forEach(function(libName) {
-            var libPath = jsenv.dirname + '/src/' + libName + '/index.js';
-            System.paths[prefixModule(libName)] = libPath;
-        }, this);
-
-        var oldImport = System.import;
-        System.import = function() {
-            return oldImport.apply(this, arguments).catch(function(error) {
-                if (error && error instanceof Error) {
-                    var originalError = error;
-                    while ('originalErr' in originalError) {
-                        originalError = originalError.originalErr;
-                    }
-                    return Promise.reject(originalError);
-                }
-                return error;
-            });
-        };
-
-        registerCoreModule(prefixModule(jsenv.rootModuleName), jsenv);
-        registerCoreModule(prefixModule(jsenv.moduleName), jsenv);
-        registerCoreModule('@node/require', require);
-    }).then(function() {
-        // return System.import(rootPath + '/setup.js').then(function(exports) {
-        //     return exports.default(jsenv);
-        // });
     });
+
+    function createModuleExportingDefault(defaultExportsValue) {
+        return this.System.newModule({
+            "default": defaultExportsValue // eslint-disable-line quote-props
+        });
+    }
+    function registerCoreModule(moduleName, defaultExport) {
+        System.set(moduleName, createModuleExportingDefault(defaultExport));
+    }
+    function prefixModule(name) {
+        var prefix = jsenv.modulePrefix;
+        var prefixedName;
+        if (prefix) {
+            prefixedName = prefix + '/' + name;
+        } else {
+            prefixedName = name;
+        }
+
+        return prefixedName;
+    }
+
+    [
+        'action',
+        'fetch-as-text',
+        'iterable',
+        'lazy-module',
+        'options',
+        'thenable',
+        'rest',
+        'server',
+        'timeout',
+        'url'
+    ].forEach(function(libName) {
+        var libPath = jsenv.dirname + '/src/' + libName + '/index.js';
+        System.paths[prefixModule(libName)] = libPath;
+    }, this);
+
+    var oldImport = System.import;
+    System.import = function() {
+        return oldImport.apply(this, arguments).catch(function(error) {
+            if (error && error instanceof Error) {
+                var originalError = error;
+                while ('originalErr' in originalError) {
+                    originalError = originalError.originalErr;
+                }
+                return Promise.reject(originalError);
+            }
+            return error;
+        });
+    };
+
+    registerCoreModule(prefixModule(jsenv.rootModuleName), jsenv);
+    registerCoreModule(prefixModule(jsenv.moduleName), jsenv);
+    registerCoreModule('@node/require', require);
+    // return System.import(rootPath + '/setup.js').then(function(exports) {
+    //     return exports.default(jsenv);
+    // });
     // .then(function() {
     //     return System.import('./server.js');
     // });
 }
 function flattenImplementation(options) {
-    function callEveryHook(hookName) {
-        var args = Array.prototype.slice.call(arguments, 1);
-        callEveryTaskHook.apply(null, [coreJSTasks, hookName].concat(args));
-        callEveryTaskHook.apply(null, [fileTasks, hookName].concat(args));
-        callEveryTaskHook.apply(null, [babelTasks, hookName].concat(args));
+    var polyfill;
+    var transpiler;
+
+    function getBeforeFlattenSpec() {
+        var createSpec = function() {
+            return fsAsync.getFileContent(rootPath + '/spec.js').then(function(code) {
+                var babel = require('babel-core');
+                var result = babel.transform(code, {
+                    plugins: [
+                        'transform-es2015-template-literals'
+                    ]
+                });
+                return result.code;
+            });
+        };
+
+        if (options.cacheFolder) {
+            createSpec = memoize.file(
+                createSpec,
+                options.cacheFolder + '/spec-before-flatten.js',
+                rootPath + '/spec.js',
+                'mtime'
+            );
+        }
+
+        return createSpec();
     }
-    function callEveryTaskHook(tasks, hookName) {
-        var args = Array.prototype.slice.call(arguments, 2);
-        Iterable.forEach(tasks, function(task) {
-            task[hookName].apply(task, args);
+    function scanImplementation() {
+        return getBeforeFlattenReport(options).then(
+            reviveReport
+        ).then(function(beforeReport) {
+            // implementation.disable('function-prototype-name-description');
+
+            var features = beforeReport.features;
+            callEveryHook('afterScanHook', features);
+            var unhandledProblematicFeatures = features.filter(function(feature) {
+                return feature.isEnabled() && feature.isInvalid();
+            });
+            if (unhandledProblematicFeatures.length) {
+                throw new Error('no solution for: ' + unhandledProblematicFeatures.join(','));
+            }
+        });
+    }
+    function getBeforeFlattenReport() {
+        var createReport = scan;
+
+        if (options.cacheFolder) {
+            createReport = memoize.file(
+                createReport,
+                options.cacheFolder + '/implementation-report-before-flatten.json',
+                rootPath + '/spec.js',
+                'eTag'
+            );
+        }
+
+        return createReport();
+    }
+    function scan() {
+        console.log('scanning implementation');
+        return new Promise(function(resolve) {
+            implementation.scan(resolve);
         });
     }
     function reviveReport(report) {
@@ -567,46 +610,288 @@ function flattenImplementation(options) {
             features: features
         };
     }
-
-    return getBeforeFlattenReport(options).then(
-        reviveReport
-    ).then(function(beforeReport) {
-        implementation.disable('function-prototype-name-description');
-
-        var features = beforeReport.features;
-        callEveryHook('afterScanHook', features);
-        var unhandledProblematicFeatures = features.filter(function(feature) {
-            return feature.isEnabled() && feature.isInvalid();
+    function callEveryHook(hookName) {
+        var args = Array.prototype.slice.call(arguments, 1);
+        callEveryTaskHook.apply(null, [coreJSTasks, hookName].concat(args));
+        callEveryTaskHook.apply(null, [fileTasks, hookName].concat(args));
+        callEveryTaskHook.apply(null, [babelTasks, hookName].concat(args));
+    }
+    function callEveryTaskHook(tasks, hookName) {
+        var args = Array.prototype.slice.call(arguments, 2);
+        Iterable.forEach(tasks, function(task) {
+            task[hookName].apply(task, args);
         });
-        if (unhandledProblematicFeatures.length) {
-            throw new Error('no solution for: ' + unhandledProblematicFeatures.join(','));
+    }
+    function fixImplementation() {
+        return Promise.all([
+            getPolyfill(options).then(function(value) {
+                callEveryTaskHook(coreJSTasks, 'beforeInstallHook');
+                callEveryTaskHook(fileTasks, 'beforeInstallHook');
+                polyfill = value;
+            }),
+            getTranspiler(options).then(function(value) {
+                callEveryTaskHook(babelTasks, 'beforeInstallHook');
+                transpiler = value;
+            })
+        ]).then(function() {
+            return installPolyfill(options);
+        }).then(function() {
+            return installTranspiler(options);
+        });
+    }
+    function getPolyfill() {
+        function createCoreJSPolyfill() {
+            var requiredModules = coreJSTasks.filter(function(module) {
+                return module.required;
+            });
+            var requiredModulesAsOption = requiredModules.map(function(module) {
+                return module.name;
+            });
+
+            console.log('required corejs modules', requiredModulesAsOption);
+
+            return new Promise(function(resolve) {
+                var buildCoreJS = require('core-js-builder');
+                var promise = buildCoreJS({
+                    modules: requiredModulesAsOption,
+                    librabry: false,
+                    umd: true
+                });
+                resolve(promise);
+            });
+        }
+        function createOwnFilePolyfill() {
+            var requiredFiles = Iterable.filter(fileTasks, function(file) {
+                return file.required;
+            });
+            var requiredFilePaths = Iterable.map(requiredFiles, function(file) {
+                return file.name;
+            });
+            console.log('required files', requiredFilePaths);
+
+            var fs = require('fs');
+            var sourcesPromises = Iterable.map(requiredFilePaths, function(filePath) {
+                return new Promise(function(resolve, reject) {
+                    fs.readFile(filePath, function(error, buffer) {
+                        if (error) {
+                            reject(error);
+                        } else {
+                            resolve(buffer.toString());
+                        }
+                    });
+                });
+            });
+            return Promise.all(sourcesPromises).then(function(sources) {
+                return sources.join('\n\n');
+            });
         }
 
-        return getPolyfill(options).then(function(content) {
-            callEveryTaskHook(coreJSTasks, 'beforeInstallHook');
-            callEveryTaskHook(fileTasks, 'beforeInstallHook');
-            return content;
-        }).then(function(content) {
-            if (content) {
-                eval(content); // eslint-disable-line
+        var createPolyfill = function() {
+            return Promise.all([
+                createCoreJSPolyfill(),
+                createOwnFilePolyfill()
+            ]).then(function(sources) {
+                return sources.join('\n\n');
+            });
+        };
+
+        if (options.cacheFolder) {
+            var requiredFiles = Iterable.filter(fileTasks, function(file) {
+                return file.required;
+            });
+            var requiredFilesNames = requiredFiles.map(function(file) {
+                return file.name;
+            });
+
+            createPolyfill = memoize.file(
+                createPolyfill,
+                options.cacheFolder + '/polyfill.js',
+                requiredFilesNames,
+                'mtime'
+            );
+        }
+
+        return createPolyfill();
+    }
+    function getTranspiler() {
+        var requiredPlugins = babelTasks.filter(function(plugin) {
+            return plugin.required;
+        });
+        var pluginsAsOptions = requiredPlugins.map(function(requiredPlugin) {
+            return [requiredPlugin.name, requiredPlugin.options];
+        });
+        console.log('required babel plugins', requiredPlugins.map(function(plugin) {
+            return plugin.name;
+        }));
+
+        var babel = require('babel-core');
+        var transpile = function(code, babelOptions) {
+            // https://babeljs.io/docs/core-packages/#options
+            // inputSourceMap: null,
+            // minified: false
+            babelOptions = babelOptions || {};
+            // babelOptions.plugins = pluginsAsOptions;
+            if ('sourceMaps' in babelOptions === false) {
+                babelOptions.sourceMaps = 'inline';
             }
-        }).then(function() {
-            callEveryTaskHook(coreJSTasks, 'afterInstallHook');
-            callEveryTaskHook(fileTasks, 'afterInstallHook');
-        }).then(function() {
-            return getTranspiler(options);
-        }).then(function(transpiler) {
-            callEveryTaskHook(babelTasks, 'beforeInstallHook');
-            return transpiler;
-        }).then(function(transpiler) {
-            // ça c'est fait trop tôt
-            // le eval(content) du polyfill aussi
-            return installTranspiler(transpiler, options);
-        }).then(function() {
-            callEveryTaskHook(babelTasks, 'afterInstallHook');
-        }).then(function() {
-            return getAfterFlattenReport(options);
-        }).then(
+
+            return babel.transform(code, babelOptions).code;
+        };
+
+        return Promise.resolve({
+            plugins: pluginsAsOptions,
+            transpile: transpile
+        });
+    }
+    function installPolyfill() {
+        if (polyfill) {
+            eval(polyfill); // eslint-disable-line
+        }
+        callEveryTaskHook(coreJSTasks, 'afterInstallHook');
+        callEveryTaskHook(fileTasks, 'afterInstallHook');
+    }
+    function installTranspiler() {
+        jsenv.global.System.translate = function(load) {
+            var code = load.source;
+            var filename = load.address;
+
+            load.metadata.format = 'register';
+
+            var transpile = function() {
+                var plugins = transpiler.plugins.slice();
+                plugins.unshift('transform-es2015-modules-systemjs');
+
+                var result = transpiler.transpile(code, {
+                    filename: filename,
+                    plugins: plugins
+                });
+                result += '\n//# sourceURL=' + filename + '!transpiled';
+                return result;
+            };
+
+            if (options.cacheFolder) {
+                var baseURL = String(jsenv.baseURL);
+
+                if (filename.indexOf(baseURL) === 0) {
+                    var relativeFilePath = filename.slice(baseURL.length);
+                    var nodeFilePath = filename.slice('file:///'.length);
+                    transpile = memoize.file(
+                        transpile,
+                        options.cacheFolder + '/modules/' + relativeFilePath,
+                        nodeFilePath,
+                        'mtime'
+                    );
+                }
+            }
+
+            return transpile();
+        };
+        callEveryTaskHook(babelTasks, 'afterInstallHook');
+    }
+    function getAfterFlattenSpec() {
+        var createSpec = function() {
+            return fsAsync.getFileContent(rootPath + '/spec.js').then(function(code) {
+                // inspired from babel-transform-template-literals
+                // https://github.com/babel/babel/blob/master/packages/babel-plugin-transform-es2015-template-literals/src/index.js#L36
+                var customPlugin = function(babel) {
+                    var t = babel.types;
+
+                    function visitTaggedTemplateExpression(path, state) {
+                        var TAG_NAME = state.opts.tag || 'transpile';
+                        var node = path.node;
+                        if (!t.isIdentifier(node.tag, {name: TAG_NAME})) {
+                            return;
+                        }
+                        var quasi = node.quasi;
+                        var quasis = quasi.quasis;
+                        var expressions = quasi.expressions;
+
+                        var values = expressions.map(function(expression) {
+                            return expression.evaluate().value;
+                        });
+                        var strings = quasis.map(function(quasi) {
+                            return quasi.value.cooked;
+                        });
+                        var raw = quasis.map(function(quasi) {
+                            return quasi.value.raw;
+                        });
+                        strings.raw = raw;
+
+                        var transpileTemplate = function(strings) {
+                            var result;
+                            var raw = strings.raw;
+                            var i = 0;
+                            var j = raw.length;
+                            result = raw[i];
+                            i++;
+                            while (i < j) {
+                                result += arguments[i];
+                                result += raw[i];
+                                i++;
+                            }
+
+                            try {
+                                return transpiler.transpile(result, {
+                                    sourceMaps: false,
+                                    plugins: transpiler.plugins
+                                });
+                            } catch (e) {
+                                // if there is an error
+                                // let test a chance to eval untranspiled string
+                                // and catch error it may be a test which is trying
+                                // to ensure compilation error (syntax error for example)
+                                return result;
+                            }
+                        };
+
+                        var tanspileArgs = [];
+                        tanspileArgs.push(strings);
+                        tanspileArgs.push.apply(tanspileArgs, values);
+                        var transpiled = transpileTemplate.apply(null, tanspileArgs);
+
+                        var args = [];
+                        var templateObject = state.file.addTemplateObject(
+                            'taggedTemplateLiteral',
+                            t.arrayExpression([
+                                t.stringLiteral(transpiled)
+                            ]),
+                            t.arrayExpression([
+                                t.stringLiteral(transpiled)
+                            ])
+                        );
+                        args.push(templateObject);
+                        path.replaceWith(t.callExpression(node.tag, args));
+                    }
+
+                    return {
+                        visitor: {
+                            TaggedTemplateExpression: visitTaggedTemplateExpression
+                        }
+                    };
+                };
+                var babel = require('babel-core');
+                var result = babel.transform(code, {
+                    plugins: [
+                        [customPlugin, {tag: 'transpile'}]
+                    ]
+                });
+                return result.code;
+            });
+        };
+
+        if (options.cacheFolder) {
+            createSpec = memoize.file(
+                createSpec,
+                options.cacheFolder + '/spec-after-flatten.js',
+                rootPath + '/spec.js',
+                'mtime'
+            );
+        }
+
+        return createSpec();
+    }
+    function ensureImplementation() {
+        return getAfterFlattenReport(options).then(
             reviveReport
         ).then(function(afterReport) {
             function findFeatureTask(feature) {
@@ -624,8 +909,8 @@ function flattenImplementation(options) {
             // });
 
             var remainingProblematicFeatures = afterReport.features.filter(function(feature) {
-                var currentFeature = jsenv.implementation.get(feature.name);
-                return currentFeature.isEnabled() && feature.isInvalid() && currentFeature.type !== 'syntax';
+                var currentFeature = implementation.get(feature.name);
+                return currentFeature.isEnabled() && feature.isInvalid();
             });
             if (remainingProblematicFeatures.length) {
                 remainingProblematicFeatures.forEach(function(feature) {
@@ -639,297 +924,38 @@ function flattenImplementation(options) {
             }
             // console.log(problematicFeatures.length, 'feature have been provided by alternative');
         });
-    });
-}
-function getBeforeFlattenReport(options) {
-    var createReport = function() {
-        return getBeforeFlattenSpec(options).then(function(code) {
-            eval(code); // eslint-disable-line no-eval
-        }).then(function() {
-            return scan();
-        });
-    };
-
-    if (options.cacheFolder) {
-        createReport = memoize.file(
-            createReport,
-            options.cacheFolder + '/implementation-report-before-flatten.json',
-            rootPath + '/spec.js',
-            'eTag'
-        );
     }
-
-    return createReport();
-}
-function scan() {
-    console.log('scanning implementation');
-    return new Promise(function(resolve) {
-        implementation.scan(resolve);
-    });
-}
-function getBeforeFlattenSpec(options) {
-    var createBeforeFlattenSpec = function() {
-        return fsAsync.getFileContent(rootPath + '/spec.js').then(function(code) {
-            var babel = require('babel-core');
-            var result = babel.transform(code, {
-                plugins: [
-                    'transform-es2015-template-literals'
-                ]
-            });
-            return result.code;
-        });
-    };
-
-    if (options.cacheFolder) {
-        createBeforeFlattenSpec = memoize.file(
-            createBeforeFlattenSpec,
-            options.cacheFolder + '/spec-before-flatten.js',
-            rootPath + '/spec.js',
-            'mtime'
-        );
-    }
-
-    return createBeforeFlattenSpec();
-}
-function getAfterFlattenReport(options) {
-    var createReport = scan;
-
-    if (options.cacheFolder) {
-        createReport = memoize.file(
-            createReport,
-            options.cacheFolder + '/implementation-report-after-flatten.json',
-            rootPath + '/index.js',
-            'eTag'
-        );
-    }
-
-    return createReport();
-}
-function getAfterFlattenSpec(options) {
-    var createAfterFlattenSpec = function() {
-        return fsAsync.getFileContent(rootPath + '/spec.js').then(function(code) {
-            var babel = require('babel-core');
-            // inspired from babel-transform-template-literals
-            // https://github.com/babel/babel/blob/master/packages/babel-plugin-transform-es2015-template-literals/src/index.js#L36
-            var customPlugin = function(babel) {
-                var t = babel.types;
-
-                function visitTaggedTemplateExpression(path, state) {
-                    var TAG_NAME = state.options.tag || 'transpile';
-                    var node = path.node;
-                    if (!t.isIdentifier(node.tag, {name: TAG_NAME})) {
-                        return;
-                    }
-                    var quasi = node.quasi;
-                    var quasis = quasi.quasis;
-                    var expressions = quasi.expressions;
-
-                    var values = expressions.map(function(expression) {
-                        return expression.evaluate().value;
-                    });
-                    var strings = quasis.map(function(quasi) {
-                        return quasi.value.cooked;
-                    });
-                    var raw = quasis.map(function(quasi) {
-                        return quasi.value.raw;
-                    });
-                    strings.raw = raw;
-
-                    var transpileTemplate = function(strings) {
-                        var result;
-                        var raw = strings.raw;
-                        var i = 0;
-                        var j = raw.length;
-                        result = raw[i];
-                        i++;
-                        while (i < j) {
-                            result += arguments[i];
-                            result += raw[i];
-                            i++;
-                        }
-                        var transformedResult = babel.transform(result, {
-                            plugins: pluginAsOptions
-                        });
-                        return transformedResult.code;
-                    };
-
-                    var tanspileArgs = [];
-                    tanspileArgs.push(strings);
-                    tanspileArgs.push.apply(tanspileArgs, values);
-                    var transpiled = transpileTemplate.apply(null, tanspileArgs);
-
-                    var args = [];
-                    var templateObject = state.file.addTemplateObject(
-                        'taggedTemplateLiteral',
-                        t.arrayExpression([
-                            t.stringLiteral(transpiled)
-                        ]),
-                        t.arrayExpression([
-                            t.stringLiteral(transpiled)
-                        ])
-                    );
-                    args.push(templateObject);
-                    path.replaceWith(t.callExpression(node.tag, args));
-                }
-
-                return {
-                    visitor: {
-                        TaggedTemplateExpression: visitTaggedTemplateExpression
-                    }
-                };
-            };
-            var result = babel.transform(code, {
-                plugins: [
-                    [customPlugin, {tag: 'transpile'}]
-                ]
-            });
-            return result.code;
-        });
-    };
-
-    if (options.cacheFolder) {
-        createAfterFlattenSpec = memoize.file(
-            createAfterFlattenSpec,
-            options.cacheFolder + '/spec-after-flatten.js',
-            rootPath + '/spec.js',
-            'mtime'
-        );
-    }
-
-    return createAfterFlattenSpec();
-}
-
-function getPolyfill(options) {
-    function createCoreJSPolyfill() {
-        var requiredModules = coreJSTasks.filter(function(module) {
-            return module.required;
-        });
-        var requiredModulesAsOption = requiredModules.map(function(module) {
-            return module.name;
-        });
-
-        console.log('required corejs modules', requiredModulesAsOption);
-
-        return new Promise(function(resolve) {
-            var buildCoreJS = require('core-js-builder');
-            var promise = buildCoreJS({
-                modules: requiredModulesAsOption,
-                librabry: false,
-                umd: true
-            });
-            resolve(promise);
-        });
-    }
-    function createOwnFilePolyfill() {
-        var requiredFiles = Iterable.filter(fileTasks, function(file) {
-            return file.required;
-        });
-        var requiredFilePaths = Iterable.map(requiredFiles, function(file) {
-            return file.name;
-        });
-        console.log('required files', requiredFilePaths);
-
-        var fs = require('fs');
-        var sourcesPromises = Iterable.map(requiredFilePaths, function(filePath) {
-            return new Promise(function(resolve, reject) {
-                fs.readFile(filePath, function(error, buffer) {
-                    if (error) {
-                        reject(error);
-                    } else {
-                        resolve(buffer.toString());
-                    }
-                });
-            });
-        });
-        return Promise.all(sourcesPromises).then(function(sources) {
-            return sources.join('\n\n');
-        });
-    }
-
-    var createPolyfill = function() {
-        return Promise.all([
-            createCoreJSPolyfill(),
-            createOwnFilePolyfill()
-        ]).then(function(sources) {
-            return sources.join('\n\n');
-        });
-    };
-
-    if (options.cacheFolder) {
-        var requiredFiles = Iterable.filter(fileTasks, function(file) {
-            return file.required;
-        });
-        var requiredFilesNames = requiredFiles.map(function(file) {
-            return file.name;
-        });
-
-        createPolyfill = memoize.file(
-            createPolyfill,
-            options.cacheFolder + '/polyfill.js',
-            requiredFilesNames,
-            'mtime'
-        );
-    }
-
-    return createPolyfill();
-}
-function getTranspiler() {
-    var requiredPlugins = babelTasks.filter(function(plugin) {
-        return plugin.required;
-    });
-    var pluginsAsOptions = requiredPlugins.map(function(requiredPlugin) {
-        return [requiredPlugin.name, requiredPlugin.options];
-    });
-    console.log('required babel plugins', requiredPlugins.map(function(plugin) {
-        return plugin.name;
-    }));
-
-    var babel = require('babel-core');
-    var transpile = function(code, filename) {
-        // https://babeljs.io/docs/core-packages/#options
-        // inputSourceMap: null,
-        // minified: false
-        return babel.transform(code, {
-            filename: filename,
-            sourceMaps: 'inline',
-            plugins: pluginsAsOptions
-        }).code;
-    };
-
-    return Promise.resolve({
-        transpile: transpile
-    });
-}
-function installTranspiler(transpiler, options) {
-    jsenv.global.System.translate = function(load) {
-        var code = load.source;
-        var filename = load.address;
-
-        load.metadata.format = 'register';
-
-        var transpile = function() {
-            var result = transpiler.transpile(code, filename);
-            result += '\n//# sourceURL=' + filename + '!transpiled';
-            return result;
-        };
+    function getAfterFlattenReport() {
+        var createReport = scan;
 
         if (options.cacheFolder) {
-            var baseURL = String(jsenv.baseURL);
-
-            if (filename.indexOf(baseURL) === 0) {
-                var relativeFilePath = filename.slice(baseURL.length);
-                var nodeFilePath = filename.slice('file:///'.length);
-                transpile = memoize.file(
-                    transpile,
-                    options.cacheFolder + '/modules/' + relativeFilePath,
-                    nodeFilePath,
-                    'mtime'
-                );
-            }
+            createReport = memoize.file(
+                createReport,
+                options.cacheFolder + '/implementation-report-after-flatten.json',
+                rootPath + '/index.js',
+                'eTag'
+            );
         }
 
-        return transpile();
-    };
+        return createReport();
+    }
+
+    return Promise.resolve().then(function() {
+        return getBeforeFlattenSpec().then(function(spec) {
+            eval(spec); // eslint-disable-line no-eval
+        });
+    }).then(function() {
+        return scanImplementation();
+    }).then(function() {
+        return fixImplementation();
+    }).then(function() {
+        return getAfterFlattenSpec().then(function(spec) {
+            implementation.features = [];
+            eval(spec); // eslint-disable-line no-eval
+        });
+    }).then(function() {
+        return ensureImplementation();
+    });
 }
 function getCache(folderPath) {
     var entriesPath = folderPath + '/entries.json';
@@ -1043,6 +1069,8 @@ if (options.cache) {
 }
 
 promise.then(function() {
+    return flattenImplementation(options);
+}).then(function() {
     return start(options);
 }).catch(function(e) {
     if (e) {

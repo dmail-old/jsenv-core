@@ -105,7 +105,7 @@
         return values;
     }
 
-     /*
+    /*
     this is all about mapping
     https://github.com/babel/babel-preset-env/blob/master/data/plugin-features.js
     with
@@ -177,13 +177,13 @@
             result: jsenv.global,
             code: produceFromPath,
             test: presence
-        }).ensure(function() {
+        }).ensure(function(register) {
             register('system', {
                 path: 'System'
             });
             register('promise', {
                 path: 'Promise'
-            }).ensure(function() {
+            }).ensure(function(register) {
                 register('unhandled-rejection', {
                     test: function(Promise, settle) {
                         var promiseRejectionEvent;
@@ -259,7 +259,7 @@
             });
             register('symbol', {
                 path: 'Symbol'
-            }).ensure(function() {
+            }).ensure(function(register) {
                 register('iterator', {
                     path: 'iterator'
                 });
@@ -269,7 +269,7 @@
             });
             register('object', {
                 path: 'Object'
-            }).ensure(function() {
+            }).ensure(function(register) {
                 register('get-own-property-descriptor', {
                     path: 'getOwnPropertyDescriptor'
                 });
@@ -279,20 +279,20 @@
             });
             register('date', {
                 path: 'Date'
-            }).ensure(function() {
+            }).ensure(function(register) {
                 register('now', {
                     path: 'now'
                 });
                 register('prototype', {
                     path: 'prototype'
-                }).ensure(function() {
+                }).ensure(function(register) {
                     register('symbol-to-primitive', {
                         dependencies: ['symbol-to-primitive'],
                         code: produceFromComposedPath
                     });
                     register('to-json', {
                         path: 'toJSON'
-                    }).ensure(function() {
+                    }).ensure(function(register) {
                         // https://github.com/zloirock/core-js/blob/v2.4.1/modules/es6.date.to-json.js
                         register('nan-return-null', {
                             test: function() {
@@ -312,7 +312,7 @@
                     });
                     register('to-iso-string', {
                         path: 'toISOString'
-                    }).ensure(function() {
+                    }).ensure(function(register) {
                         // https://github.com/zloirock/core-js/blob/v2.4.1/modules/es6.date.to-iso-string.js
                         register('negative-5e13', {
                             test: function() {
@@ -327,7 +327,7 @@
                     });
                     register('to-string', {
                         path: 'toString'
-                    }).ensure(function() {
+                    }).ensure(function(register) {
                         register('nan-return-invalid-date', {
                             test: function() {
                                 // https://github.com/zloirock/core-js/blob/v2.4.1/modules/es6.date.to-string.js
@@ -339,14 +339,14 @@
             });
             register('array', {
                 path: 'Array'
-            }).ensure(function() {
+            }).ensure(function(register) {
                 register('prototype', {
                     path: 'prototype'
-                }).ensure(function() {
+                }).ensure(function(register) {
                     register('symbol-iterator', {
                         dependencies: ['symbol-iterator'],
                         code: produceFromComposedPath
-                    }).ensure(function() {
+                    }).ensure(function(register) {
                         register('sparse', {
                             test: function(arrayIterator) {
                                 var sparseArray = [,,]; // eslint-disable-line no-sparse-arrays, comma-spacing
@@ -361,13 +361,13 @@
             });
             register('function', {
                 path: 'Function'
-            }).ensure(function() {
+            }).ensure(function(register) {
                 register('prototype', {
                     path: 'prototype'
-                }).ensure(function() {
+                }).ensure(function(register) {
                     register('name', {
                         path: 'name'
-                    }).ensure(function() {
+                    }).ensure(function(register) {
                         register('description', {
                             test: function() {
                                 var descriptor = Object.getOwnPropertyDescriptor(
@@ -516,14 +516,14 @@
             });
             register('string', {
                 path: 'String'
-            }).ensure(function() {
+            }).ensure(function(register) {
                 register('prototype', {
                     path: 'prototype'
-                }).ensure(function() {
+                }).ensure(function(register) {
                     register('symbol-iterator', {
                         dependencies: ['symbol-iterator'],
                         code: produceFromComposedPath
-                    }).ensure(function() {
+                    }).ensure(function(register) {
                         register('basic', {
                             test: function(stringIterator) {
                                 var string = '1234';
@@ -576,7 +576,7 @@
                 var value = [5];
                 return sameValues(result(value), value);
             }
-        }).ensure(function() {
+        }).ensure(function(register) {
             register('iterable', {
                 dependencies: [
                     'symbol-iterator'
@@ -652,7 +652,7 @@
                 var value = 1;
                 return fn(value) === value;
             }
-        }).ensure(function() {
+        }).ensure(function(register) {
             register('throw-statement', {
                 code: transpile`(function() {
                     if (true) const bar = 1;
@@ -767,7 +767,7 @@
                 var value = 123;
                 return fn(value) === value;
             }
-        }).ensure(function() {
+        }).ensure(function(register) {
             register('throw-statement', {
                 code: transpile`(function() {
                     if (true) let result = 1;
@@ -887,7 +887,7 @@
                 var value = 1;
                 return fn([value]) === value;
             }
-        }).ensure(function() {
+        }).ensure(function(register) {
             register('trailing-commas', {
                 code: transpile`(function(value) {
                     var [a,] = value;
@@ -1030,7 +1030,7 @@
                 var value = 1;
                 return fn({a: value}) === value;
             }
-        }).ensure(function() {
+        }).ensure(function(register) {
             register('throw-null', {
                 test: function(fn) {
                     try {
@@ -1202,7 +1202,7 @@
                 var b = 2;
                 return sameValues(fn(a, b), [b, a]);
             }
-        }).ensure(function() {
+        }).ensure(function(register) {
             register('empty', {
                 code: transpile`(function() {
                     [] = [1,2];
@@ -1264,7 +1264,7 @@
                 var value = 1;
                 return fn(value) === value;
             }
-        }).ensure(function() {
+        }).ensure(function(register) {
             register('empty', {
                 code: transpile`(function() {
                     ({} = {a:1, b:2});
@@ -1314,7 +1314,7 @@
                 var value = 1;
                 return fn([value]) === value;
             }
-        }).ensure(function() {
+        }).ensure(function(register) {
             register('function-length', {
                 test: function(fn) {
                     return fn.length === 1;
@@ -1341,7 +1341,7 @@
                 var value = 1;
                 return fn({a: value}) === value;
             }
-        }).ensure(function() {
+        }).ensure(function(register) {
             register('new-function', {
                 code: function() {
                     return new Function( // eslint-disable-line no-new-func
@@ -1372,7 +1372,7 @@
 
                 return fn(method, args) === method.apply(null, args);
             }
-        }).ensure(function() {
+        }).ensure(function(register) {
             register('throw-non-iterable', {
                 test: function(fn) {
                     try {
@@ -1414,7 +1414,7 @@
                 var value = [1, 2, 3];
                 return sameValues(fn(value), value);
             }
-        }).ensure(function() {
+        }).ensure(function(register) {
             register('iterable', {
                 dependencies: [
                     'symbol-iterator'
@@ -1448,7 +1448,7 @@
                 var result = fn(defaultA, defaultB)(a);
                 return sameValues(result, [a, defaultB]);
             }
-        }).ensure(function() {
+        }).ensure(function(register) {
             register('explicit-undefined', {
                 test: function(fn) {
                     var defaultA = 1;
@@ -1543,7 +1543,7 @@
                     sameValues(result[1], [second])
                 );
             }
-        }).ensure(function() {
+        }).ensure(function(register) {
             register('throw-setter', {
                 code: transpile`(function() {
                     return {
