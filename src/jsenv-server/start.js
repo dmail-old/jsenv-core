@@ -2,26 +2,7 @@
 
 /*
 
-- utiliser babel sur le fichier de test pour pourvoir utiliser les templates string
-ça sera plus proppre, la conversion de fait auto à l'éxécution de ce fichier
-
-- voir s'il est possible d'utiliser babel-plugin-transform-eval pour transpiler
-et créer un fichiuer de test spécifique au transpileur
-
-- changer memoize.file pour une écriture comme suit:
-memoize.file(fn, path, {
-    sources: [
-        {path: , strategy: 'mtime'},
-        {path: , strategy: 'eTag'},
-    ],
-    mode: 'default'
-    // pour voir comment le cache http fonctionne (pas utile pour le moment)
-    https://fetch.spec.whatwg.org/#requests
-    // default : peut écrire et lire depuis le cache (cas par défaut)
-    // read-only : peut lire depuis le cache, n'écrira pas dedans (pour travis)
-    // write-only : ne peut pas lire depuis le cache, écrira dedans (inutile)
-    // only-if-cached: peut lire et throw si le cache est invalide au lieu d'apeller la fonction (inutile mais pourra le devenir un jour)
-})
+- utiliser getAfterFlattenSpec, le mettre dans polyfill.js qu'il faut renommer flatten.js
 
 - faire en sorte que même avant de démarrer le serveur on est du code qui se comporte comme son propre client
 vis-a-vis du comportement qu'aura le client plus tard
@@ -57,6 +38,21 @@ de sorte qu'on garde la possibilité de les lancer si on le souhaite pour whatev
 
 - une fois que le serveur peut être lancé celui-ci va être capable de plusieurs chose
 
+- changer memoize.file pour une écriture comme suit:
+memoize.file(fn, path, {
+    sources: [
+        {path: , strategy: 'mtime'},
+        {path: , strategy: 'eTag'},
+    ],
+    mode: 'default'
+    // pour voir comment le cache http fonctionne (pas utile pour le moment)
+    https://fetch.spec.whatwg.org/#requests
+    // default : peut écrire et lire depuis le cache (cas par défaut)
+    // read-only : peut lire depuis le cache, n'écrira pas dedans (pour travis)
+    // write-only : ne peut pas lire depuis le cache, écrira dedans (inutile)
+    // only-if-cached: peut lire et throw si le cache est invalide au lieu d'apeller la fonction (inutile mais pourra le devenir un jour)
+})
+
 - externaliser sourcemap au lie de inline base64, enfin faire une option
 cela signifie que pour que le cache soit valide il faudra aussi check l'existance de son fichier sourcemap
 ou alors toruver une autre soluce
@@ -74,8 +70,7 @@ qui est finalement écrit
 require('../../index.js');
 
 var options = {
-    cache: true // ptet proposer un no-store ou équivalent pour qu'on puisse lire depuis le cache
-    // mais pas y écrire
+    cache: true
 };
 
 var jsenv = global.jsenv;
@@ -451,13 +446,13 @@ babelPlugin('transform-es2015-destructuring', {
         'destructuring-assignment-object-throw-left-parenthesis',
         'destructuring-assignment-object-chain',
 
-        'destructuring-parameters-array-arguments',
-        'destructuring-parameters-array-new-function',
+        'destructuring-parameters-array',
         'destructuring-parameters-array-function-length',
+        'destructuring-parameters-array-new-function',
 
-        'destructuring-parameters-object-arguments',
-        'destructuring-parameters-object-new-function',
-        'destructuring-parameters-object-function-length'
+        'destructuring-parameters-object',
+        'destructuring-parameters-object-function-length',
+        'destructuring-parameters-object-new-function'
     ]
 });
 
@@ -573,11 +568,11 @@ function flattenImplementation(options) {
         };
     }
 
-    implementation.disable('function-prototype-name-description');
-
     return getBeforeFlattenReport(options).then(
         reviveReport
     ).then(function(beforeReport) {
+        implementation.disable('function-prototype-name-description');
+
         var features = beforeReport.features;
         callEveryHook('afterScanHook', features);
         var unhandledProblematicFeatures = features.filter(function(feature) {
@@ -604,6 +599,8 @@ function flattenImplementation(options) {
             callEveryTaskHook(babelTasks, 'beforeInstallHook');
             return transpiler;
         }).then(function(transpiler) {
+            // ça c'est fait trop tôt
+            // le eval(content) du polyfill aussi
             return installTranspiler(transpiler, options);
         }).then(function() {
             callEveryTaskHook(babelTasks, 'afterInstallHook');
@@ -657,7 +654,7 @@ function getBeforeFlattenReport(options) {
         createReport = memoize.file(
             createReport,
             options.cacheFolder + '/implementation-report-before-flatten.json',
-            rootPath + '/index.js',
+            rootPath + '/spec.js',
             'eTag'
         );
     }
@@ -672,7 +669,7 @@ function scan() {
 }
 function getBeforeFlattenSpec(options) {
     var createBeforeFlattenSpec = function() {
-        return fsAsync.getFileContent('./spec.js').then(function(code) {
+        return fsAsync.getFileContent(rootPath + '/spec.js').then(function(code) {
             var babel = require('babel-core');
             var result = babel.transform(code, {
                 plugins: [
@@ -687,12 +684,12 @@ function getBeforeFlattenSpec(options) {
         createBeforeFlattenSpec = memoize.file(
             createBeforeFlattenSpec,
             options.cacheFolder + '/spec-before-flatten.js',
-            ['./spec.js'],
+            rootPath + '/spec.js',
             'mtime'
         );
     }
 
-    return createBeforeFlattenSpec;
+    return createBeforeFlattenSpec();
 }
 function getAfterFlattenReport(options) {
     var createReport = scan;
@@ -709,17 +706,13 @@ function getAfterFlattenReport(options) {
     return createReport();
 }
 function getAfterFlattenSpec(options) {
-    // ici j'ai besoin de pluginsAsOptions
-    // qu'on a en dessous
-
     var createAfterFlattenSpec = function() {
-        return fsAsync.getFileContent('./spec.js').then(function(code) {
+        return fsAsync.getFileContent(rootPath + '/spec.js').then(function(code) {
             var babel = require('babel-core');
             // inspired from babel-transform-template-literals
             // https://github.com/babel/babel/blob/master/packages/babel-plugin-transform-es2015-template-literals/src/index.js#L36
             var customPlugin = function(babel) {
                 var t = babel.types;
-                var pluginAsOptions = [];
 
                 function visitTaggedTemplateExpression(path, state) {
                     var TAG_NAME = state.options.tag || 'transpile';
@@ -798,12 +791,12 @@ function getAfterFlattenSpec(options) {
         createAfterFlattenSpec = memoize.file(
             createAfterFlattenSpec,
             options.cacheFolder + '/spec-after-flatten.js',
-            ['./spec.js'],
+            rootPath + '/spec.js',
             'mtime'
         );
     }
 
-    return createAfterFlattenSpec;
+    return createAfterFlattenSpec();
 }
 
 function getPolyfill(options) {

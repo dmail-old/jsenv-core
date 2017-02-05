@@ -809,7 +809,7 @@ en fonction du résultat de ces tests
 */
 (function(jsenv) {
     var Iterable = jsenv.Iterable;
-    var Predicate = jsenv.Predicate;
+    // var Predicate = jsenv.Predicate;
 
     jsenv.provide(function versionnedFeature() {
         function VersionnedFeature() {
@@ -846,6 +846,7 @@ en fonction du résultat de ces tests
                     throw new Error('addDependency first arg must be a feature');
                 }
                 if (Iterable.includes(this.dependents, dependency)) {
+                    // faudrais aussi faire récusrivement un check sur this.dependents
                     throw new Error('cyclic dependency between ' + dependency.name + ' and ' + this.name);
                 }
 
@@ -1075,173 +1076,29 @@ en fonction du résultat de ces tests
         };
     });
 
+    jsenv.provide(function sourceCode() {
+        var SourceCode = function(source) {
+            this.source = source;
+        };
+        SourceCode.prototype = {
+            constructor: SourceCode,
+            compile: function() {
+                return eval(this.source); // eslint-disable-line no-eval
+            }
+        };
+
+        return {
+            createSourceCode: function() {
+                return jsenv.construct(SourceCode, arguments);
+            },
+
+            isSourceCode: function(value) {
+                return value instanceof SourceCode;
+            }
+        };
+    });
+
     jsenv.provide(function registerFeature() {
-        var implementation = jsenv.implementation;
-
-        function compileFunction(names, body) {
-            var args = [];
-            args.push.apply(args, names);
-            args.push(body);
-            return jsenv.construct(Function, args);
-        }
-        // function extractFunctionBodyComment(fn) {
-        //     return fn.toString().match(/[^]*\/\*([^]*)\*\/\}$/)[1];
-        // }
-        // function camelToHyphen(string) {
-        //     var i = 0;
-        //     var j = string.length;
-        //     var camelizedResult = '';
-        //     while (i < j) {
-        //         var letter = string[i];
-        //         var action;
-
-        //         if (i === 0) {
-        //             action = 'lower';
-        //         } else if (isUpperCaseLetter(letter)) {
-        //             if (isUpperCaseLetter(string[i - 1])) { // toISOString -> to-iso-string & toJSON -> to-json
-        //                 if (i === j - 1) { // toJSON on the N
-        //                     action = 'lower';
-        //                 } else if (isLowerCaseLetter(string[i + 1])) { // toISOString on the S
-        //                     action = 'camelize';
-        //                 } else { // toJSON on the SO
-        //                     action = 'lower';
-        //                 }
-        //             } else if (
-        //                 isLowerCaseLetter(string[i - 1]) &&
-        //                 i > 1 &&
-        //                 isUpperCaseLetter(string[i - 2])
-        //             ) { // isNaN -> is-nan
-        //                 action = 'lower';
-        //             } else {
-        //                 action = 'camelize';
-        //             }
-        //         } else {
-        //             action = 'concat';
-        //         }
-
-        //         if (action === 'lower') {
-        //             camelizedResult += letter.toLowerCase();
-        //         } else if (action === 'camelize') {
-        //             camelizedResult += '-' + letter.toLowerCase();
-        //         } else if (action === 'concat') {
-        //             camelizedResult += letter;
-        //         } else {
-        //             throw new Error('unknown camelize action');
-        //         }
-
-        //         i++;
-        //     }
-        //     return camelizedResult;
-        // }
-        // function isUpperCaseLetter(letter) {
-        //     return /[A-Z]/.test(letter);
-        // }
-        // function isLowerCaseLetter(letter) {
-        //     return /[a-z]/.test(letter);
-        // }
-        var noValue = {novalue: true};
-        function getStandardResult(feature) {
-            var result;
-            // désactive hasOwnProperty result sinon on ne peut pas relancer le test
-            // puisque une fois le test fait une fois, feature.result existe
-            // ou alors il faudrais delete feature.result pour relancer le test
-            if (false && feature.hasOwnProperty('result')) {
-                result = feature.result;
-            } else if (feature.parent) {
-                var startValue = feature.parent.result;
-                var path = feature.path;
-                var parts = path.split('.');
-                var endValue = startValue;
-                var i = 0;
-                var j = parts.length;
-                while (i < j) {
-                    var part = parts[i];
-                    if (part in endValue) {
-                        endValue = endValue[part];
-                    } else {
-                        endValue = noValue;
-                        break;
-                    }
-                    i++;
-                }
-                result = endValue;
-            } else {
-                throw new Error('feature without parent must have a result property');
-            }
-            return result;
-        }
-        function presence(result, settle) {
-            if (result === noValue) {
-                settle(false, 'missing');
-            } else {
-                settle(true, 'present');
-            }
-        }
-        // function ensureKind(expectedKind) {
-        //     return function(result, settle) {
-        //         var actualKind;
-
-        //         if (expectedKind === 'object' && result === null) {
-        //             actualKind = 'null';
-        //         } else if (expectedKind === 'symbol') {
-        //             if (result && result.constructor === Symbol) {
-        //                 actualKind = 'symbol';
-        //             } else {
-        //                 actualKind = typeof result;
-        //             }
-        //         } else {
-        //             actualKind = typeof result;
-        //         }
-
-        //         if (actualKind === expectedKind) {
-        //             settle(true, 'expected-' + actualKind);
-        //         } else {
-        //             settle(false, 'unexpected-' + actualKind);
-        //         }
-        //     };
-        // }
-        // function composeSettlers(settlers) {
-        //     return function() {
-        //         var i = 0;
-        //         var j = settlers.length;
-        //         var statusValid;
-        //         var statusReason;
-        //         var statusDetail;
-        //         var handledCount = 0;
-        //         var args = Array.prototype.slice.call(arguments);
-        //         var lastArgIndex = args.length - 1;
-        //         var settle = args[lastArgIndex];
-
-        //         function compositeSettle(valid, reason, detail) {
-        //             handledCount++;
-
-        //             statusValid = valid;
-        //             statusReason = reason;
-        //             statusDetail = detail;
-
-        //             var settled = false;
-        //             if (statusValid) {
-        //                 settled = handledCount === j;
-        //             } else {
-        //                 settled = true;
-        //             }
-
-        //             if (settled) {
-        //                 settle(statusValid, statusReason, statusDetail);
-        //             }
-        //         }
-
-        //         args[lastArgIndex] = compositeSettle;
-
-        //         while (i < j) {
-        //             settlers[i].apply(this, args);
-        //             if (statusValid === false) {
-        //                 break;
-        //             }
-        //             i++;
-        //         }
-        //     };
-        // }
         function convertToSettler(fn) {
             return function() {
                 var args = arguments;
@@ -1256,23 +1113,6 @@ en fonction du résultat de ces tests
                     fn.apply(this, args);
                 }
             };
-        }
-        function findParentFromFeatureName(featureName) {
-            var parent = null;
-            var parts = featureName.split('-');
-            var i = parts.length;
-            if (i > 1) {
-                while (i > 1) {
-                    var possibleParentName = parts.slice(0, i - 1).join('-');
-                    var possibleParent = implementation.find(jsenv.createFeature(possibleParentName));
-                    if (possibleParent) {
-                        parent = possibleParent;
-                        break;
-                    }
-                    i--;
-                }
-            }
-            return parent;
         }
 
         var featurePrototype = Object.getPrototypeOf(jsenv.createFeature());
@@ -1361,45 +1201,9 @@ en fonction du résultat de ces tests
         featurePrototype.getTestBranch = function() {
             var expectedBranchName = this.when;
 
-            var configGetter;
-            try {
-                configGetter = this.compileConfig();
-            } catch (e) {
-                return {
-                    name: 'config-compilation-error',
-                    value: e
-                };
-            }
-            if (!configGetter) {
-                throw new Error('feature ' + this + ' has no config method');
-            }
-            if (expectedBranchName === 'config-compilation-result') {
-                return {
-                    name: expectedBranchName,
-                    value: configGetter
-                };
-            }
-
-            var configResult;
-            try {
-                configResult = configGetter.call(this);
-            } catch (e) {
-                return {
-                    name: 'config-runtime-error',
-                    value: e
-                };
-            }
-            this.config = configResult;
-            if (expectedBranchName === 'config-runtime-result') {
-                return {
-                    name: expectedBranchName,
-                    value: configResult
-                };
-            }
-
             var codeGetter;
             try {
-                codeGetter = this.compileCode(configResult);
+                codeGetter = this.compileCode();
             } catch (e) {
                 return {
                     name: 'code-compilation-error',
@@ -1418,9 +1222,7 @@ en fonction du résultat de ces tests
             }
 
             var codeResult;
-            var codeArgs = Object.keys(configResult).map(function(key) {
-                return configResult[key];
-            });
+            var codeArgs = [];
             try {
                 codeResult = codeGetter.apply(this, codeArgs);
             } catch (e) {
@@ -1435,67 +1237,20 @@ en fonction du résultat de ces tests
                 value: codeResult
             };
         };
-        featurePrototype.config = {};
-        featurePrototype.compileConfig = function() {
-            var configGetter;
-
-            if (this.hasOwnProperty('config')) {
-                var ownConfig = this.config;
-                var type = typeof ownConfig;
-                var ownConfigGetter;
-
-                if (type === 'function') {
-                    ownConfigGetter = function() {
-                        return ownConfig.call(this);
-                    };
-                } else if (type === 'object') {
-                    ownConfigGetter = function() {
-                        return ownConfig;
-                    };
-                } else if (type === 'string') {
-                    var compiledFunction = compileFunction([], ownConfig);
-                    ownConfigGetter = function() {
-                        return compiledFunction.call(this);
-                    };
-                } else {
-                    throw new TypeError('test.config must be a function, object or string, not ' + type);
-                }
-
-                configGetter = function() {
-                    var configResult = ownConfigGetter.apply(this, arguments);
-                    var parent = this.parent;
-                    if (parent) {
-                        var inheritedConfigResult = {};
-                        jsenv.assign(inheritedConfigResult, parent.config);
-                        jsenv.assign(inheritedConfigResult, configResult);
-                        configResult = inheritedConfigResult;
-                    }
-                    return configResult;
-                };
-            } else if (this.parent) {
-                configGetter = function() {
-                    return this.parent.config;
-                };
-            } else {
-                configGetter = function() {
-                    return this.config;
-                };
-            }
-
-            return configGetter;
-        };
-        featurePrototype.compileCode = function(config) {
+        featurePrototype.compileCode = function() {
             var codeGetter;
 
             if (this.hasOwnProperty('code')) {
                 var ownCode = this.code;
 
-                if (typeof ownCode === 'string') {
-                    codeGetter = compileFunction(Object.keys(config), ownCode);
+                if (jsenv.isSourceCode(ownCode)) {
+                    codeGetter = function() {
+                        return ownCode.compile();
+                    };
                 } else if (typeof ownCode === 'function') {
                     codeGetter = ownCode;
                 } else {
-                    throw new TypeError('feature code must be a string or function');
+                    throw new TypeError('feature code must be a sourceCode or function');
                 }
             } else if (this.parent) {
                 codeGetter = this.parent.code;
@@ -1505,107 +1260,82 @@ en fonction du résultat de ces tests
 
             return codeGetter;
         };
-        featurePrototype.ensure = function(dependentFeature) {
+        featurePrototype.addDependent = function(dependentFeature) {
             dependentFeature.parent = this;
             dependentFeature.type = this.type;
             dependentFeature.relyOn(this);
             return this;
         };
-
-        var globalStandard = jsenv.createFeature('global');
-        globalStandard.type = 'standard';
-        // globalStandard.result = jsenv.global;
-        globalStandard.code = function() {
-            return jsenv.global;
-        };
-        globalStandard.test = presence;
-        implementation.add(globalStandard);
-
-        function standard(name, test, disableNameRelationShip) {
-            var feature = jsenv.createFeature(name);
-            var parent;
-
-            if (disableNameRelationShip) {
-                parent = globalStandard;
+        var implementation = jsenv.implementation;
+        var features;
+        function getFeature(name, throwWhenFound) {
+            var feature;
+            var existingFeature = Iterable.find(features, function(feature) {
+                return feature.match(name);
+            });
+            if (existingFeature) {
+                if (throwWhenFound) {
+                    throw new Error('feature named ' + name + ' already exists');
+                }
+                feature = existingFeature;
             } else {
-                parent = findParentFromFeatureName(name) || globalStandard;
+                feature = jsenv.createFeature(name);
+                features.push(feature);
             }
-
-            parent.ensure(feature);
-
-            if (typeof test === 'string') {
-                feature.path = test;
-                feature.code = function() {
-                    return getStandardResult(this);
-                };
-                feature.test = presence;
-            } else if (typeof test === 'function') {
-                feature.test = test;
-                feature.code = function() {
-                    return parent.result;
-                };
-                feature.test = test;
-            } else if (jsenv.isFeature(test)) {
-                var dependency = test;
-                feature.relyOn(dependency);
-                feature.path = parent.getPath() + '[' + dependency.getPath() + ']';
-                feature.code = function() {
-                    var fromValue = parent.result;
-                    var dependencyValue = dependency.result;
-
-                    if (dependencyValue in fromValue) {
-                        return fromValue[dependencyValue];
-                    }
-                    return noValue;
-                };
-                feature.test = presence;
-            }
-
-            implementation.add(feature);
             return feature;
         }
+        featurePrototype.ensure = function(fn) {
+            var self = this;
 
-        function registerSyntax(name, descriptor) {
-            var feature = jsenv.createFeature(name);
-            var parent = findParentFromFeatureName(name);
+            function register(name, properties) {
+                var feature = getFeature(name, true);
 
-            if (parent) {
-                parent.ensure(feature);
-            }
+                feature.relyOn(self);
 
-            feature.type = 'syntax';
-            if ('dependencies' in descriptor) {
-                var dependencies = Iterable.map(descriptor.dependencies, function(dependencyName) { // eslint-disable-line
-                    return implementation.get(dependencyName);
-                });
-                feature.relyOn.apply(feature, dependencies);
-            }
-            if ('parameters' in descriptor) {
-                var parameters = Iterable.map(descriptor.parameters, function(parameterName) { // eslint-disable-line
-                    return implementation.get(parameterName);
-                });
-                feature.parameterizedBy.apply(feature, parameters);
-            }
-            if ('config' in descriptor) {
-                feature.config = descriptor.config;
-            }
-            if ('code' in descriptor) {
-                feature.code = descriptor.code;
-            }
-            if ('test' in descriptor) {
-                feature.test = descriptor.test;
-            }
-            if ('when' in descriptor) {
-                feature.when = descriptor.when;
+                properties = properties || {};
+                if ('dependencies' in properties) {
+                    Iterable.forEach(properties.dependencies, function(dependencyName) {
+                        var dependency = getFeature(dependencyName);
+                        feature.relyOn(dependency);
+                    });
+                }
+                // if ('parameters' in descriptor) {
+                //     var parameters = Iterable.map(descriptor.parameters, function(name) {
+                //     });
+                // }
+                if ('result' in properties) {
+                    feature.result = properties.result;
+                }
+                if ('path' in properties) {
+                    feature.path = properties.path;
+                }
+                if ('code' in properties) {
+                    feature.code = properties.code;
+                }
+                if ('test' in properties) {
+                    feature.test = properties.test;
+                }
+
+                return feature;
             }
 
-            implementation.add(feature);
-            return feature;
+            fn(register);
+        };
+
+        function registerFeatures(fn) {
+            features = implementation.features;
+            var rootFeature = jsenv.createFeature('');
+            rootFeature.code = function() {
+                return undefined;
+            };
+            rootFeature.test = function() {
+                return true;
+            };
+            rootFeature.ensure(fn);
         }
 
         return {
-            registerStandard: standard,
-            registerSyntax: registerSyntax
+            registerFeatures: registerFeatures
         };
     });
 })(jsenv);

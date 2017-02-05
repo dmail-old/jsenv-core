@@ -11,5 +11,18 @@
 				"lastMatch": 1485698887329
 			}
 		]
+	},
+	{
+		"name": "ciyr7hwyv0000784my7oj6h4u",
+		"branches": [
+			{
+				"condition": {
+					"agent": "node@4.7.2",
+					"platform": "windows@10.0.14393"
+				},
+				"matchCount": 4,
+				"lastMatch": 1486211027697
+			}
+		]
 	}
 ]

@@ -3,6 +3,7 @@
 
 (function() {
     var Predicate = jsenv.Predicate;
+    var Iterable = jsenv.Iterable;
 
     function transpile(strings) {
         var result;
@@ -16,7 +17,7 @@
             result += raw[i];
             i++;
         }
-        return result;
+        return jsenv.createSourceCode(result);
     }
     function sameValues(a, b) {
         if (typeof a === 'string') {
@@ -94,15 +95,6 @@
         }
         return keys;
     }
-    // function collectValues(value) {
-    //     var values = [];
-    //     for (var key in value) {
-    //         if (value.hasOwnProperty(key)) {
-    //             values.push(value[key]);
-    //         }
-    //     }
-    //     return values;
-    // }
     function consumeIterator(iterator) {
         var values = [];
         var next = iterator.next();
@@ -113,162 +105,453 @@
         return values;
     }
 
-    jsenv.provide(function registerStandardFeatures() {
-        var standard = jsenv.registerStandard;
+     /*
+    this is all about mapping
+    https://github.com/babel/babel-preset-env/blob/master/data/plugin-features.js
+    with
+    https://github.com/kangax/compat-table/blob/gh-pages/data-es5.js
+    https://github.com/kangax/compat-table/blob/gh-pages/data-es6.js
+    */
+    jsenv.registerFeatures(function(register) {
+        var noValue = {novalue: true};
 
-        standard('system', 'System');
-        standard('promise', 'Promise');
-        standard('promise-unhandled-rejection', function(Promise, settle) {
-            var promiseRejectionEvent;
-            var unhandledRejection = function(e) {
-                promiseRejectionEvent = e;
-            };
-
-            if (jsenv.isBrowser()) {
-                if ('onunhandledrejection' in window === false) {
-                    return settle(false);
+        function produceFromPath() {
+            var feature = this;
+            var result;
+            // désactive hasOwnProperty result sinon on ne peut pas relancer le test
+            // puisque une fois le test fait une fois, feature.result existe
+            // ou alors il faudrais delete feature.result pour relancer le test
+            if (feature.hasOwnProperty('result')) {
+                result = feature.result;
+            } else if (feature.parent) {
+                var startValue = feature.parent.result;
+                var path = feature.path;
+                var parts = path.split('.');
+                var endValue = startValue;
+                var i = 0;
+                var j = parts.length;
+                while (i < j) {
+                    var part = parts[i];
+                    if (part in endValue) {
+                        endValue = endValue[part];
+                    } else {
+                        endValue = noValue;
+                        break;
+                    }
+                    i++;
                 }
-                window.onunhandledrejection = unhandledRejection;
-            } else if (jsenv.isNode()) {
-                process.on('unhandledRejection', function(value, promise) {
-                    unhandledRejection({
-                        promise: promise,
-                        reason: value
+                result = endValue;
+            } else {
+                throw new Error('feature without parent must have a result property');
+            }
+            return result;
+        }
+        function produceFromComposedPath() {
+            var result;
+            var i = 0;
+            var composedFeatures = this.dependencies;
+            var j = composedFeatures.length;
+            while (i < j) {
+                var composedFeatureValue = composedFeatures[i].result;
+                if (i === 0) {
+                    result = composedFeatureValue;
+                } else if (composedFeatureValue in result) {
+                    result = result[composedFeatureValue];
+                } else {
+                    result = noValue;
+                    break;
+                }
+                i++;
+            }
+            return result;
+        }
+        function presence(value, settle) {
+            if (value === noValue) {
+                settle(false, 'missing');
+            } else {
+                settle(true, 'present');
+            }
+        }
+
+        register('global', {
+            result: jsenv.global,
+            code: produceFromPath,
+            test: presence
+        }).ensure(function() {
+            register('system', {
+                path: 'System'
+            });
+            register('promise', {
+                path: 'Promise'
+            }).ensure(function() {
+                register('unhandled-rejection', {
+                    test: function(Promise, settle) {
+                        var promiseRejectionEvent;
+                        var unhandledRejection = function(e) {
+                            promiseRejectionEvent = e;
+                        };
+
+                        if (jsenv.isBrowser()) {
+                            if ('onunhandledrejection' in window === false) {
+                                return settle(false);
+                            }
+                            window.onunhandledrejection = unhandledRejection;
+                        } else if (jsenv.isNode()) {
+                            process.on('unhandledRejection', function(value, promise) {
+                                unhandledRejection({
+                                    promise: promise,
+                                    reason: value
+                                });
+                            });
+                        } else {
+                            return settle(false);
+                        }
+
+                        Promise.reject('foo');
+                        setTimeout(function() {
+                            var valid = (
+                                promiseRejectionEvent &&
+                                promiseRejectionEvent.reason === 'foo'
+                            );
+                            // to be fully compliant we shoudl ensure
+                            // promiseRejectionEvent.promise === the promise rejected above
+                            // BUT it seems corejs dos not behave that way
+                            // and I'm not 100% sure what is the expected promise object here
+                            settle(valid);
+                        }, 10); // engine has 10ms to trigger the event
+                    }
+                });
+                register('rejection-handled', {
+                    test: function(Promise, settle) {
+                        var promiseRejectionEvent;
+                        var rejectionHandled = function(e) {
+                            promiseRejectionEvent = e;
+                        };
+
+                        if (jsenv.isBrowser()) {
+                            if ('onrejectionhandled' in window === false) {
+                                return settle(false);
+                            }
+                            window.onrejectionhandled = rejectionHandled;
+                        } else if (jsenv.isNode()) {
+                            process.on('rejectionHandled', function(promise) {
+                                rejectionHandled({promise: promise});
+                            });
+                        } else {
+                            return settle(false);
+                        }
+
+                        var promise = Promise.reject('foo');
+                        setTimeout(function() {
+                            promise.catch(function() {});
+                            setTimeout(function() {
+                                settle(
+                                    promiseRejectionEvent &&
+                                    promiseRejectionEvent.promise === promise
+                                );
+                                // node event emit the value
+                                // so we can't check for
+                                // promiseRejectionEvent.reason === 'foo'
+                            }, 10); // engine has 10ms to trigger the event
+                        });
+                    }
+                });
+            });
+            register('symbol', {
+                path: 'Symbol'
+            }).ensure(function() {
+                register('iterator', {
+                    path: 'iterator'
+                });
+                register('to-primitive', {
+                    path: 'toPrimitive'
+                });
+            });
+            register('object', {
+                path: 'Object'
+            }).ensure(function() {
+                register('get-own-property-descriptor', {
+                    path: 'getOwnPropertyDescriptor'
+                });
+                register('assign', {
+                    path: 'assign'
+                });
+            });
+            register('date', {
+                path: 'Date'
+            }).ensure(function() {
+                register('now', {
+                    path: 'now'
+                });
+                register('prototype', {
+                    path: 'prototype'
+                }).ensure(function() {
+                    register('symbol-to-primitive', {
+                        dependencies: ['symbol-to-primitive'],
+                        code: produceFromComposedPath
+                    });
+                    register('to-json', {
+                        path: 'toJSON'
+                    }).ensure(function() {
+                        // https://github.com/zloirock/core-js/blob/v2.4.1/modules/es6.date.to-json.js
+                        register('nan-return-null', {
+                            test: function() {
+                                return new Date(NaN).toJSON() === null;
+                            }
+                        });
+                        register('use-to-iso-string', {
+                            test: function() {
+                                var fakeDate = {
+                                    toISOString: function() {
+                                        return 1;
+                                    }
+                                };
+                                return Date.prototype.toJSON.call(fakeDate) === 1;
+                            }
+                        });
+                    });
+                    register('to-iso-string', {
+                        path: 'toISOString'
+                    }).ensure(function() {
+                        // https://github.com/zloirock/core-js/blob/v2.4.1/modules/es6.date.to-iso-string.js
+                        register('negative-5e13', {
+                            test: function() {
+                                return new Date(-5e13 - 1).toISOString() === '0385-07-25T07:06:39.999Z';
+                            }
+                        });
+                        register('nan-throw', {
+                            test: Predicate.fails(function() {
+                                new Date(NaN).toISOString(); // eslint-disable-line no-unused-expressions
+                            })
+                        });
+                    });
+                    register('to-string', {
+                        path: 'toString'
+                    }).ensure(function() {
+                        register('nan-return-invalid-date', {
+                            test: function() {
+                                // https://github.com/zloirock/core-js/blob/v2.4.1/modules/es6.date.to-string.js
+                                return new Date(NaN).toString() === 'Invalid Date';
+                            }
+                        });
                     });
                 });
-            } else {
-                return settle(false);
-            }
+            });
+            register('array', {
+                path: 'Array'
+            }).ensure(function() {
+                register('prototype', {
+                    path: 'prototype'
+                }).ensure(function() {
+                    register('symbol-iterator', {
+                        dependencies: ['symbol-iterator'],
+                        code: produceFromComposedPath
+                    }).ensure(function() {
+                        register('sparse', {
+                            test: function(arrayIterator) {
+                                var sparseArray = [,,]; // eslint-disable-line no-sparse-arrays, comma-spacing
+                                var iterator = arrayIterator.call(sparseArray);
+                                var values = consumeIterator(iterator);
 
-            Promise.reject('foo');
-            setTimeout(function() {
-                var valid = (
-                    promiseRejectionEvent &&
-                    promiseRejectionEvent.reason === 'foo'
-                );
-                // to be fully compliant we shoudl ensure
-                // promiseRejectionEvent.promise === the promise rejected above
-                // BUT it seems corejs dos not behave that way
-                // and I'm not 100% sure what is the expected promise object here
-                settle(valid);
-            }, 10); // engine has 10ms to trigger the event
-        });
-        standard('promise-rejection-handled', function(Promise, settle) {
-            var promiseRejectionEvent;
-            var rejectionHandled = function(e) {
-                promiseRejectionEvent = e;
-            };
-
-            if (jsenv.isBrowser()) {
-                if ('onrejectionhandled' in window === false) {
-                    return settle(false);
-                }
-                window.onrejectionhandled = rejectionHandled;
-            } else if (jsenv.isNode()) {
-                process.on('rejectionHandled', function(promise) {
-                    rejectionHandled({promise: promise});
+                                return sameValues(values, sparseArray);
+                            }
+                        });
+                    });
                 });
-            } else {
-                return settle(false);
-            }
+            });
+            register('function', {
+                path: 'Function'
+            }).ensure(function() {
+                register('prototype', {
+                    path: 'prototype'
+                }).ensure(function() {
+                    register('name', {
+                        path: 'name'
+                    }).ensure(function() {
+                        register('description', {
+                            test: function() {
+                                var descriptor = Object.getOwnPropertyDescriptor(
+                                    function f() {},
+                                    'name'
+                                );
 
-            var promise = Promise.reject('foo');
-            setTimeout(function() {
-                promise.catch(function() {});
-                setTimeout(function() {
-                    settle(
-                        promiseRejectionEvent &&
-                        promiseRejectionEvent.promise === promise
-                    );
-                    // node event emit the value
-                    // so we can't check for
-                    // promiseRejectionEvent.reason === 'foo'
-                }, 10); // engine has 10ms to trigger the event
+                                return (
+                                    descriptor.enumerable === false &&
+                                    descriptor.writable === false &&
+                                    descriptor.configurable === true
+                                );
+                            }
+                        });
+                        register('statement', {
+                            test: function() {
+                                function foo() {}
+
+                                return (
+                                    foo.name === 'foo' &&
+                                    (function() {}).name === ''
+                                );
+                            }
+                        });
+                        register('expression', {
+                            test: function() {
+                                return (
+                                    (function foo() {}).name === 'foo' &&
+                                    (function() {}).name === ''
+                                );
+                            }
+                        });
+                        register('new', {
+                            test: function() {
+                                // eslint-disable-next-line no-new-func
+                                return (new Function()).name === 'anonymous';
+                            }
+                        });
+                        register('bind', {
+                            test: function() {
+                                function foo() {}
+                                var boundFoo = foo.bind({});
+                                var boundAnonymous = (function() {}).bind({}); // eslint-disable-line no-extra-bind
+
+                                return (
+                                    boundFoo.name === "bound foo" &&
+                                    boundAnonymous.name === "bound "
+                                );
+                            }
+                        });
+                        register('var', {
+                            test: function() {
+                                var foo = function() {};
+                                var bar = function baz() {};
+
+                                return (
+                                    foo.name === "foo" &&
+                                    bar.name === "baz"
+                                );
+                            }
+                        });
+                        register('accessor', {
+                            code: transpile`(function() {
+                                return {
+                                    get foo() {},
+                                    set foo(x) {}
+                                };
+                            })`,
+                            test: function(fn) {
+                                var result = fn();
+                                var descriptor = Object.getOwnPropertyDescriptor(result, 'foo');
+
+                                return (
+                                    descriptor.get.name === 'get foo' &&
+                                    descriptor.set.name === 'set foo'
+                                );
+                            }
+                        });
+                        register('method', {
+                            test: function() {
+                                var result = {
+                                    foo: function() {},
+                                    bar: function baz() {}
+                                };
+                                result.qux = function() {};
+
+                                return (
+                                    result.foo.name === 'foo' &&
+                                    result.bar.name === 'baz' &&
+                                    result.qux.name === ''
+                                );
+                            }
+                        });
+                        register('method-shorthand', {
+                            dependencies: [
+                                'shorthand-methods'
+                            ],
+                            code: transpile`(function() {
+                                return {
+                                    foo() {}
+                                };
+                            })`,
+                            test: function(fn) {
+                                return fn().foo.name === 'foo';
+                            }
+                        });
+                        register('method-shorthand-lexical-binding', {
+                            code: transpile`(function(value) {
+                                var f = value;
+                                return ({
+                                    f() {
+                                        return f;
+                                    }
+                                });
+                            })`,
+                            test: function(fn) {
+                                var value = 1;
+                                return fn(value).f() === value;
+                            }
+                        });
+                        register('method-computed-symbol', {
+                            dependencies: [
+                                'symbol',
+                                'computed-properties'
+                            ],
+                            code: transpile`(function(first, second) {
+                                return {
+                                    [first]: function() {},
+                                    [second]: function() {}
+                                };
+                            })`,
+                            test: function(fn) {
+                                var name = 'foo';
+                                var first = Symbol(name);
+                                var second = Symbol();
+                                var result = fn(first, second);
+
+                                return (
+                                    result[first].name === '[' + name + ']' &&
+                                    result[second].name === ''
+                                );
+                            }
+                        });
+                    });
+                });
+            });
+            register('string', {
+                path: 'String'
+            }).ensure(function() {
+                register('prototype', {
+                    path: 'prototype'
+                }).ensure(function() {
+                    register('symbol-iterator', {
+                        dependencies: ['symbol-iterator'],
+                        code: produceFromComposedPath
+                    }).ensure(function() {
+                        register('basic', {
+                            test: function(stringIterator) {
+                                var string = '1234';
+                                var iterator = stringIterator.call(string);
+                                var values = consumeIterator(iterator);
+
+                                return sameValues(values, string);
+                            }
+                        });
+                        register('astral', {
+                            test: function(stringIterator) {
+                                var astralString = '𠮷𠮶';
+                                var iterator = stringIterator.call(astralString);
+                                var values = consumeIterator(iterator);
+
+                                return sameValues(values, astralString);
+                            }
+                        });
+                    });
+                });
+            });
+            register('url', {
+                path: 'URL'
+            });
+            register('url-search-params', {
+                path: 'URLSearchParams'
             });
         });
-        standard('symbol', 'Symbol');
-        standard('symbol-iterator', 'iterator');
-        standard('symbol-to-primitive', 'toPrimitive');
-        standard('object', 'Object');
-        standard('object-get-own-property-descriptor', 'getOwnPropertyDescriptor');
-        standard('object-assign', 'assign');
-        standard('date', 'Date');
-        standard('date-now', 'now');
-        standard('date-prototype', 'prototype');
-        standard('date-prototype-to-json', 'toJSON');
-        // https://github.com/zloirock/core-js/blob/v2.4.1/modules/es6.date.to-json.js
-        standard('date-prototype-to-json-nan-return-null', function() {
-            return new Date(NaN).toJSON() === null;
-        });
-        standard('date-prototype-to-json-use-to-iso-string', function() {
-            var fakeDate = {
-                toISOString: function() {
-                    return 1;
-                }
-            };
-            return Date.prototype.toJSON.call(fakeDate) === 1;
-        });
-        standard('date-prototype-to-iso-string', 'toISOString');
-        // https://github.com/zloirock/core-js/blob/v2.4.1/modules/es6.date.to-iso-string.js
-        standard('date-prototype-to-iso-string-negative-5e13', function() {
-            return new Date(-5e13 - 1).toISOString() === '0385-07-25T07:06:39.999Z';
-        });
-        standard('date-prototype-to-iso-string-nan-throw', Predicate.fails(function() {
-            new Date(NaN).toISOString(); // eslint-disable-line no-unused-expressions
-        }));
-        standard('date-prototype-symbol-to-primitive', jsenv.implementation.get('symbol-to-primitive'));
-        standard('date-prototype-to-string', 'toString');
-        standard('date-prototype-to-string-nan-return-invalid-date', function() {
-            // https://github.com/zloirock/core-js/blob/v2.4.1/modules/es6.date.to-string.js
-            return new Date(NaN).toString() === 'Invalid Date';
-        });
-        standard('array', 'Array');
-        standard('array-prototype', 'prototype');
-        standard('array-prototype-symbol-iterator', jsenv.implementation.get('symbol-iterator'));
-        standard('array-prototype-symbol-iterator-sparse', function(arrayIterator) {
-            var sparseArray = [,,]; // eslint-disable-line no-sparse-arrays, comma-spacing
-            var iterator = arrayIterator.call(sparseArray);
-            var values = consumeIterator(iterator);
-
-            return sameValues(values, sparseArray);
-        });
-
-        standard('function', 'Function');
-        standard('function-prototype', 'prototype');
-        standard('function-prototype-name', 'name');
-        standard('function-prototype-name-description', function() {
-            var descriptor = Object.getOwnPropertyDescriptor(
-                function f() {},
-                'name'
-            );
-
-            return (
-                descriptor.enumerable === false &&
-                descriptor.writable === false &&
-                descriptor.configurable === true
-            );
-        });
-
-        standard('string', 'String');
-        standard('string-prototype', 'prototype');
-        standard('string-prototype-symbol-iterator', jsenv.implementation.get('symbol-iterator'));
-        standard('string-prototype-symbol-iterator-basic', function(stringIterator) {
-            var string = '1234';
-            var iterator = stringIterator.call(string);
-            var values = consumeIterator(iterator);
-
-            return sameValues(values, string);
-        });
-        standard('string-prototype-symbol-iterator-astral', function(stringIterator) {
-            var astralString = '𠮷𠮶';
-            var iterator = stringIterator.call(astralString);
-            var values = consumeIterator(iterator);
-
-            return sameValues(values, astralString);
-        });
-
-        standard('url', 'URL');
-        standard('url-search-params', 'URLSearchParams', true);
 
         /*
         if (jsenv.isBrowser() === false) {
@@ -277,147 +560,100 @@
             // en gros on exclu certains features quand on est pas dans le browser
         }
         */
-    });
 
-    jsenv.provide(function registerSyntaxFeatures() {
-        /*
-        this is all about mapping
-        https://github.com/babel/babel-preset-env/blob/master/data/plugin-features.js
-        with
-        https://github.com/kangax/compat-table/blob/gh-pages/data-es5.js
-        https://github.com/kangax/compat-table/blob/gh-pages/data-es6.js
-        */
-
-        var registerSyntax = jsenv.registerSyntax;
-        var groupNames = [];
-        function group(name, groupScope) {
-            if (name) {
-                groupNames.push(name);
-            }
-            groupScope();
-            if (name) {
-                groupNames.pop();
-            }
-        }
-        function syntax(name, descriptor) {
-            if (arguments.length === 1) {
-                descriptor = arguments[0];
-                name = '';
-            }
-
-            if (groupNames.length) {
-                if (name) {
-                    name = groupNames.join('-') + '-' + name;
-                } else {
-                    name = groupNames.join('-');
+        register('for-of', {
+            dependencies: [
+                'array-prototype-symbol-iterator'
+            ],
+            code: transpile`(function(value) {
+                var result = [];
+                for (var entry of value) {
+                    result.push(entry);
                 }
+                return result;
+            })`,
+            test: function(result) {
+                var value = [5];
+                return sameValues(result(value), value);
             }
-            return registerSyntax(name, descriptor);
-        }
-
-        group('for-of', function() {
-            syntax({
-                dependencies: [
-                    'array-prototype-symbol-iterator'
-                ],
-                config: [
-                    [5]
-                ],
-                code: transpile`(function(value) {
-                    var result = [];
-                    for (var entry of value) {
-                        result.push(entry);
-                    }
-                    return result;
-                })`,
-                test: function(result) {
-                    return result[0] === 5;
-                }
-            });
-            syntax('iterable', {
+        }).ensure(function() {
+            register('iterable', {
                 dependencies: [
                     'symbol-iterator'
                 ],
-                config: function() {
-                    return [
-                        createIterableObject([1, 2, 3])
-                    ];
-                },
                 test: function(result) {
-                    return sameValues(result, [1, 2, 3]);
+                    var data = [1, 2, 3];
+                    var iterable = createIterableObject(data);
+                    return sameValues(result(iterable), data);
                 }
             });
-            syntax('iterable-instance', {
-                config: function() {
-                    return [
-                        Object.create(createIterableObject([1, 2, 3]))
-                    ];
-                },
+            register('iterable-instance', {
                 test: function(result) {
-                    return sameValues(result, [1, 2, 3]);
+                    var data = [1, 2, 3];
+                    var iterable = createIterableObject(data);
+                    var instance = Object.create(iterable);
+
+                    return sameValues(result(instance), data);
                 }
             });
-            syntax('iterable-return-called-on-break', {
-                config: function() {
-                    return [
-                        createIterableObject([1], {
-                            'return': function() { // eslint-disable-line
-                                this.iterable.returnCalled = true;
-                                return {};
-                            }
-                        })
-                    ];
-                },
+            register('iterable-return-called-on-break', {
                 code: transpile`(function(value) {
                     for (var it of value) {
                         break;
                     }
                 })`,
-                test: function() {
-                    return this.config[0].returnCalled;
+                test: function(fn) {
+                    var called = false;
+                    var iterable = createIterableObject([1], {
+                        'return': function() {
+                            called = true;
+                            return {};
+                        }
+                    });
+                    fn(iterable);
+                    return called;
                 }
             });
-            syntax('iterable-return-called-on-throw', {
-                config: function() {
-                    return [
-                        createIterableObject([1], {
-                            'return': function() { // eslint-disable-line
-                                this.iterable.returnCalled = true;
-                                return {};
-                            }
-                        }),
-                        0
-                    ];
-                },
+            register('iterable-return-called-on-throw', {
                 code: transpile`(function(value, throwedValue) {
                     for (var it of value) {
                         throw throwedValue;
                     }
                 })`,
-                when: 'code-runtime-error',
-                test: function(error) {
-                    return (
-                        error === this.config.throwedValue &&
-                        this.config.value.returnCalled
-                    );
+                test: function(fn) {
+                    var called = false;
+                    var iterable = createIterableObject([1], {
+                        'return': function() { // eslint-disable-line
+                            called = true;
+                            return {};
+                        }
+                    });
+                    var throwedValue = 0;
+
+                    try {
+                        fn(iterable, throwedValue);
+                    } catch (e) {
+                        return (
+                            e === throwedValue &&
+                            called
+                        );
+                    }
+                    return false;
                 }
             });
         });
 
-        group('const', function() {
-            syntax({
-                config: [
-                    1
-                ],
-                code: transpile`(function(value) {
-                    const result = value;
-                    return result;
-                })`,
-                test: function(result) {
-                    return result === this.config[0];
-                }
-            });
-            syntax('throw-statement', {
+        register('const', {
+            code: transpile`(function(value) {
+                const result = value;
+                return result;
+            })`,
+            test: function(fn) {
+                var value = 1;
+                return fn(value) === value;
+            }
+        }).ensure(function() {
+            register('throw-statement', {
                 code: transpile`(function() {
                     if (true) const bar = 1;
                 })`,
@@ -426,20 +662,21 @@
                     return error instanceof Error;
                 }
             });
-            syntax('throw-redefine', {
+            register('throw-redefine', {
                 code: transpile`(function() {
                     const foo = 1;
                     foo = 2;
                 })`,
-                when: 'code-runtime-error',
-                test: function(error) {
-                    return error instanceof Error;
+                test: function(fn) {
+                    try {
+                        fn();
+                    } catch (e) {
+                        return e instanceof Error;
+                    }
+                    return false;
                 }
             });
-            syntax('temporal-dead-zone', {
-                config: {
-                    value: 10
-                },
+            register('temporal-dead-zone', {
                 code: transpile`(function(value) {
                     var result;
                     function fn() {
@@ -449,15 +686,12 @@
                     fn();
                     return result;
                 })`,
-                test: function(result) {
-                    return result === this.config[0];
+                test: function(fn) {
+                    var value = 10;
+                    return fn(value) === value;
                 }
             });
-            syntax('scoped', {
-                config: [
-                    0,
-                    1
-                ],
+            register('scoped', {
                 code: transpile`(function(outsideValue, insideValue) {
                     const result = outsideValue;
                     {
@@ -465,24 +699,25 @@
                     }
                     return result;
                 })`,
-                test: function(result) {
-                    return result === this.config[0];
+                test: function(fn) {
+                    var outsideValue = 0;
+                    var insideValue = 1;
+                    return fn(outsideValue, insideValue) === outsideValue;
                 }
             });
-            syntax('scoped-for-statement', {
+            register('scoped-for-statement', {
                 code: transpile`(function(outsideValue, insideValue) {
                     const foo = outsideValue;
                     for(const foo = insideValue; false;) {}
                     return foo;
                 })`,
-                test: function(result) {
-                    return result === this.config[0];
+                test: function(fn) {
+                    var outsideValue = 0;
+                    var insideValue = 1;
+                    return fn(outsideValue, insideValue) === outsideValue;
                 }
             });
-            syntax('scoped-for-body', {
-                config: [
-                    [0, 1]
-                ],
+            register('scoped-for-body', {
                 code: transpile`(function(value) {
                     var scopes = [];
                     for(const i in value) {
@@ -492,23 +727,17 @@
                     }
                     return scopes;
                 })`,
-                test: function(result) {
-                    var scopedValues = jsenv.Iterable.map(result, function(fn) {
-                        return fn();
+                test: function(fn) {
+                    var value = [0, 1];
+                    var scopes = fn(value);
+                    var scopeValues = Iterable.map(scopes, function(scope) {
+                        return scope();
                     });
-                    var value = this.config[0];
-                    var expectedValues = [];
-                    for (var i in value) { // eslint-disable-line guard-for-in
-                        expectedValues.push(i);
-                    }
-                    return sameValues(scopedValues, expectedValues);
+                    return sameValues(scopeValues, value);
                 }
             });
-            syntax('scoped-for-of-body', {
+            register('scoped-for-of-body', {
                 dependencies: ['for-of'],
-                config: [
-                    [0, 1]
-                ],
                 code: transpile`(function(value) {
                     var scopes = [];
                     for(const i of value) {
@@ -518,29 +747,28 @@
                     }
                     return scopes;
                 })`,
-                test: function(result) {
-                    var scopedValues = jsenv.Iterable.map(result, function(fn) {
-                        return fn();
+                test: function(fn) {
+                    var value = ['a', 'b'];
+                    var scopes = fn(value);
+                    var scopeValues = Iterable.map(scopes, function(scope) {
+                        return scope();
                     });
-                    return sameValues(scopedValues, collectKeys(this.config[0]));
+                    return sameValues(scopeValues, collectKeys(value));
                 }
             });
         });
 
-        group('let', function() {
-            syntax({
-                config: {
-                    value: 123
-                },
-                code: transpile`(function(value) {
-                    let result = value;
-                    return result;
-                })`,
-                test: function(result) {
-                    return result === this.config[0];
-                }
-            });
-            syntax('throw-statement', {
+        register('let', {
+            code: transpile`(function(value) {
+                let result = value;
+                return result;
+            })`,
+            test: function(fn) {
+                var value = 123;
+                return fn(value) === value;
+            }
+        }).ensure(function() {
+            register('throw-statement', {
                 code: transpile`(function() {
                     if (true) let result = 1;
                 })`,
@@ -549,10 +777,7 @@
                     return error instanceof Error;
                 }
             });
-            syntax('temporal-dead-zone', {
-                config: {
-                    value: 10
-                },
+            register('temporal-dead-zone', {
                 code: transpile`(function(value) {
                     var result;
                     function fn() {
@@ -562,15 +787,12 @@
                     fn();
                     return result;
                 })`,
-                test: function(result) {
-                    return result === this.config[0];
+                test: function(fn) {
+                    var value = 10;
+                    return fn(value) === value;
                 }
             });
-            syntax('scoped', {
-                config: [
-                    0,
-                    1
-                ],
+            register('scoped', {
                 code: transpile`(function(outsideValue, insideValue) {
                     let result = outsideValue;
                     {
@@ -578,964 +800,751 @@
                     }
                     return result;
                 })`,
-                test: function(result) {
-                    return result === this.config[0];
+                test: function(fn) {
+                    var outsideValue = 0;
+                    var insideValue = 1;
+                    return fn(outsideValue, insideValue) === outsideValue;
                 }
             });
-            syntax('scoped-for-statement', {
+            register('scoped-for-statement', {
                 code: transpile`(function(outsideValue, insideValue) {
                     let result = outsideValue;
                     for(let result = insideValue; false;) {}
                     return result;
                 })`,
-                test: function(result) {
-                    return result === this.config[0];
+                test: function(fn) {
+                    var outsideValue = 0;
+                    var insideValue = 1;
+                    return fn(outsideValue, insideValue) === outsideValue;
                 }
             });
-            syntax('scoped-for-body', {
-                config: [
-                    [0, 1]
-                ],
-                code: transpile`(function(value) {
+            register('scoped-for-body', {
+                code: transpile`(function(iterable) {
                     var scopes = [];
-                    for(let i in value) {
+                    for(let i in iterable) {
                         scopes.push(function() {
                             return i;
                         });
                     }
                     return scopes;
                 })`,
-                test: function(result) {
-                    var scopedValues = jsenv.Iterable.map(result, function(fn) {
-                        return fn();
+                test: function(fn) {
+                    var iterable = [0, 1];
+                    var scopes = fn(iterable);
+                    var scopeValues = Iterable.map(scopes, function(scope) {
+                        return scope();
                     });
-                    var value = this.config[0];
-                    var expectedValues = [];
-                    for (var i in value) { // eslint-disable-line guard-for-in
-                        expectedValues.push(i);
+                    return sameValues(scopeValues, iterable);
+                }
+            });
+        });
+
+        register('computed-properties', {
+            code: transpile`(function(name, value) {
+                return {[name]: value};
+            })`,
+            test: function(fn) {
+                var name = 'y';
+                var value = 1;
+                return fn(name, value)[name] === value;
+            }
+        });
+
+        register('shorthand-properties', {
+            code: transpile`(function(a, b) {
+                return {a, b};
+            })`,
+            test: function(fn) {
+                var a = 1;
+                var b = 2;
+                var result = fn(a, b);
+
+                return (
+                    result.a === a &&
+                    result.b === b
+                );
+            }
+        });
+
+        register('shorthand-methods', {
+            code: transpile`(function() {
+                return {
+                    y() {}
+                };
+            })`,
+            test: function(fn) {
+                var result = fn();
+                return typeof result.y === 'function';
+            }
+        });
+
+        register('destructuring-declaration-array', {
+            code: transpile`(function(value) {
+                var [a] = value;
+                return a;
+            })`,
+            test: function(fn) {
+                var value = 1;
+                return fn([value]) === value;
+            }
+        }).ensure(function() {
+            register('trailing-commas', {
+                code: transpile`(function(value) {
+                    var [a,] = value;
+                    return a;
+                })`,
+                test: function(fn) {
+                    var value = 0;
+                    return fn([value]) === value;
+                }
+            });
+            register('iterable', {
+                code: transpile`(function(value) {
+                    var [a, b, c] = value;
+                    return [a, b, c];
+                })`,
+                test: function(fn) {
+                    var data = [1, 2];
+                    var iterable = createIterableObject(data);
+
+                    return sameValues(fn(iterable), [1, 2, undefined]);
+                }
+            });
+            register('iterable-instance', {
+                test: function(fn) {
+                    var data = [1, 2];
+                    var iterable = createIterableObject(data);
+                    var instance = Object.create(iterable);
+
+                    return sameValues(fn(instance), [1, 2, undefined]);
+                }
+            });
+            register('sparse', {
+                code: transpile`(function(value) {
+                    var [a, ,b] = value;
+                    return [a, b];
+                })`,
+                test: function(fn) {
+                    var firstValue = 1;
+                    var lastValue = 3;
+                    var result = fn([firstValue, null, lastValue]);
+                    return sameValues(result, [firstValue, lastValue]);
+                }
+            });
+            register('nested', {
+                code: transpile`(function(value) {
+                    var [[a]] = value;
+                    return a;
+                })`,
+                test: function(fn) {
+                    var value = 1;
+                    return fn([[value]]) === value;
+                }
+            });
+            register('for-in-statement', {
+                code: transpile`(function(value) {
+                    for (var [a, b] in value);
+                    return [a, b];
+                })`,
+                test: function(fn) {
+                    var value = {fo: 1};
+                    return sameValues(fn(value), ['f', 'o']);
+                }
+            });
+            register('for-of-statement', {
+                dependencies: ['for-of'],
+                code: transpile`(function(iterable) {
+                    for(var [a, b] of iterable);
+                    return [a, b];
+                })`,
+                test: function(fn) {
+                    var data = [0, 1];
+                    return sameValues(fn([data]), data);
+                }
+            });
+            register('catch-statement', {
+                code: transpile`(function(value) {
+                    try {
+                        throw value;
+                    } catch ([a]) {
+                        return a;
                     }
-                    return sameValues(scopedValues, expectedValues);
+                })`,
+                test: function(fn) {
+                    var value = 1;
+                    return fn([value]) === value;
                 }
             });
-        });
-
-        group('computed-properties', function() {
-            syntax({
-                config: [
-                    'y',
-                    1
-                ],
-                code: transpile`(function(name, value) {
-                    return {[name]: value};
+            register('rest', {
+                code: transpile`(function(value) {
+                    var [a, ...b] = value;
+                    return [a, b];
                 })`,
-                test: function(result) {
-                    return result[this.config[0]] === this.config[1];
-                }
-            });
-        });
+                test: function(fn) {
+                    var firstValue = 1;
+                    var lastValue = 2;
+                    var firstResult = fn([firstValue, lastValue]);
+                    var secondResult = fn([firstValue]);
 
-        group('shorthand-properties', function() {
-            syntax({
-                config: [
-                    1,
-                    2
-                ],
-                code: transpile`(function(a, b) {
-                    return {a, b};
-                })`,
-                test: function(result) {
                     return (
-                        result.a === this.config[0] &&
-                        result.b === this.config[1]
+                        firstResult[0] === firstValue &&
+                        sameValues(firstResult[1], [lastValue]) &&
+                        secondResult[0] === firstValue &&
+                        sameValues(secondResult[1], [])
                     );
                 }
             });
-        });
-
-        group('shorthand-methods', function() {
-            syntax({
-                config: [
-                    {}
-                ],
-                code: transpile`(function(value) {
-                    return {
-                        y() {
-                            return value;
-                        }
-                    };
+            register('default', {
+                code: transpile`(function(defaultValues, values) {
+                    var [a = defaultValues[0], b = defaultValues[1], c = defaultValues[2]] = values;
+                    return [a, b, c];
                 })`,
-                test: function(result) {
-                    return result.y() === this.config[0];
-                }
-            });
-        });
-
-        group('destructuring', function() {
-            group('declaration', function() {
-                group('array', function() {
-                    syntax({
-                        config: [
-                            [1]
+                test: function(fn) {
+                    var defaultA = 1;
+                    var defaultB = 2;
+                    var defaultC = 3;
+                    var a = 4;
+                    var result = fn(
+                        [
+                            defaultA,
+                            defaultB,
+                            defaultC
                         ],
-                        code: transpile`(function(value) {
-                            var [a] = value;
-                            return a;
-                        })`,
-                        test: function(result) {
-                            return result === this.config[0][0];
-                        }
-                    });
-                    syntax('trailing-commas', {
-                        code: transpile`(function(value) {
-                            var [a,] = value;
-                            return a;
-                        })`,
-                        test: function(result) {
-                            return result === this.config[0][0];
-                        }
-                    });
-                    syntax('iterable', {
-                        config: [
-                            createIterableObject([1, 2])
-                        ],
-                        code: transpile`(function(value) {
-                            var [a, b, c] = value;
-                            return [a, b, c];
-                        })`,
-                        test: function(result) {
-                            return sameValues(result, [1, 2, undefined]);
-                        }
-                    });
-                    syntax('iterable-instance', {
-                        config: [
-                            Object.create(createIterableObject([1, 2]))
-                        ],
-                        test: function(result) {
-                            return sameValues(result, [1, 2, undefined]);
-                        }
-                    });
-                    syntax('sparse', {
-                        config: [
-                            [1, 2, 3]
-                        ],
-                        code: transpile`(function(value) {
-                            var [a, ,b] = value;
-                            return [a, b];
-                        })`,
-                        test: function(result) {
-                            return sameValues(result, [this.config[0][0], this.config[0][2]]);
-                        }
-                    });
-                    syntax('nested', {
-                        config: [
-                            [[1]]
-                        ],
-                        code: transpile`(function(value) {
-                            var [[a]] = value;
-                            return a;
-                        })`,
-                        test: function(result) {
-                            return result === this.config[0][0][0];
-                        }
-                    });
-                    syntax('for-in-statement', {
-                        config: [
-                            {fo: 1}
-                        ],
-                        code: transpile`(function(value) {
-                            for (var [a, b] in value);
-                            return [a, b];
-                        })`,
-                        test: function(result) {
-                            return result.join('') === 'fo';
-                        }
-                    });
-                    syntax('for-of-statement', {
-                        dependencies: ['for-of'],
-                        config: [
-                            [[0, 1]]
-                        ],
-                        code: transpile`(function(value) {
-                            for(var [a, b] of value);
-                            return [a, b];
-                        })`,
-                        test: function(result) {
-                            return sameValues(result, this.config[0][0]);
-                        }
-                    });
-                    syntax('catch-statement', {
-                        config: [
-                            [1]
-                        ],
-                        code: transpile`(function(value) {
-                            try {
-                                throw value;
-                            } catch ([a]) {
-                                return a;
-                            }
-                        })`,
-                        test: function(result) {
-                            return result === this.config[0][0];
-                        }
-                    });
-                    syntax('rest', {
-                        config: [
-                            [1, 2, 3],
-                            [4]
-                        ],
-                        code: transpile`(function(value, secondValue) {
-                            var [a, ...b] = value;
-                            var [c, ...d] = secondValue;
-                            return [a, b, c, d];
-                        })`,
-                        test: function(result) {
-                            return (
-                                result[0] === this.config[0][0] &&
-                                sameValues(result[1], this.config[0].slice(1)) &&
-                                result[2] === this.config[1][0] &&
-                                result[3] instanceof Array && result[3].length === 0
-                            );
-                        }
-                    });
-                    syntax('default', {
-                        code: transpile`(function() {
-                            var [a = 4, b = 5, c = 6] = [0,,undefined];
-                            return [a, b, c];
-                        })`,
-                        test: function(result) {
-                            return sameValues(result, [0, 5, 6]);
-                        }
-                    });
-                });
-
-                group('object', function() {
-                    syntax({
-                        config: [
-                            {a: 1}
-                        ],
-                        code: transpile`(function(value) {
-                            var {a} = value;
-                            return a;
-                        })`,
-                        test: function(result) {
-                            return result === this.config[0].a;
-                        }
-                    });
-                    syntax('throw-null', {
-                        config: [
-                            null
-                        ],
-                        when: 'code-runtime-error',
-                        test: function(result) {
-                            return result instanceof TypeError;
-                        }
-                    });
-                    syntax('throw-undefined', {
-                        config: [
+                        [ // eslint-disable-line no-sparse-arrays
+                            a,
+                            , // eslint-disable-line comma-style
                             undefined
-                        ],
-                        when: 'code-runtime-error',
-                        test: function(result) {
-                            return result instanceof TypeError;
-                        }
-                    });
-                    syntax('primitive-return-prototype', {
-                        config: function() {
-                            var value = 2;
-                            var prototypeValue = 'foo';
-                            value.constructor.prototype.a = prototypeValue;
-                            return [
-                                prototypeValue,
-                                value
-                            ];
-                        },
-                        test: function(result) {
-                            delete this.config[1].constructor.prototype.a;
-                            return result === this.config[0];
-                        }
-                    });
-                    syntax('trailing-commas', {
-                        config: [
-                            1
-                        ],
-                        code: transpile`(function(value) {
-                            var {a,} = {a:value};
-                            return a;
-                        })`,
-                        test: function(result) {
-                            return result === this.config[0];
-                        }
-                    });
-                    syntax('double-dot-as', {
-                        config: [
-                            {x: 1}
-                        ],
-                        code: transpile`(function(value) {
-                            var {x:a} = value;
-                            return a;
-                        })`,
-                        test: function(result) {
-                            return result === this.config[0].x;
-                        }
-                    });
-                    syntax('computed-properties', {
-                        dependencies: ['computed-properties'],
-                        config: [
-                            'b',
-                            {b: 1}
-                        ],
-                        code: transpile`(function(value) {
-                            var {[name]: a} = value;
-                            return a;
-                        })`,
-                        test: function(result) {
-                            return result === this.config[1][this.config[0]];
-                        }
-                    });
-                    syntax('catch-statement', {
-                        config: [
-                            {a: 1}
-                        ],
-                        code: transpile`(function(value) {
-                            try {
-                                throw value;
-                            } catch ({a}) {
-                                return a;
-                            }
-                        })`,
-                        test: function(result) {
-                            return result === this.config[0].a;
-                        }
-                    });
-                    syntax('default', {
-                        code: transpile`(function() {
-                            var {a = 4, b = 5, c = 6} = {a: 0, c: undefined};
-                            return [a, b, c];
-                        })`,
-                        test: function(result) {
-                            return sameValues(result, [0, 5, 6]);
-                        }
-                    });
-                    syntax('default-let-temporal-dead-zone', {
-                        dependencies: ['let'],
-                        code: transpile`(function() {
-                            let {c = c} = {};
-                            let {c = d, d} = {d: 1};
-                        })`,
-                        when: 'code-compilation-error',
-                        test: function(result) {
-                            return result instanceof Error;
-                        }
-                    });
-                });
+                        ]
+                    );
 
-                syntax('array-chain-object', {
-                    dependencies: [
-                        'destructuring-declaration-array',
-                        'destructuring-declaration-object'
-                    ],
-                    config: [
-                        [0, 1],
-                        {c: 2, d: 3}
-                    ],
-                    code: transpile`(function(array, object) {
-                        var [a,b] = array, {c,d} = object;
-                        return [a, b, c, d];
-                    })`,
-                    test: function(result) {
-                        return sameValues(result, [
-                            this.config[0][0],
-                            this.config[0][1],
-                            this.config[1].c,
-                            this.config[1].d
-                        ]);
-                    }
-                });
-                syntax('array-nest-object', {
-                    dependencies: [
-                        'destructuring-declaration-array',
-                        'destructuring-declaration-object'
-                    ],
-                    config: [
-                        [{a: 1}]
-                    ],
-                    code: transpile`(function(value) {
-                        var [{a}] = value;
-                        return a;
-                    })`,
-                    test: function(result) {
-                        return result === this.config[0][0].a;
-                    }
-                });
-                syntax('object-nest-array', {
-                    dependencies: [
-                        'destructuring-declaration-array',
-                        'destructuring-declaration-object',
-                        'destructuring-declaration-object-double-dot-as'
-                    ],
-                    config: [
-                        {x: [1]}
-                    ],
-                    code: transpile`(function(value) {
-                        var {x:[a]} = value;
-                        return a;
-                    })`,
-                    test: function(result) {
-                        return result === this.config[0].x[0];
-                    }
-                });
-            });
-
-            group('assignment', function() {
-                group('array', function() {
-                    syntax('empty', {
-                        code: transpile`(function() {
-                            [] = [1,2];
-                        })`,
-                        test: function() {
-                            return true;
-                        }
-                    });
-                    syntax('rest-nest', {
-                        code: transpile`(function() {
-                            var value = [1, 2, 3], first, last;
-                            [first, ...[value[2], last]] = value;
-                            return [value, first, last];
-                        })`,
-                        test: function(result) {
-                            return (
-                                sameValues(result[0], [1, 2, 2]) &&
-                                result[1] === 1 &&
-                                result[2] === 3
-                            );
-                        }
-                    });
-                    syntax('expression-return', {
-                        config: [
-                            []
-                        ],
-                        code: transpile`(function(value) {
-                            var a;
-                            return ([a] = value);
-                        })`,
-                        test: function(result) {
-                            return result === this.config.value;
-                        }
-                    });
-                    syntax('chain', {
-                        config: [
-                            1
-                        ],
-                        code: transpile`(function(value) {
-                            var a, b;
-                            ([a] = [b] = [value]);
-                            return [a, b];
-                        })`,
-                        test: function(result) {
-                            return sameValues(result, [this.config[0], this.config[0]]);
-                        }
-                    });
-                });
-
-                group('object', function() {
-                    syntax('empty', {
-                        code: transpile`(function() {
-                            ({} = {a:1, b:2});
-                        })`,
-                        test: function() {
-                            return true;
-                        }
-                    });
-                    syntax('expression-return', {
-                        config: [
-                            {}
-                        ],
-                        code: transpile`(function(value) {
-                            var a;
-                            return ({a} = value);
-                        })`,
-                        test: function(result) {
-                            return result === this.config[0];
-                        }
-                    });
-                    syntax('throw-left-parenthesis', {
-                        config: [
-                            {}
-                        ],
-                        when: 'code-compilation-error',
-                        code: transpile`(function(value) {
-                            var a;
-                            ({a}) = value;
-                        })`,
-                        test: function(result) {
-                            return result instanceof SyntaxError;
-                        }
-                    });
-                    syntax('chain', {
-                        config: [
-                            1
-                        ],
-                        code: transpile`(function(value) {
-                            var a, b;
-                            ({a} = {b} = {a: value, b: value});
-                            return [a, b];
-                        })`,
-                        test: function(result) {
-                            return sameValues(result, [this.config[0], this.config[0]]);
-                        }
-                    });
-                });
-            });
-
-            group('parameters', function() {
-                group('array', function() {
-                    syntax('arguments', {
-                        config: [
-                            [10]
-                        ],
-                        code: transpile`(function(value) {
-                            return (function([a]) {
-                                return arguments;
-                            })(value);
-                        })`,
-                        test: function(result) {
-                            return result[0] === this.config[0];
-                        }
-                    });
-                    syntax('new-function', {
-                        config: [
-                            [1]
-                        ],
-                        code: function() {
-                            return new Function( // eslint-disable-line no-new-func
-                                '[a]',
-                                'return a;'
-                            )(this.config[0]);
-                        },
-                        test: function(result) {
-                            return result === this.config[0];
-                        }
-                    });
-                    syntax('function-length', {
-                        code: transpile`(function() {
-                            return function([a]) {};
-                        })`,
-                        test: function(result) {
-                            return result.length === 1;
-                        }
-                    });
-                });
-
-                group('object', function() {
-                    syntax('arguments', {
-                        config: [
-                            {a: 10}
-                        ],
-                        code: transpile`(function(value) {
-                            return (function({a}) {
-                                return arguments;
-                            })(value);
-                        })`,
-                        test: function(result) {
-                            return result[0] === this.config[0];
-                        }
-                    });
-                    syntax('new-function', {
-                        config: [
-                            {a: 10}
-                        ],
-                        code: function() {
-                            return new Function( // eslint-disable-line no-new-func
-                                '{a}',
-                                'return a;'
-                            )(this.config[0]);
-                        },
-                        test: function(result) {
-                            return result === this.config[0].a;
-                        }
-                    });
-                    syntax('function-length', {
-                        code: transpile`(function() {
-                            return function({a}) {};
-                        })`,
-                        test: function(result) {
-                            return result.length === 1;
-                        }
-                    });
-                });
+                    return sameValues(result, [a, defaultB, defaultC]);
+                }
             });
         });
-
-        group('spread', function() {
-            group('function-call', function() {
-                syntax({
-                    config: [
-                        Math.max,
-                        [1, 2, 3]
-                    ],
-                    code: transpile`(function(method, args) {
-                        return method(...args);
-                    })`,
-                    test: function(result) {
-                        return result === this.config[0].apply(null, this.config[1]);
+        register('destructuring-declaration-object', {
+            code: transpile`(function(value) {
+                var {a} = value;
+                return a;
+            })`,
+            test: function(fn) {
+                var value = 1;
+                return fn({a: value}) === value;
+            }
+        }).ensure(function() {
+            register('throw-null', {
+                test: function(fn) {
+                    try {
+                        fn(null);
+                        return false;
+                    } catch (e) {
+                        return e instanceof TypeError;
                     }
-                });
-
-                syntax('throw-non-iterable', {
-                    config: [
-                        Math.max,
-                        true
-                    ],
-                    when: 'code-runtime-error',
-                    test: function(error) {
-                        return error instanceof Error;
+                }
+            });
+            register('throw-undefined', {
+                test: function(fn) {
+                    try {
+                        fn(null);
+                        return false;
+                    } catch (e) {
+                        return e instanceof TypeError;
                     }
-                });
-
-                syntax('iterable', {
-                    dependencies: [
-                        'symbol-iterator'
-                    ],
-                    config: [
-                        Math.max,
-                        createIterableObject([1, 2, 3])
-                    ],
-                    test: function(result) {
-                        return result === this.config[0].apply(null, [1, 2, 3]);
-                    }
-                });
-
-                syntax('iterable-instance', {
-                    config: [
-                        Math.max,
-                        Object.create(createIterableObject([1, 2, 3]))
-                    ],
-                    test: function(result) {
-                        return result === this.config[0].apply(null, [1, 2, 3]);
-                    }
-                });
-            });
-            group('literal-array', function() {
-                syntax({
-                    config: [
-                        [1, 2, 3]
-                    ],
-                    code: transpile`(function(value) {
-                        return [...value];
-                    })`,
-                    test: function(result) {
-                        return sameValues(result, this.config[0]);
-                    }
-                });
-
-                syntax('iterable', {
-                    dependencies: [
-                        'symbol-iterator'
-                    ],
-                    config: [
-                        createIterableObject([1, 2, 3])
-                    ],
-                    test: function(result) {
-                        return sameValues(result, [1, 2, 3]);
-                    }
-                });
-
-                syntax('iterable-instance', {
-                    config: [
-                        Object.create(createIterableObject([1, 2, 3]))
-                    ],
-                    test: function(result) {
-                        return sameValues(result, [1, 2, 3]);
-                    }
-                });
-            });
-        });
-
-        group('function-prototype-name', function() {
-            syntax('statement', {
-                code: function() {
-                    function foo() {}
-
-                    return [
-                        foo,
-                        (function() {})
-                    ];
-                },
-                test: function(result) {
-                    return (
-                        result[0].name === 'foo' &&
-                        result[1].name === ''
-                    );
                 }
             });
-            syntax('expression', {
-                code: function() {
-                    return [
-                        (function foo() {}),
-                        (function() {})
-                    ];
-                },
-                test: function(result) {
-                    return (
-                        result[0].name === 'foo' &&
-                        result[1].name === ''
-                    );
-                }
-            });
-            syntax('new', {
-                code: function() {
-                    return (new Function()); // eslint-disable-line no-new-func
-                },
-                test: function(result) {
-                    return result.name === 'anonymous';
-                }
-            });
-            syntax('bind', {
-                code: function() {
-                    function foo() {}
+            register('primitive-return-prototype', {
+                test: function(fn) {
+                    var value = 2;
+                    // the expected behaviour is
+                    // var {a} = 2;
+                    // leads to a = 2.constructor.prototype.a;
+                    var prototypeValue = 'foo';
+                    var primitivePrototype = value.constructor.prototype;
+                    primitivePrototype.a = prototypeValue;
+                    var result = fn(value);
+                    delete primitivePrototype.a;
 
-                    return {
-                        boundFoo: foo.bind({}),
-                        boundAnonymous: (function() {}).bind({}) // eslint-disable-line no-extra-bind
-                    };
-                },
-                test: function(result) {
-                    return (
-                        result.boundFoo.name === "bound foo" &&
-                        result.boundAnonymous.name === "bound "
-                    );
+                    return result === prototypeValue;
                 }
             });
-            syntax('var', {
-                code: function() {
-                    var foo = function() {};
-                    var bar = function baz() {};
-
-                    return {
-                        foo: foo,
-                        bar: bar
-                    };
-                },
-                test: function(result) {
-                    return (
-                        result.foo.name === "foo" &&
-                        result.bar.name === "baz"
-                    );
-                }
-            });
-            syntax('accessor', {
-                code: transpile`(function() {
-                    return {
-                        get foo() {},
-                        set foo(x) {}
-                    };
-                })`,
-                test: function(result) {
-                    var descriptor = Object.getOwnPropertyDescriptor(result, 'foo');
-
-                    return (
-                        descriptor.get.name === 'get foo' &&
-                        descriptor.set.name === 'set foo'
-                    );
-                }
-            });
-            syntax('method', {
-                code: function() {
-                    var o = {
-                        foo: function() {},
-                        bar: function baz() {}
-                    };
-                    o.qux = function() {};
-                    return o;
-                },
-                test: function(result) {
-                    return (
-                        result.foo.name === 'foo' &&
-                        result.bar.name === 'baz' &&
-                        result.qux.name === ''
-                    );
-                }
-            });
-            syntax('method-shorthand', {
-                dependencies: [
-                    'shorthand-methods'
-                ],
-                code: transpile`(function() {
-                    return {
-                        foo() {}
-                    };
-                })`,
-                test: function(result) {
-                    return result.foo.name === 'foo';
-                }
-            });
-            syntax('method-shorthand-lexical-binding', {
-                config: [
-                    1
-                ],
+            register('trailing-commas', {
                 code: transpile`(function(value) {
-                    var f = value;
-                    return ({
-                        f() {
-                            return f;
-                        }
-                    });
+                    var {a,} = value;
+                    return a;
                 })`,
-                test: function(result) {
-                    return result.f() === this.config[0];
+                test: function(fn) {
+                    var value = 1;
+                    return fn({a: value}) === value;
                 }
             });
-            syntax('method-computed-symbol', {
-                dependencies: [
-                    'symbol',
-                    'computed-properties'
-                ],
-                config: function() {
-                    return [
-                        Symbol("foo"),
-                        Symbol()
-                    ];
-                },
-                code: transpile`(function(first, second) {
-                    return {
-                        [first]: function() {},
-                        [second]: function() {}
-                    };
+            register('double-dot-as', {
+                code: transpile`(function(value) {
+                    var {x:a} = value;
+                    return a;
                 })`,
-                test: function(result) {
-                    return (
-                        result[this.config[0]].name === '[foo]' &&
-                        result[this.config[1]].name === ''
+                test: function(fn) {
+                    var value = 1;
+                    return fn({x: value}) === value;
+                }
+            });
+            register('computed-properties', {
+                dependencies: ['computed-properties'],
+                code: transpile`(function(value) {
+                    var {[name]: a} = value;
+                    return a;
+                })`,
+                test: function(fn) {
+                    var name = 'a';
+                    var value = 1;
+                    var object = {};
+                    object[name] = value;
+                    return fn(object) === value;
+                }
+            });
+            register('catch-statement', {
+                code: transpile`(function(value) {
+                    try {
+                        throw value;
+                    } catch ({a}) {
+                        return a;
+                    }
+                })`,
+                test: function(fn) {
+                    var value = 1;
+                    return fn({a: value}) === value;
+                }
+            });
+            register('default', {
+                code: transpile`(function(defaultValues, value) {
+                    var {a = defaultValues.a, b = defaultValues.b, c = defaultValues.c} = value;
+                    return [a, b, c];
+                })`,
+                test: function(fn) {
+                    var defaultA = 1;
+                    var defaultB = 2;
+                    var defaultC = 3;
+                    var a = 0;
+                    var result = fn(
+                        {
+                            a: defaultA,
+                            b: defaultB,
+                            c: defaultC
+                        },
+                        {
+                            a: a,
+                            c: undefined
+                        }
                     );
+                    return sameValues(result, [a, defaultB, defaultC]);
+                }
+            });
+            register('default-let-temporal-dead-zone', {
+                dependencies: ['let'],
+                code: transpile`(function() {
+                    let {c = c} = {};
+                    let {c = d, d} = {d: 1};
+                })`,
+                when: 'code-compilation-error',
+                test: function(result) {
+                    return result instanceof Error;
+                }
+            });
+        });
+        register('destructuring-declaration-array-chain-object', {
+            dependencies: [
+                'destructuring-declaration-array',
+                'destructuring-declaration-object'
+            ],
+            code: transpile`(function(array, object) {
+                var [a] = array, {b} = object;
+                return [a, b];
+            })`,
+            test: function(fn) {
+                var value = 1;
+                return sameValues(fn([value], {b: value}), [value, value]);
+            }
+        });
+        register('destructuring-declaration-array-nest-object', {
+            dependencies: [
+                'destructuring-declaration-array',
+                'destructuring-declaration-object'
+            ],
+            code: transpile`(function(value) {
+                var [{a}] = value;
+                return a;
+            })`,
+            test: function(fn) {
+                var value = 1;
+                return fn([{a: value}]) === value;
+            }
+        });
+        register('destructuring-declaration-object-nest-array', {
+            dependencies: [
+                'destructuring-declaration-array',
+                'destructuring-declaration-object',
+                'destructuring-declaration-object-double-dot-as'
+            ],
+            code: transpile`(function(value) {
+                var {a:[a]} = value;
+                return a;
+            })`,
+            test: function(fn) {
+                var value = 1;
+                return fn({a: [value]}) === value;
+            }
+        });
+        register('destructuring-assignment-array', {
+            code: transpile`(function(a, b) {
+                [b, a] = [a, b];
+                return [a, b];
+            })`,
+            test: function(fn) {
+                var a = 1;
+                var b = 2;
+                return sameValues(fn(a, b), [b, a]);
+            }
+        }).ensure(function() {
+            register('empty', {
+                code: transpile`(function() {
+                    [] = [1,2];
+                })`,
+                test: function(fn) {
+                    fn();
+                    return true;
+                }
+            });
+            register('rest-nest', {
+                code: transpile`(function(first, middle, last) {
+                    var value = [first, middle, last];
+                    var head;
+                    var tail;
+                    [head, ...[value[2], tail]] = value;
+                    return [value, head, tail];
+                })`,
+                test: function(fn) {
+                    var first = 1;
+                    var middle = 2;
+                    var last = 3;
+                    var result = fn(first, middle, last);
+
+                    return (
+                        sameValues(result[0], [first, middle, middle]) &&
+                        result[1] === first &&
+                        result[2] === last
+                    );
+                }
+            });
+            register('expression-return', {
+                code: transpile`(function(value) {
+                    var a;
+                    return ([a] = value);
+                })`,
+                test: function(fn) {
+                    var value = [];
+                    return fn(value) === value;
+                }
+            });
+            register('chain', {
+                code: transpile`(function(value) {
+                    var a, b;
+                    ([a] = [b] = [value]);
+                    return [a, b];
+                })`,
+                test: function(fn) {
+                    var value = 1;
+                    return sameValues(fn(value), [value, value]);
+                }
+            });
+        });
+        register('destructuring-assignment-object', {
+            code: transpile`(function(value) {
+                {a} = {a: value};
+                return a;
+            })`,
+            test: function(fn) {
+                var value = 1;
+                return fn(value) === value;
+            }
+        }).ensure(function() {
+            register('empty', {
+                code: transpile`(function() {
+                    ({} = {a:1, b:2});
+                })`,
+                test: function(fn) {
+                    fn();
+                    return true;
+                }
+            });
+            register('expression-return', {
+                code: transpile`(function(value) {
+                    var a;
+                    return ({a} = value);
+                })`,
+                test: function(fn) {
+                    var value = {};
+                    return fn(value) === value;
+                }
+            });
+            register('throw-left-parenthesis', {
+                code: transpile`(function(value) {
+                    var a;
+                    ({a}) = value;
+                })`,
+                when: 'code-compilation-error',
+                test: function(result) {
+                    return result instanceof SyntaxError;
+                }
+            });
+            register('chain', {
+                code: transpile`(function(value) {
+                    var a, b;
+                    ({a} = {b} = {a: value, b: value});
+                    return [a, b];
+                })`,
+                test: function(fn) {
+                    var value = 1;
+                    return sameValues(fn(value), [value, value]);
+                }
+            });
+        });
+        register('destructuring-parameters-array', {
+            code: transpile`(function([a]) {
+                return a;
+            })`,
+            test: function(fn) {
+                var value = 1;
+                return fn([value]) === value;
+            }
+        }).ensure(function() {
+            register('function-length', {
+                test: function(fn) {
+                    return fn.length === 1;
+                }
+            });
+            register('new-function', {
+                code: function() {
+                    return new Function( // eslint-disable-line no-new-func
+                        '[a]',
+                        'return a;'
+                    );
+                },
+                test: function(fn) {
+                    var value = 1;
+                    return fn([value]) === value;
+                }
+            });
+        });
+        register('destructuring-parameters-object', {
+            code: transpile`(function({a}) {
+                return a;
+            })`,
+            test: function(fn) {
+                var value = 1;
+                return fn({a: value}) === value;
+            }
+        }).ensure(function() {
+            register('new-function', {
+                code: function() {
+                    return new Function( // eslint-disable-line no-new-func
+                        '{a}',
+                        'return a;'
+                    );
+                },
+                test: function(fn) {
+                    var value = 1;
+                    return fn({a: value}) === value;
+                }
+            });
+            register('function-length', {
+                code: transpile`(function({a}) {})`,
+                test: function(fn) {
+                    return fn.length === 1;
                 }
             });
         });
 
-        group('function-default-parameters', function() {
-            syntax({
-                config: [
-                    3
-                ],
-                code: transpile`(function(value) {
-                    function f(a = 1, b = 2) {
-                        return {a: a, b: b};
+        register('spread-function-call', {
+            code: transpile`(function(method, args) {
+                return method(...args);
+            })`,
+            test: function(fn) {
+                var method = Math.max;
+                var args = [1, 2, 3];
+
+                return fn(method, args) === method.apply(null, args);
+            }
+        }).ensure(function() {
+            register('throw-non-iterable', {
+                test: function(fn) {
+                    try {
+                        fn(Math.max, true);
+                        return false;
+                    } catch (e) {
+                        return e instanceof Error;
                     }
-                    return f.apply(null, arguments);
-                })`,
-                test: function(result) {
-                    return (
-                        result.a === this.config[0] &&
-                        result.b === 2
-                    );
                 }
             });
-            syntax('explicit-undefined', {
-                config: [
-                    undefined,
-                    3
+            register('iterable', {
+                dependencies: [
+                    'symbol-iterator'
                 ],
-                test: function(result) {
-                    return (
-                        result.a === 1 &&
-                        result.b === this.config[1]
-                    );
+                test: function(fn) {
+                    var method = Math.max;
+                    var data = [1, 2, 3];
+                    var iterable = createIterableObject(data);
+
+                    return fn(method, iterable) === method.apply(null, data);
                 }
             });
-            syntax('refer-previous', {
-                code: transpile`(function() {
-                    function f(a = 1, b = a) {
-                        return {a: a, b: b};
-                    }
-                    return f.apply(null, arguments);
-                })`,
-                test: function(result) {
-                    return (
-                        result.a === this.config[0] &&
-                        result.b === this.config[0]
-                    );
+            register('iterable-instance', {
+                test: function(fn) {
+                    var method = Math.max;
+                    var data = [1, 2, 3];
+                    var iterable = createIterableObject(data);
+                    var instance = Object.create(iterable);
+
+                    return fn(method, instance) === method.apply(null, data);
                 }
             });
-            syntax('arguments', {
-                config: [
-                    5,
-                    6
+        });
+        register('spread-literal-array', {
+            code: transpile`(function(value) {
+                return [...value];
+            })`,
+            test: function(fn) {
+                var value = [1, 2, 3];
+                return sameValues(fn(value), value);
+            }
+        }).ensure(function() {
+            register('iterable', {
+                dependencies: [
+                    'symbol-iterator'
                 ],
-                code: transpile`(function() {
-                    function f(a = 1, b = 2, c = 3) {
+                test: function(fn) {
+                    var data = [1, 2, 3];
+                    var iterable = createIterableObject(data);
+                    return sameValues(fn(iterable), data);
+                }
+            });
+            register('iterable-instance', {
+                test: function(fn) {
+                    var data = [1, 2, 3];
+                    var iterable = createIterableObject(data);
+                    var instance = Object.create(iterable);
+                    return sameValues(fn(instance), data);
+                }
+            });
+        });
+
+        register('function-default-parameters', {
+            code: transpile`(function(defaultA, defaultB) {
+                return function(a = defaultA, b = defaultB) {
+                    return [a, b];
+                };
+            })`,
+            test: function(fn) {
+                var defaultA = 1;
+                var defaultB = 2;
+                var a = 3;
+                var result = fn(defaultA, defaultB)(a);
+                return sameValues(result, [a, defaultB]);
+            }
+        }).ensure(function() {
+            register('explicit-undefined', {
+                test: function(fn) {
+                    var defaultA = 1;
+                    var defaultB = 2;
+                    var a;
+                    var b = 4;
+                    var result = fn(defaultA, defaultB)(a, b);
+                    return sameValues(result, [defaultA, b]);
+                }
+            });
+            register('refer-previous', {
+                code: transpile`(function(defaultValue) {
+                    return function(a = defaultValue, b = a) {
+                        return [a, b];
+                    };
+                })`,
+                test: function(fn) {
+                    var defaultValue = 1;
+                    var result = fn(defaultValue)();
+                    return sameValues(result, [defaultValue, defaultValue]);
+                }
+            });
+            register('arguments', {
+                code: transpile`(function(defaultValue) {
+                    return function(a = defaultValue) {
                         a = 10;
                         return arguments;
-                    }
-                    return f.apply(null, arguments);
+                    };
                 })`,
-                test: function(result) {
-                    return sameValues(result, this.config);
+                test: function(fn) {
+                    var defaultValue = 1;
+                    var value = 2;
+                    var result = fn(defaultValue)(value);
+                    return sameValues(result, [value]);
                 }
             });
-            syntax('temporal-dead-zone', {
+            register('temporal-dead-zone', {
                 code: transpile`(function() {
                     (function(a = a) {}());
                     (function(a = b, b){}());
                 })`,
-                when: 'code-runtime-error',
-                test: function(error) {
-                    return error instanceof Error;
+                test: function(fn) {
+                    try {
+                        fn();
+                        return false;
+                    } catch (e) {
+                        return e instanceof Error;
+                    }
                 }
             });
-            syntax('scope-own', {
+            register('scope-own', {
                 code: transpile`(function() {
-                    function fn(a = function() {
+                    return function(a = function() {
                         return typeof b;
                     }) {
                         var b = 1;
                         return a();
-                    }
-                    return fn();
+                    };
                 })`,
-                test: function(result) {
-                    return result === 'undefined';
+                test: function(fn) {
+                    return fn() === 'undefined';
                 }
             });
-            syntax('new-function', {
-                config: [
-                    [1, 2],
-                    [3]
-                ],
-                code: function() {
+            register('new-function', {
+                code: function(defaultA, defaultB) {
                     return new Function( // eslint-disable-line no-new-func
-                        "a = " + this.config[0][0], "b = " + this.config[0][1],
-                        "return {a: a, b: b}"
-                    ).apply(null, this.config[1]);
-                },
-                test: function(result) {
-                    return (
-                        result.a === this.config[1][0] &&
-                        result.b === this.config[0][1]
+                        "a = " + defaultA, "b = " + defaultB,
+                        "return [a, b];"
                     );
+                },
+                test: function(fn) {
+                    var defaultA = 1;
+                    var defaultB = 2;
+                    var a = 3;
+                    return sameValues(fn(defaultA, defaultB)(a), [a, defaultB]);
                 }
             });
         });
 
-        group('function-rest-parameters', function() {
-            syntax({
-                config: [
-                    0,
-                    1,
-                    2
-                ],
-                code: transpile`(function() {
-                    function fn(foo, ...rest) {
-                        return {foo: foo, rest: rest};
-                    }
-                    return fn.apply(null, arguments);
-                })`,
-                test: function(result) {
-                    return (
-                        result.rest instanceof Array &&
-                        sameValues(result.rest, this.config.slice(1))
-                    );
+        register('function-rest-parameters', {
+            code: transpile`(function() {
+                return function(foo, ...rest) {
+                    return [foo, rest];
                 }
-            });
-            syntax('throw-setter', {
+            })`,
+            test: function(fn) {
+                var first = 1;
+                var second = 2;
+                var result = fn(first, second);
+                return (
+                    result[0] === first &&
+                    sameValues(result[1], [second])
+                );
+            }
+        }).ensure(function() {
+            register('throw-setter', {
                 code: transpile`(function() {
                     return {
                         set e(...args) {}
@@ -1546,49 +1555,56 @@
                     return error instanceof Error;
                 }
             });
-            syntax('length', {
+            register('length', {
                 code: transpile`(function() {
                     return [
                         function(a, ...b) {},
                         function(...c) {}
                     ];
                 })`,
-                test: function(result) {
+                test: function(fn) {
+                    var result = fn();
+
                     return (
                         result[0].length === 1 &&
                         result[1].length === 0
                     );
                 }
             });
-            syntax('arguments', {
+            register('arguments', {
                 code: transpile`(function() {
-                    function fn(foo, ...rest) {
+                    return function(foo, ...rest) {
                         foo = 10;
                         return arguments;
-                    }
-                    return fn.apply(null, arguments);
+                    };
                 })`,
-                test: function(result) {
-                    return sameValues(result, this.config);
+                test: function(fn) {
+                    var first = 1;
+                    var second = 2;
+                    var result = fn(first, second);
+                    return sameValues(result, [first, second]);
                 }
             });
-            syntax('new-function', {
+            register('new-function', {
                 code: function() {
                     return new Function( // eslint-disable-line no-new-func
                         "a", "...rest",
-                        "return {a: a, rest: rest}"
-                    ).apply(null, this.config);
+                        "return [a, rest]"
+                    );
                 },
-                test: function(result) {
+                test: function(fn) {
+                    var first = 1;
+                    var second = 2;
+                    var result = fn(first, second);
                     return (
-                        result.a === this.config[0][0] &&
-                        sameValues(result.rest, this.config.slice(1))
+                        result[0] === first &&
+                        sameValues(result[1], [second])
                     );
                 }
             });
         });
 
-        // syntax('spread-function-call-generator', {
+        // register('spread-function-call-generator', {
         //     // dependencies: ['yield'],
         //     args: '\
         //         return {\
@@ -1603,7 +1619,7 @@
         //         return result === 3;
         //     }
         // });
-        // syntax('spread-literal-array-generator', {
+        // register('spread-literal-array-generator', {
         //     args: '\
         //         return {\
         //             value: (function*() {\
@@ -1617,7 +1633,7 @@
         //         return sameValues(result, [1, 2, 3]);
         //     }
         // });
-        // syntax('for-of-generator', {
+        // register('for-of-generator', {
         //     // dependencies: ['yield'],
         //     body: '\
         //         var result = "";\
@@ -1635,7 +1651,7 @@
         //         return result === '123';
         //     }
         // });
-        // syntax('destructuring-assignement-generator')
+        // register('destructuring-assignement-generator')
         // https://github.com/kangax/compat-table/blob/gh-pages/data-es6.js#L10247
     });
 })();
