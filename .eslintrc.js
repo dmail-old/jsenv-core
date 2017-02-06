@@ -14,6 +14,9 @@ module.exports = {
                 "numbers": true,
                 "unnecessary": false
             }
+        ],
+        "no-warning-comments": [
+            "off"
         ]
     }
 };

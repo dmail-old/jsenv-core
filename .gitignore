@@ -47,5 +47,4 @@ Temporary Items
 node_modules/
 coverage-final.json
 cache/*/*
-!cache/*/implementation-report-before-flatten.json
-!cache/*/implementation-report-after-flatten.json
+!cache/*/user-agent/*

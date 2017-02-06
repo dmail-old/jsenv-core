@@ -3,7 +3,6 @@
 /* after including this file you can create your own env, (most time only one is enough) */
 
 /*
-
 concernant le nouveau fetch hook pour systemjs
 apparement il faudrais modifier le hook instantiate
 https://github.com/systemjs/systemjs/issues/1543#issuecomment-274036882

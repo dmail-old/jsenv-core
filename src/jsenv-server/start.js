@@ -1,6 +1,7 @@
 /* eslint-disable no-path-concat */
 
 /*
+- continuer sur l'import de server.js
 
 - faire en sorte que même avant de démarrer le serveur on est du code qui se comporte comme son propre client
 vis-a-vis du comportement qu'aura le client plus tard
@@ -17,24 +18,23 @@ le client doit aussi rerun les tests pour vérifier que polyfill.js fonctionne b
     mec ça marche ton truc
     le serveur stocke cette info pour savoir que pour ce type de client y'a un souci
 
-- où stocker l'info pour dire ce type de client a pu être polyfillé correctement ou non ?
-
 - quand et comment le client lance-t-il une première requête de compatibilité avec les features requises ?
 -> au chargement de la page, avant toute chose et à chaque fois on demande au serveur si on est compatiblez
 - sous quel format dit-on au client: voici les tests que tu dois lancer ?
 -> 200 + une sorte de json contenant tous les tests serais top, le prob étant que ce n'est pas leur forme actuelle
 autre souci du JSON: les fonctions devraient être eval, un peu relou
 le plus simple serait donc de renvoyer un js
-peut être que les tests resteront dans index.js mais que on les lance pas si pas besoin
-de sorte qu'on garde la possibilité de les lancer si on le souhaite pour whatever raison
 - sous quel format dit-on au client: c'est mort tu n'est pas polyfillable ?
 -> on lui renvoit un code d'erreur genre pas 200 avec un message associé
 - sous quel format dit-on au client: voici le polyfill que tu dois éxécuter, pas besoin de test ?
 -> 200 + le pollyfill en tant que fichier js qu'on éxécute sans se poser de question
 
-- continuer sur l'import de server.js
+- le cache de polyfill.js & features-after-flatten.js
+dépend de la liste des features requises (non disabled) et doit donc être invalidé
+lorsque cette liste est modifiée
 
-- une fois que le serveur peut être lancé celui-ci va être capable de plusieurs chose
+- TOUT sauf "implementation-report-before-flatten.json"" dépend de la liste des solutions disponsibles
+lorsque on ajoute/enlève/met à jour des solutions le cache de ces fichiers doit aussi être invalidé
 
 - changer memoize.file pour une écriture comme suit:
 memoize.file(fn, path, {
@@ -524,12 +524,11 @@ function start() {
     registerCoreModule(prefixModule(jsenv.rootModuleName), jsenv);
     registerCoreModule(prefixModule(jsenv.moduleName), jsenv);
     registerCoreModule('@node/require', require);
-    // return System.import(rootPath + '/setup.js').then(function(exports) {
-    //     return exports.default(jsenv);
-    // });
-    // .then(function() {
-    //     return System.import('./server.js');
-    // });
+    return System.import(jsenv.dirname + '/setup.js').then(function(exports) {
+        return exports.default(jsenv);
+    }).then(function() {
+        return System.import(jsenv.dirname + '/src/jsenv-server/serve.js');
+    });
 }
 function flattenImplementation(options) {
     var polyfill;
@@ -788,6 +787,7 @@ function flattenImplementation(options) {
 
                 var result = transpiler.transpile(code, {
                     filename: filename,
+                    ast: false,
                     plugins: plugins
                 });
                 result += '\n//# sourceURL=' + filename + '!transpiled';
@@ -834,6 +834,7 @@ function flattenImplementation(options) {
             try {
                 return transpiler.transpile(result, {
                     sourceMaps: false,
+                    ast: false,
                     plugins: transpiler.plugins
                 });
             } catch (e) {
@@ -1026,10 +1027,7 @@ function getCache(folderPath) {
                 var foundBranch;
                 var foundEntry = Iterable.find(entries, function(entry) {
                     foundBranch = Iterable.find(entry.branches, function(branch) {
-                        return (
-                            state.agent.match(branch.condition.agent) &&
-                            state.platform.match(branch.condition.platform)
-                        );
+                        return state.userAgent === branch.condition.userAgent;
                     });
                     return Boolean(foundBranch);
                 });
@@ -1037,9 +1035,8 @@ function getCache(folderPath) {
                 if (foundEntry) {
                     foundBranch.matchCount = 'matchCount' in foundBranch ? foundBranch.matchCount + 1 : 1;
                     foundBranch.lastMatch = Math.max(foundBranch.lastMatch, Number(Date.now()));
-                    return cache.update().then(function() {
-                        return foundEntry;
-                    });
+                    cache.update();
+                    return foundEntry;
                 }
 
                 var entry = {
@@ -1047,8 +1044,7 @@ function getCache(folderPath) {
                     branches: [
                         {
                             condition: {
-                                agent: String(state.agent),
-                                platform: String(state.platform)
+                                userAgent: String(state.userAgent)
                             },
                             matchCount: 1,
                             lastMatch: Number(Date.now())
@@ -1082,10 +1078,20 @@ if (options.cache) {
     promise = promise.then(function() {
         return getCache(mainCacheFolder);
     }).then(function(cache) {
-        return cache.match({
-            agent: jsenv.agent,
-            platform: jsenv.platform
-        });
+        var userAgent = '';
+        userAgent += jsenv.agent.name;
+        userAgent += '/';
+        userAgent += jsenv.agent.version;
+        userAgent += ' (';
+        userAgent += jsenv.platform.name;
+        userAgent += '; ';
+        userAgent += jsenv.platform.version;
+        userAgent += ')';
+        var state = {
+            userAgent: userAgent
+        };
+
+        return cache.match(state);
     }).then(function(entry) {
         options.cacheFolder = mainCacheFolder + '/' + entry.name;
     });
