@@ -216,6 +216,19 @@ coreJSModule('es6.object.assign', {
         'object-assign'
     ]
 });
+coreJSModule('es6.array.iterator', {
+    features: [
+        'array-prototype-symbol-iterator',
+        'array-prototype-symbol-iterator-sparse'
+    ]
+});
+coreJSModule('es6.string.iterator', {
+    features: [
+        'string-prototype-symbol-iterator',
+        'string-prototype-symbol-iterator-basic',
+        'string-prototype-symbol-iterator-astral'
+    ]
+});
 
 var fileTasks = [];
 function file(name, descriptor) {
@@ -431,11 +444,13 @@ babelPlugin('transform-es2015-destructuring', {
         'destructuring-declaration-array-nest-object',
         'destructuring-declaration-object-nest-array',
 
+        'destructuring-assignment-array',
         'destructuring-assignment-array-empty',
         'destructuring-assignment-array-rest-nest',
         'destructuring-assignment-array-expression-return',
         'destructuring-assignment-array-chain',
 
+        'destructuring-assignment-object',
         'destructuring-assignment-object-empty',
         'destructuring-assignment-object-expression-return',
         'destructuring-assignment-object-throw-left-parenthesis',
@@ -530,9 +545,9 @@ function flattenImplementation(options) {
     var polyfill;
     var transpiler;
 
-    function getBeforeFlattenSpec() {
-        var createSpec = function() {
-            return fsAsync.getFileContent(rootPath + '/spec.js').then(function(code) {
+    function getBeforeFlattenFeatures() {
+        var createFeatures = function() {
+            return fsAsync.getFileContent(rootPath + '/features.js').then(function(code) {
                 var babel = require('babel-core');
                 var result = babel.transform(code, {
                     plugins: [
@@ -544,15 +559,15 @@ function flattenImplementation(options) {
         };
 
         if (options.cacheFolder) {
-            createSpec = memoize.file(
-                createSpec,
-                options.cacheFolder + '/spec-before-flatten.js',
-                rootPath + '/spec.js',
+            createFeatures = memoize.file(
+                createFeatures,
+                options.cacheFolder + '/features-before-flatten.js',
+                rootPath + '/features.js',
                 'mtime'
             );
         }
 
-        return createSpec();
+        return createFeatures();
     }
     function scanImplementation() {
         return getBeforeFlattenReport(options).then(
@@ -577,7 +592,7 @@ function flattenImplementation(options) {
             createReport = memoize.file(
                 createReport,
                 options.cacheFolder + '/implementation-report-before-flatten.json',
-                rootPath + '/spec.js',
+                rootPath + '/features.js',
                 'eTag'
             );
         }
@@ -788,9 +803,9 @@ function flattenImplementation(options) {
         };
         callEveryTaskHook(babelTasks, 'afterInstallHook');
     }
-    function getAfterFlattenSpec() {
-        var createSpec = function() {
-            return fsAsync.getFileContent(rootPath + '/spec.js').then(function(code) {
+    function getAfterFlattenFeatures() {
+        var createFeatures = function() {
+            return fsAsync.getFileContent(rootPath + '/features.js').then(function(code) {
                 // inspired from babel-transform-template-literals
                 // https://github.com/babel/babel/blob/master/packages/babel-plugin-transform-es2015-template-literals/src/index.js#L36
                 var customPlugin = function(babel) {
@@ -880,15 +895,15 @@ function flattenImplementation(options) {
         };
 
         if (options.cacheFolder) {
-            createSpec = memoize.file(
-                createSpec,
-                options.cacheFolder + '/spec-after-flatten.js',
-                rootPath + '/spec.js',
+            createFeatures = memoize.file(
+                createFeatures,
+                options.cacheFolder + '/features-after-flatten.js',
+                rootPath + '/features.js',
                 'mtime'
             );
         }
 
-        return createSpec();
+        return createFeatures();
     }
     function ensureImplementation() {
         return getAfterFlattenReport(options).then(
@@ -941,17 +956,17 @@ function flattenImplementation(options) {
     }
 
     return Promise.resolve().then(function() {
-        return getBeforeFlattenSpec().then(function(spec) {
-            eval(spec); // eslint-disable-line no-eval
+        return getBeforeFlattenFeatures().then(function(code) {
+            eval(code); // eslint-disable-line no-eval
         });
     }).then(function() {
         return scanImplementation();
     }).then(function() {
         return fixImplementation();
     }).then(function() {
-        return getAfterFlattenSpec().then(function(spec) {
+        return getAfterFlattenFeatures().then(function(code) {
             implementation.features = [];
-            eval(spec); // eslint-disable-line no-eval
+            eval(code); // eslint-disable-line no-eval
         });
     }).then(function() {
         return ensureImplementation();

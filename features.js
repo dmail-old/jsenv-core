@@ -87,7 +87,8 @@
         for (var key in value) {
             if (value.hasOwnProperty(key)) {
                 if (isNaN(key) === false && value instanceof Array) {
-                    keys.push(Number(key));
+                    // key = Number(key);
+                    keys.push(key);
                 } else {
                     keys.push(key);
                 }
@@ -124,23 +125,27 @@
             if (feature.hasOwnProperty('result')) {
                 result = feature.result;
             } else if (feature.parent) {
-                var startValue = feature.parent.result;
-                var path = feature.path;
-                var parts = path.split('.');
-                var endValue = startValue;
-                var i = 0;
-                var j = parts.length;
-                while (i < j) {
-                    var part = parts[i];
-                    if (part in endValue) {
-                        endValue = endValue[part];
-                    } else {
-                        endValue = noValue;
-                        break;
+                var parentResult = feature.parent.result;
+                if (feature.hasOwnProperty('path')) {
+                    var path = feature.path;
+                    var parts = path.split('.');
+                    var endValue = parentResult;
+                    var i = 0;
+                    var j = parts.length;
+                    while (i < j) {
+                        var part = parts[i];
+                        if (part in endValue) {
+                            endValue = endValue[part];
+                        } else {
+                            endValue = noValue;
+                            break;
+                        }
+                        i++;
                     }
-                    i++;
+                    result = endValue;
+                } else {
+                    result = parentResult;
                 }
-                result = endValue;
             } else {
                 throw new Error('feature without parent must have a result property');
             }
@@ -176,7 +181,7 @@
         register('global', {
             result: jsenv.global,
             code: produceFromPath,
-            test: presence
+            pass: presence
         }).ensure(function(register) {
             register('system', {
                 path: 'System'
@@ -185,7 +190,7 @@
                 path: 'Promise'
             }).ensure(function(register) {
                 register('unhandled-rejection', {
-                    test: function(Promise, settle) {
+                    pass: function(Promise, settle) {
                         var promiseRejectionEvent;
                         var unhandledRejection = function(e) {
                             promiseRejectionEvent = e;
@@ -222,7 +227,7 @@
                     }
                 });
                 register('rejection-handled', {
-                    test: function(Promise, settle) {
+                    pass: function(Promise, settle) {
                         var promiseRejectionEvent;
                         var rejectionHandled = function(e) {
                             promiseRejectionEvent = e;
@@ -295,12 +300,12 @@
                     }).ensure(function(register) {
                         // https://github.com/zloirock/core-js/blob/v2.4.1/modules/es6.date.to-json.js
                         register('nan-return-null', {
-                            test: function() {
+                            pass: function() {
                                 return new Date(NaN).toJSON() === null;
                             }
                         });
                         register('use-to-iso-string', {
-                            test: function() {
+                            pass: function() {
                                 var fakeDate = {
                                     toISOString: function() {
                                         return 1;
@@ -315,12 +320,12 @@
                     }).ensure(function(register) {
                         // https://github.com/zloirock/core-js/blob/v2.4.1/modules/es6.date.to-iso-string.js
                         register('negative-5e13', {
-                            test: function() {
+                            pass: function() {
                                 return new Date(-5e13 - 1).toISOString() === '0385-07-25T07:06:39.999Z';
                             }
                         });
                         register('nan-throw', {
-                            test: Predicate.fails(function() {
+                            pass: Predicate.fails(function() {
                                 new Date(NaN).toISOString(); // eslint-disable-line no-unused-expressions
                             })
                         });
@@ -329,7 +334,7 @@
                         path: 'toString'
                     }).ensure(function(register) {
                         register('nan-return-invalid-date', {
-                            test: function() {
+                            pass: function() {
                                 // https://github.com/zloirock/core-js/blob/v2.4.1/modules/es6.date.to-string.js
                                 return new Date(NaN).toString() === 'Invalid Date';
                             }
@@ -348,7 +353,7 @@
                         code: produceFromComposedPath
                     }).ensure(function(register) {
                         register('sparse', {
-                            test: function(arrayIterator) {
+                            pass: function(arrayIterator) {
                                 var sparseArray = [,,]; // eslint-disable-line no-sparse-arrays, comma-spacing
                                 var iterator = arrayIterator.call(sparseArray);
                                 var values = consumeIterator(iterator);
@@ -369,7 +374,7 @@
                         path: 'name'
                     }).ensure(function(register) {
                         register('description', {
-                            test: function() {
+                            pass: function() {
                                 var descriptor = Object.getOwnPropertyDescriptor(
                                     function f() {},
                                     'name'
@@ -383,7 +388,7 @@
                             }
                         });
                         register('statement', {
-                            test: function() {
+                            pass: function() {
                                 function foo() {}
 
                                 return (
@@ -393,7 +398,7 @@
                             }
                         });
                         register('expression', {
-                            test: function() {
+                            pass: function() {
                                 return (
                                     (function foo() {}).name === 'foo' &&
                                     (function() {}).name === ''
@@ -401,13 +406,13 @@
                             }
                         });
                         register('new', {
-                            test: function() {
+                            pass: function() {
                                 // eslint-disable-next-line no-new-func
                                 return (new Function()).name === 'anonymous';
                             }
                         });
                         register('bind', {
-                            test: function() {
+                            pass: function() {
                                 function foo() {}
                                 var boundFoo = foo.bind({});
                                 var boundAnonymous = (function() {}).bind({}); // eslint-disable-line no-extra-bind
@@ -419,7 +424,7 @@
                             }
                         });
                         register('var', {
-                            test: function() {
+                            pass: function() {
                                 var foo = function() {};
                                 var bar = function baz() {};
 
@@ -436,7 +441,7 @@
                                     set foo(x) {}
                                 };
                             })`,
-                            test: function(fn) {
+                            pass: function(fn) {
                                 var result = fn();
                                 var descriptor = Object.getOwnPropertyDescriptor(result, 'foo');
 
@@ -447,7 +452,7 @@
                             }
                         });
                         register('method', {
-                            test: function() {
+                            pass: function() {
                                 var result = {
                                     foo: function() {},
                                     bar: function baz() {}
@@ -470,7 +475,7 @@
                                     foo() {}
                                 };
                             })`,
-                            test: function(fn) {
+                            pass: function(fn) {
                                 return fn().foo.name === 'foo';
                             }
                         });
@@ -483,7 +488,7 @@
                                     }
                                 });
                             })`,
-                            test: function(fn) {
+                            pass: function(fn) {
                                 var value = 1;
                                 return fn(value).f() === value;
                             }
@@ -499,7 +504,7 @@
                                     [second]: function() {}
                                 };
                             })`,
-                            test: function(fn) {
+                            pass: function(fn) {
                                 var name = 'foo';
                                 var first = Symbol(name);
                                 var second = Symbol();
@@ -525,7 +530,7 @@
                         code: produceFromComposedPath
                     }).ensure(function(register) {
                         register('basic', {
-                            test: function(stringIterator) {
+                            pass: function(stringIterator) {
                                 var string = '1234';
                                 var iterator = stringIterator.call(string);
                                 var values = consumeIterator(iterator);
@@ -534,7 +539,7 @@
                             }
                         });
                         register('astral', {
-                            test: function(stringIterator) {
+                            pass: function(stringIterator) {
                                 var astralString = '𠮷𠮶';
                                 var iterator = stringIterator.call(astralString);
                                 var values = consumeIterator(iterator);
@@ -572,7 +577,7 @@
                 }
                 return result;
             })`,
-            test: function(result) {
+            pass: function(result) {
                 var value = [5];
                 return sameValues(result(value), value);
             }
@@ -581,14 +586,14 @@
                 dependencies: [
                     'symbol-iterator'
                 ],
-                test: function(result) {
+                pass: function(result) {
                     var data = [1, 2, 3];
                     var iterable = createIterableObject(data);
                     return sameValues(result(iterable), data);
                 }
             });
             register('iterable-instance', {
-                test: function(result) {
+                pass: function(result) {
                     var data = [1, 2, 3];
                     var iterable = createIterableObject(data);
                     var instance = Object.create(iterable);
@@ -602,7 +607,7 @@
                         break;
                     }
                 })`,
-                test: function(fn) {
+                pass: function(fn) {
                     var called = false;
                     var iterable = createIterableObject([1], {
                         'return': function() {
@@ -620,7 +625,7 @@
                         throw throwedValue;
                     }
                 })`,
-                test: function(fn) {
+                pass: function(fn) {
                     var called = false;
                     var iterable = createIterableObject([1], {
                         'return': function() { // eslint-disable-line
@@ -648,7 +653,7 @@
                 const result = value;
                 return result;
             })`,
-            test: function(fn) {
+            pass: function(fn) {
                 var value = 1;
                 return fn(value) === value;
             }
@@ -657,8 +662,7 @@
                 code: transpile`(function() {
                     if (true) const bar = 1;
                 })`,
-                when: 'code-compilation-error',
-                test: function(error) {
+                fail: function(error) {
                     return error instanceof Error;
                 }
             });
@@ -667,14 +671,9 @@
                     const foo = 1;
                     foo = 2;
                 })`,
-                test: function(fn) {
-                    try {
-                        fn();
-                    } catch (e) {
-                        return e instanceof Error;
-                    }
-                    return false;
-                }
+                pass: Predicate.fails(function(fn) {
+                    fn();
+                })
             });
             register('temporal-dead-zone', {
                 code: transpile`(function(value) {
@@ -686,7 +685,7 @@
                     fn();
                     return result;
                 })`,
-                test: function(fn) {
+                pass: function(fn) {
                     var value = 10;
                     return fn(value) === value;
                 }
@@ -699,7 +698,7 @@
                     }
                     return result;
                 })`,
-                test: function(fn) {
+                pass: function(fn) {
                     var outsideValue = 0;
                     var insideValue = 1;
                     return fn(outsideValue, insideValue) === outsideValue;
@@ -711,7 +710,7 @@
                     for(const foo = insideValue; false;) {}
                     return foo;
                 })`,
-                test: function(fn) {
+                pass: function(fn) {
                     var outsideValue = 0;
                     var insideValue = 1;
                     return fn(outsideValue, insideValue) === outsideValue;
@@ -727,13 +726,13 @@
                     }
                     return scopes;
                 })`,
-                test: function(fn) {
+                pass: function(fn) {
                     var value = [0, 1];
                     var scopes = fn(value);
                     var scopeValues = Iterable.map(scopes, function(scope) {
                         return scope();
                     });
-                    return sameValues(scopeValues, value);
+                    return sameValues(scopeValues, collectKeys(value));
                 }
             });
             register('scoped-for-of-body', {
@@ -747,13 +746,13 @@
                     }
                     return scopes;
                 })`,
-                test: function(fn) {
+                pass: function(fn) {
                     var value = ['a', 'b'];
                     var scopes = fn(value);
                     var scopeValues = Iterable.map(scopes, function(scope) {
                         return scope();
                     });
-                    return sameValues(scopeValues, collectKeys(value));
+                    return sameValues(scopeValues, value);
                 }
             });
         });
@@ -763,7 +762,7 @@
                 let result = value;
                 return result;
             })`,
-            test: function(fn) {
+            pass: function(fn) {
                 var value = 123;
                 return fn(value) === value;
             }
@@ -772,8 +771,7 @@
                 code: transpile`(function() {
                     if (true) let result = 1;
                 })`,
-                when: 'code-compilation-error',
-                test: function(error) {
+                fail: function(error) {
                     return error instanceof Error;
                 }
             });
@@ -787,7 +785,7 @@
                     fn();
                     return result;
                 })`,
-                test: function(fn) {
+                pass: function(fn) {
                     var value = 10;
                     return fn(value) === value;
                 }
@@ -800,7 +798,7 @@
                     }
                     return result;
                 })`,
-                test: function(fn) {
+                pass: function(fn) {
                     var outsideValue = 0;
                     var insideValue = 1;
                     return fn(outsideValue, insideValue) === outsideValue;
@@ -812,7 +810,7 @@
                     for(let result = insideValue; false;) {}
                     return result;
                 })`,
-                test: function(fn) {
+                pass: function(fn) {
                     var outsideValue = 0;
                     var insideValue = 1;
                     return fn(outsideValue, insideValue) === outsideValue;
@@ -828,13 +826,13 @@
                     }
                     return scopes;
                 })`,
-                test: function(fn) {
+                pass: function(fn) {
                     var iterable = [0, 1];
                     var scopes = fn(iterable);
                     var scopeValues = Iterable.map(scopes, function(scope) {
                         return scope();
                     });
-                    return sameValues(scopeValues, iterable);
+                    return sameValues(scopeValues, collectKeys(iterable));
                 }
             });
         });
@@ -843,7 +841,7 @@
             code: transpile`(function(name, value) {
                 return {[name]: value};
             })`,
-            test: function(fn) {
+            pass: function(fn) {
                 var name = 'y';
                 var value = 1;
                 return fn(name, value)[name] === value;
@@ -854,7 +852,7 @@
             code: transpile`(function(a, b) {
                 return {a, b};
             })`,
-            test: function(fn) {
+            pass: function(fn) {
                 var a = 1;
                 var b = 2;
                 var result = fn(a, b);
@@ -872,7 +870,7 @@
                     y() {}
                 };
             })`,
-            test: function(fn) {
+            pass: function(fn) {
                 var result = fn();
                 return typeof result.y === 'function';
             }
@@ -883,7 +881,7 @@
                 var [a] = value;
                 return a;
             })`,
-            test: function(fn) {
+            pass: function(fn) {
                 var value = 1;
                 return fn([value]) === value;
             }
@@ -893,7 +891,7 @@
                     var [a,] = value;
                     return a;
                 })`,
-                test: function(fn) {
+                pass: function(fn) {
                     var value = 0;
                     return fn([value]) === value;
                 }
@@ -903,28 +901,29 @@
                     var [a, b, c] = value;
                     return [a, b, c];
                 })`,
-                test: function(fn) {
+                pass: function(fn) {
                     var data = [1, 2];
                     var iterable = createIterableObject(data);
 
                     return sameValues(fn(iterable), [1, 2, undefined]);
                 }
-            });
-            register('iterable-instance', {
-                test: function(fn) {
-                    var data = [1, 2];
-                    var iterable = createIterableObject(data);
-                    var instance = Object.create(iterable);
+            }).ensure(function(register) {
+                register('instance', {
+                    pass: function(fn) {
+                        var data = [1, 2];
+                        var iterable = createIterableObject(data);
+                        var instance = Object.create(iterable);
 
-                    return sameValues(fn(instance), [1, 2, undefined]);
-                }
+                        return sameValues(fn(instance), [1, 2, undefined]);
+                    }
+                });
             });
             register('sparse', {
                 code: transpile`(function(value) {
                     var [a, ,b] = value;
                     return [a, b];
                 })`,
-                test: function(fn) {
+                pass: function(fn) {
                     var firstValue = 1;
                     var lastValue = 3;
                     var result = fn([firstValue, null, lastValue]);
@@ -936,7 +935,7 @@
                     var [[a]] = value;
                     return a;
                 })`,
-                test: function(fn) {
+                pass: function(fn) {
                     var value = 1;
                     return fn([[value]]) === value;
                 }
@@ -946,7 +945,7 @@
                     for (var [a, b] in value);
                     return [a, b];
                 })`,
-                test: function(fn) {
+                pass: function(fn) {
                     var value = {fo: 1};
                     return sameValues(fn(value), ['f', 'o']);
                 }
@@ -957,7 +956,7 @@
                     for(var [a, b] of iterable);
                     return [a, b];
                 })`,
-                test: function(fn) {
+                pass: function(fn) {
                     var data = [0, 1];
                     return sameValues(fn([data]), data);
                 }
@@ -970,7 +969,7 @@
                         return a;
                     }
                 })`,
-                test: function(fn) {
+                pass: function(fn) {
                     var value = 1;
                     return fn([value]) === value;
                 }
@@ -980,7 +979,7 @@
                     var [a, ...b] = value;
                     return [a, b];
                 })`,
-                test: function(fn) {
+                pass: function(fn) {
                     var firstValue = 1;
                     var lastValue = 2;
                     var firstResult = fn([firstValue, lastValue]);
@@ -999,7 +998,7 @@
                     var [a = defaultValues[0], b = defaultValues[1], c = defaultValues[2]] = values;
                     return [a, b, c];
                 })`,
-                test: function(fn) {
+                pass: function(fn) {
                     var defaultA = 1;
                     var defaultB = 2;
                     var defaultC = 3;
@@ -1026,33 +1025,23 @@
                 var {a} = value;
                 return a;
             })`,
-            test: function(fn) {
+            pass: function(fn) {
                 var value = 1;
                 return fn({a: value}) === value;
             }
         }).ensure(function(register) {
             register('throw-null', {
-                test: function(fn) {
-                    try {
-                        fn(null);
-                        return false;
-                    } catch (e) {
-                        return e instanceof TypeError;
-                    }
-                }
+                pass: Predicate.fails(function(fn) {
+                    fn(null);
+                }, {name: 'TypeError'})
             });
             register('throw-undefined', {
-                test: function(fn) {
-                    try {
-                        fn(null);
-                        return false;
-                    } catch (e) {
-                        return e instanceof TypeError;
-                    }
-                }
+                pass: Predicate.fails(function(fn) {
+                    fn(undefined);
+                }, {name: 'TypeError'})
             });
             register('primitive-return-prototype', {
-                test: function(fn) {
+                pass: function(fn) {
                     var value = 2;
                     // the expected behaviour is
                     // var {a} = 2;
@@ -1071,7 +1060,7 @@
                     var {a,} = value;
                     return a;
                 })`,
-                test: function(fn) {
+                pass: function(fn) {
                     var value = 1;
                     return fn({a: value}) === value;
                 }
@@ -1081,23 +1070,23 @@
                     var {x:a} = value;
                     return a;
                 })`,
-                test: function(fn) {
+                pass: function(fn) {
                     var value = 1;
                     return fn({x: value}) === value;
                 }
             });
             register('computed-properties', {
                 dependencies: ['computed-properties'],
-                code: transpile`(function(value) {
+                code: transpile`(function(name, value) {
                     var {[name]: a} = value;
                     return a;
                 })`,
-                test: function(fn) {
+                pass: function(fn) {
                     var name = 'a';
                     var value = 1;
                     var object = {};
                     object[name] = value;
-                    return fn(object) === value;
+                    return fn(name, object) === value;
                 }
             });
             register('catch-statement', {
@@ -1108,7 +1097,7 @@
                         return a;
                     }
                 })`,
-                test: function(fn) {
+                pass: function(fn) {
                     var value = 1;
                     return fn({a: value}) === value;
                 }
@@ -1118,7 +1107,7 @@
                     var {a = defaultValues.a, b = defaultValues.b, c = defaultValues.c} = value;
                     return [a, b, c];
                 })`,
-                test: function(fn) {
+                pass: function(fn) {
                     var defaultA = 1;
                     var defaultB = 2;
                     var defaultC = 3;
@@ -1143,9 +1132,8 @@
                     let {c = c} = {};
                     let {c = d, d} = {d: 1};
                 })`,
-                when: 'code-compilation-error',
-                test: function(result) {
-                    return result instanceof Error;
+                fail: function(error) {
+                    return error instanceof Error;
                 }
             });
         });
@@ -1158,7 +1146,7 @@
                 var [a] = array, {b} = object;
                 return [a, b];
             })`,
-            test: function(fn) {
+            pass: function(fn) {
                 var value = 1;
                 return sameValues(fn([value], {b: value}), [value, value]);
             }
@@ -1172,7 +1160,7 @@
                 var [{a}] = value;
                 return a;
             })`,
-            test: function(fn) {
+            pass: function(fn) {
                 var value = 1;
                 return fn([{a: value}]) === value;
             }
@@ -1187,7 +1175,7 @@
                 var {a:[a]} = value;
                 return a;
             })`,
-            test: function(fn) {
+            pass: function(fn) {
                 var value = 1;
                 return fn({a: [value]}) === value;
             }
@@ -1197,7 +1185,7 @@
                 [b, a] = [a, b];
                 return [a, b];
             })`,
-            test: function(fn) {
+            pass: function(fn) {
                 var a = 1;
                 var b = 2;
                 return sameValues(fn(a, b), [b, a]);
@@ -1207,7 +1195,7 @@
                 code: transpile`(function() {
                     [] = [1,2];
                 })`,
-                test: function(fn) {
+                pass: function(fn) {
                     fn();
                     return true;
                 }
@@ -1220,7 +1208,7 @@
                     [head, ...[value[2], tail]] = value;
                     return [value, head, tail];
                 })`,
-                test: function(fn) {
+                pass: function(fn) {
                     var first = 1;
                     var middle = 2;
                     var last = 3;
@@ -1238,7 +1226,7 @@
                     var a;
                     return ([a] = value);
                 })`,
-                test: function(fn) {
+                pass: function(fn) {
                     var value = [];
                     return fn(value) === value;
                 }
@@ -1249,7 +1237,7 @@
                     ([a] = [b] = [value]);
                     return [a, b];
                 })`,
-                test: function(fn) {
+                pass: function(fn) {
                     var value = 1;
                     return sameValues(fn(value), [value, value]);
                 }
@@ -1257,10 +1245,10 @@
         });
         register('destructuring-assignment-object', {
             code: transpile`(function(value) {
-                {a} = {a: value};
+                ({a} = {a: value});
                 return a;
             })`,
-            test: function(fn) {
+            pass: function(fn) {
                 var value = 1;
                 return fn(value) === value;
             }
@@ -1269,7 +1257,7 @@
                 code: transpile`(function() {
                     ({} = {a:1, b:2});
                 })`,
-                test: function(fn) {
+                pass: function(fn) {
                     fn();
                     return true;
                 }
@@ -1279,7 +1267,7 @@
                     var a;
                     return ({a} = value);
                 })`,
-                test: function(fn) {
+                pass: function(fn) {
                     var value = {};
                     return fn(value) === value;
                 }
@@ -1289,9 +1277,8 @@
                     var a;
                     ({a}) = value;
                 })`,
-                when: 'code-compilation-error',
-                test: function(result) {
-                    return result instanceof SyntaxError;
+                fail: function(error) {
+                    return error instanceof SyntaxError;
                 }
             });
             register('chain', {
@@ -1300,7 +1287,7 @@
                     ({a} = {b} = {a: value, b: value});
                     return [a, b];
                 })`,
-                test: function(fn) {
+                pass: function(fn) {
                     var value = 1;
                     return sameValues(fn(value), [value, value]);
                 }
@@ -1310,13 +1297,13 @@
             code: transpile`(function([a]) {
                 return a;
             })`,
-            test: function(fn) {
+            pass: function(fn) {
                 var value = 1;
                 return fn([value]) === value;
             }
         }).ensure(function(register) {
             register('function-length', {
-                test: function(fn) {
+                pass: function(fn) {
                     return fn.length === 1;
                 }
             });
@@ -1327,7 +1314,7 @@
                         'return a;'
                     );
                 },
-                test: function(fn) {
+                pass: function(fn) {
                     var value = 1;
                     return fn([value]) === value;
                 }
@@ -1337,7 +1324,7 @@
             code: transpile`(function({a}) {
                 return a;
             })`,
-            test: function(fn) {
+            pass: function(fn) {
                 var value = 1;
                 return fn({a: value}) === value;
             }
@@ -1349,14 +1336,14 @@
                         'return a;'
                     );
                 },
-                test: function(fn) {
+                pass: function(fn) {
                     var value = 1;
                     return fn({a: value}) === value;
                 }
             });
             register('function-length', {
                 code: transpile`(function({a}) {})`,
-                test: function(fn) {
+                pass: function(fn) {
                     return fn.length === 1;
                 }
             });
@@ -1366,7 +1353,7 @@
             code: transpile`(function(method, args) {
                 return method(...args);
             })`,
-            test: function(fn) {
+            pass: function(fn) {
                 var method = Math.max;
                 var args = [1, 2, 3];
 
@@ -1374,20 +1361,15 @@
             }
         }).ensure(function(register) {
             register('throw-non-iterable', {
-                test: function(fn) {
-                    try {
-                        fn(Math.max, true);
-                        return false;
-                    } catch (e) {
-                        return e instanceof Error;
-                    }
-                }
+                pass: Predicate.fails(function(fn) {
+                    fn(Math.max, true);
+                })
             });
             register('iterable', {
                 dependencies: [
                     'symbol-iterator'
                 ],
-                test: function(fn) {
+                pass: function(fn) {
                     var method = Math.max;
                     var data = [1, 2, 3];
                     var iterable = createIterableObject(data);
@@ -1396,7 +1378,7 @@
                 }
             });
             register('iterable-instance', {
-                test: function(fn) {
+                pass: function(fn) {
                     var method = Math.max;
                     var data = [1, 2, 3];
                     var iterable = createIterableObject(data);
@@ -1410,7 +1392,7 @@
             code: transpile`(function(value) {
                 return [...value];
             })`,
-            test: function(fn) {
+            pass: function(fn) {
                 var value = [1, 2, 3];
                 return sameValues(fn(value), value);
             }
@@ -1419,14 +1401,14 @@
                 dependencies: [
                     'symbol-iterator'
                 ],
-                test: function(fn) {
+                pass: function(fn) {
                     var data = [1, 2, 3];
                     var iterable = createIterableObject(data);
                     return sameValues(fn(iterable), data);
                 }
             });
             register('iterable-instance', {
-                test: function(fn) {
+                pass: function(fn) {
                     var data = [1, 2, 3];
                     var iterable = createIterableObject(data);
                     var instance = Object.create(iterable);
@@ -1441,7 +1423,7 @@
                     return [a, b];
                 };
             })`,
-            test: function(fn) {
+            pass: function(fn) {
                 var defaultA = 1;
                 var defaultB = 2;
                 var a = 3;
@@ -1450,7 +1432,7 @@
             }
         }).ensure(function(register) {
             register('explicit-undefined', {
-                test: function(fn) {
+                pass: function(fn) {
                     var defaultA = 1;
                     var defaultB = 2;
                     var a;
@@ -1465,7 +1447,7 @@
                         return [a, b];
                     };
                 })`,
-                test: function(fn) {
+                pass: function(fn) {
                     var defaultValue = 1;
                     var result = fn(defaultValue)();
                     return sameValues(result, [defaultValue, defaultValue]);
@@ -1478,7 +1460,7 @@
                         return arguments;
                     };
                 })`,
-                test: function(fn) {
+                pass: function(fn) {
                     var defaultValue = 1;
                     var value = 2;
                     var result = fn(defaultValue)(value);
@@ -1490,36 +1472,31 @@
                     (function(a = a) {}());
                     (function(a = b, b){}());
                 })`,
-                test: function(fn) {
-                    try {
-                        fn();
-                        return false;
-                    } catch (e) {
-                        return e instanceof Error;
-                    }
-                }
+                pass: Predicate.fails(function(fn) {
+                    fn();
+                })
             });
             register('scope-own', {
-                code: transpile`(function() {
-                    return function(a = function() {
-                        return typeof b;
-                    }) {
-                        var b = 1;
-                        return a();
-                    };
+                code: transpile`(function(a = function() {
+                    return typeof b;
+                }) {
+                    var b = 1;
+                    return a();
                 })`,
-                test: function(fn) {
+                pass: function(fn) {
                     return fn() === 'undefined';
                 }
             });
             register('new-function', {
-                code: function(defaultA, defaultB) {
-                    return new Function( // eslint-disable-line no-new-func
-                        "a = " + defaultA, "b = " + defaultB,
-                        "return [a, b];"
-                    );
+                code: function() {
+                    return function(defaultA, defaultB) {
+                        return new Function( // eslint-disable-line no-new-func
+                            "a = " + defaultA, "b = " + defaultB,
+                            "return [a, b];"
+                        );
+                    };
                 },
-                test: function(fn) {
+                pass: function(fn) {
                     var defaultA = 1;
                     var defaultB = 2;
                     var a = 3;
@@ -1529,12 +1506,10 @@
         });
 
         register('function-rest-parameters', {
-            code: transpile`(function() {
-                return function(foo, ...rest) {
-                    return [foo, rest];
-                }
+            code: transpile`(function(foo, ...rest) {
+                return [foo, rest];
             })`,
-            test: function(fn) {
+            pass: function(fn) {
                 var first = 1;
                 var second = 2;
                 var result = fn(first, second);
@@ -1550,8 +1525,7 @@
                         set e(...args) {}
                     };
                 })`,
-                when: 'code-compilation-error',
-                test: function(error) {
+                fail: function(error) {
                     return error instanceof Error;
                 }
             });
@@ -1562,7 +1536,7 @@
                         function(...c) {}
                     ];
                 })`,
-                test: function(fn) {
+                pass: function(fn) {
                     var result = fn();
 
                     return (
@@ -1572,13 +1546,11 @@
                 }
             });
             register('arguments', {
-                code: transpile`(function() {
-                    return function(foo, ...rest) {
-                        foo = 10;
-                        return arguments;
-                    };
+                code: transpile`(function(foo, ...rest) {
+                    foo = 10;
+                    return arguments;
                 })`,
-                test: function(fn) {
+                pass: function(fn) {
                     var first = 1;
                     var second = 2;
                     var result = fn(first, second);
@@ -1592,7 +1564,7 @@
                         "return [a, rest]"
                     );
                 },
-                test: function(fn) {
+                pass: function(fn) {
                     var first = 1;
                     var second = 2;
                     var result = fn(first, second);
@@ -1615,7 +1587,7 @@
         //             }())\
         //         };\
         //     ',
-        //     test: function(result) {
+        //     pass: function(result) {
         //         return result === 3;
         //     }
         // });
@@ -1629,7 +1601,7 @@
         //             }())\
         //         };\
         //     ',
-        //     test: function(result) {
+        //     pass: function(result) {
         //         return sameValues(result, [1, 2, 3]);
         //     }
         // });
@@ -1647,7 +1619,7 @@
         //         }\
         //         return result;\
         //     ',
-        //     test: function(result) {
+        //     pass: function(result) {
         //         return result === '123';
         //     }
         // });

@@ -5,13 +5,19 @@
     <meta charset="utf-8" />
 
     <script src="./index.js"></script>
+    <script src="./cache/ciyr7hwyv0000784my7oj6h4u/features-before-flatten.js"></script>
     <script type="text/javascript">
         /* eslint-env browser */
 
-        window.jsenv.implementation.scan(function(report) {
-            console.log('report invalids', report.invalids);
-            window.report = report;
-        });
+        window.jsenv.implementation.scan(
+            function(report) {
+                console.log('report invalids', report.invalids);
+                window.report = report;
+            },
+            function(progressEvent) {
+                console.log(progressEvent.target.name, progressEvent.target.status, progressEvent.loaded, '/', progressEvent.total);
+            }
+        );
 
         // window.jsenv.import('http://localhost/polyfill.js').then(function() {
         //     console.log('here', arguments);

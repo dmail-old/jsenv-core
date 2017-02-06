@@ -737,6 +737,13 @@ ainsi que quelques utilitaires comme assign, Iterable et Predicate
 
             return [firstHalf, secondHalf];
         };
+        Iterable.remove = function remove(iterable, item) {
+            var index = iterable.indexOf(item);
+            if (index > -1) {
+                iterable.splice(index, 1);
+            }
+            return iterable;
+        };
         return Iterable;
     })();
     provide('Iterable', Iterable);
@@ -749,12 +756,29 @@ ainsi que quelques utilitaires comme assign, Iterable et Predicate
                 return !predicate.apply(this, arguments);
             };
         };
-        Predicate.fails = function(fn) {
+        Predicate.fails = function(fn, verifyThrowValue) {
             return function() {
                 try {
                     fn.apply(this, arguments);
                     return false;
                 } catch (e) {
+                    if (verifyThrowValue) {
+                        if (typeof verifyThrowValue === 'function') {
+                            return verifyThrowValue(e);
+                        }
+                        if (typeof verifyThrowValue === 'object') {
+                            if (verifyThrowValue === e) {
+                                return true;
+                            }
+                            if (typeof e === 'object') {
+                                return Iterable.every(Object.keys(verifyThrowValue), function(key) {
+                                    return e[key] === verifyThrowValue[key];
+                                });
+                            }
+                            return false;
+                        }
+                        return verifyThrowValue === e;
+                    }
                     return true;
                 }
             };
@@ -990,7 +1014,7 @@ en fonction du résultat de ces tests
                 return this;
             },
 
-            scan: function(callback) {
+            scan: function(doneCallback, progressCallback) {
                 if (this.preventScanReason) {
                     throw new Error('cannot scan, reason :' + this.preventScanReason);
                 }
@@ -998,6 +1022,7 @@ en fonction du résultat de ces tests
 
                 var self = this;
                 var features = this.features;
+                var readyCount = 0;
                 var groups = groupNodesByDependencyDepth(features);
                 var groupIndex = -1;
                 var groupCount = groups.length;
@@ -1009,7 +1034,7 @@ en fonction du résultat de ces tests
                         return feature.name;
                     });
                     self.preventScanReason = undefined;
-                    callback({
+                    doneCallback({
                         invalids: invalidFeaturesNames
                     });
                 };
@@ -1025,13 +1050,26 @@ en fonction du résultat de ces tests
                         var group = groups[groupIndex];
                         var i = 0;
                         var j = group.length;
-                        var readyCount = 0;
+                        var groupReadyCount = 0;
 
                         while (i < j) {
                             var feature = group[i];
-                            feature.updateStatus(function() { // eslint-disable-line
+
+                            feature.updateStatus(function(feature) { // eslint-disable-line
                                 readyCount++;
-                                if (readyCount === j) {
+                                if (progressCallback) {
+                                    var progressEvent = {
+                                        type: 'progress',
+                                        target: feature,
+                                        lengthComputable: true,
+                                        total: features.length,
+                                        loaded: readyCount
+                                    };
+                                    progressCallback(progressEvent);
+                                }
+
+                                groupReadyCount++;
+                                if (groupReadyCount === j) {
                                     nextGroup();
                                 }
                             });
@@ -1086,6 +1124,35 @@ en fonction du résultat de ces tests
 
     jsenv.provide(function sourceCode() {
         var SourceCode = function(source) {
+            // https://github.com/dmnd/dedent/blob/master/dedent.js
+            var lines = source.split('\n');
+            var lowestIndent = null;
+            Iterable.forEach(lines, function(line) {
+                var match = line.match(/^(\s+)\S+/);
+                if (match) {
+                    var indent = match[1].length;
+                    if (lowestIndent) {
+                        lowestIndent = Math.min(lowestIndent, indent);
+                    } else {
+                        lowestIndent = indent;
+                    }
+                }
+            });
+            if (typeof lowestIndent === 'number') {
+                source = Iterable.map(lines, function(line) {
+                    var firstChar = line[0];
+                    if (firstChar === ' ' || firstChar === '\t') {
+                        return line.slice(lowestIndent);
+                    }
+                    return line;
+                }).join('\n');
+            }
+
+            // eats leading and trailing whitespace too (trim)
+            source = source.replace(/^[\s\uFEFF\xA0]+|[\s\uFEFF\xA0]+$/g, '');
+            // handle escaped newlines at the end to ensure they don't get stripped too
+            source = source.replace(/\\n/g, "\n");
+
             this.source = source;
         };
         SourceCode.prototype = {
@@ -1126,6 +1193,19 @@ en fonction du résultat de ces tests
         var featurePrototype = Object.getPrototypeOf(jsenv.createFeature());
         featurePrototype.updateStatus = function(callback) {
             var feature = this;
+            var parent = this.parent;
+            // inherit some properties from parent
+            if (parent) {
+                Iterable.forEach(
+                    ['code', 'pass', 'fail'],
+                    function(name) {
+                        if (this.hasOwnProperty(name) === false && parent.hasOwnProperty(name)) {
+                            this[name] = parent[name];
+                        }
+                    },
+                    this
+                );
+            }
 
             if (feature.statusIsFrozen) {
                 callback(feature);
@@ -1160,24 +1240,34 @@ en fonction du résultat de ces tests
                     return dependency.isInvalid() && dependency.isParameterOf(this) === false;
                 }, this);
                 if (invalidDependency) {
-                    settle(false, 'dependency-is-invalid', invalidDependency);
+                    settle(false, 'dependency-is-invalid', invalidDependency.name);
                 } else {
-                    var branch = this.getTestBranch();
-                    if (branch.name === this.when) {
-                        var test;
-                        if (this.hasOwnProperty('test')) {
-                            test = this.test;
-                            if (typeof test !== 'function') {
-                                throw new TypeError('feature test must be a function');
-                            }
-                        } else if (this.parent) {
-                            test = this.parent.test;
-                        } else {
-                            throw new Error('feature ' + this + ' has no test method');
+                    var result;
+                    var resultOrigin;
+                    try {
+                        result = this.compileResult();
+                        resultOrigin = 'return';
+                    } catch (e) {
+                        result = e;
+                        resultOrigin = 'throw';
+                    }
+                    this.result = result;
+                    this.resultOrigin = resultOrigin;
+
+                    var test;
+                    var testPropertyName = resultOrigin === 'throw' ? 'fail' : 'pass';
+
+                    if (this.hasOwnProperty(testPropertyName)) {
+                        test = this[testPropertyName];
+                        var type = typeof test;
+                        if (type !== 'function') {
+                            throw new TypeError('feature test must be a function (not ' + type + ')');
                         }
+                        // ce throw au dessus fait que settle n'est jamais appelé
+                        // et bizarrement l'erreur n'est jamais log...
 
                         var testArgs = [];
-                        testArgs.push(branch.value);
+                        testArgs.push(result);
                         Iterable.forEach(this.parameters, function(parameter) {
                             testArgs.push(parameter);
                         });
@@ -1198,75 +1288,31 @@ en fonction du résultat de ces tests
                             settle(false, 'throwed', e);
                         }
                     } else {
-                        settle(false, 'unexpected-' + branch.name, branch.value);
+                        settle(false, 'unexpected-compilation-' + resultOrigin);
                     }
                 }
             }
 
             return this;
         };
-        featurePrototype.when = 'code-runtime-result';
-        featurePrototype.getTestBranch = function() {
-            var expectedBranchName = this.when;
-
-            var codeGetter;
-            try {
-                codeGetter = this.compileCode();
-            } catch (e) {
-                return {
-                    name: 'code-compilation-error',
-                    value: e
-                };
-            }
-            if (!codeGetter) {
-                throw new Error('feature ' + this + ' has no code method');
-            }
-            this.code = codeGetter;
-            if (expectedBranchName === 'code-compilation-result') {
-                return {
-                    name: expectedBranchName,
-                    value: codeGetter
-                };
-            }
-
-            var codeResult;
-            var codeArgs = [];
-            try {
-                codeResult = codeGetter.apply(this, codeArgs);
-            } catch (e) {
-                return {
-                    name: 'code-runtime-error',
-                    value: e
-                };
-            }
-            this.result = codeResult;
-            return {
-                name: 'code-runtime-result',
-                value: codeResult
-            };
-        };
-        featurePrototype.compileCode = function() {
-            var codeGetter;
+        featurePrototype.compileResult = function() {
+            var result;
 
             if (this.hasOwnProperty('code')) {
-                var ownCode = this.code;
+                var code = this.code;
 
-                if (jsenv.isSourceCode(ownCode)) {
-                    codeGetter = function() {
-                        return ownCode.compile();
-                    };
-                } else if (typeof ownCode === 'function') {
-                    codeGetter = ownCode;
+                if (jsenv.isSourceCode(code)) {
+                    result = code.compile();
+                } else if (typeof code === 'function') {
+                    result = code.call(this);
                 } else {
-                    throw new TypeError('feature code must be a sourceCode or function');
+                    result = code;
                 }
-            } else if (this.parent) {
-                codeGetter = this.parent.code;
             } else {
-                codeGetter = null;
+                result = undefined;
             }
 
-            return codeGetter;
+            return result;
         };
         featurePrototype.addDependent = function(dependentFeature, options) {
             dependentFeature.addDependency(this, options);
@@ -1339,8 +1385,11 @@ en fonction du résultat de ces tests
                 if ('code' in properties) {
                     feature.code = properties.code;
                 }
-                if ('test' in properties) {
-                    feature.test = properties.test;
+                if ('pass' in properties) {
+                    feature.pass = properties.pass;
+                }
+                if ('fail' in properties) {
+                    feature.fail = properties.fail;
                 }
 
                 return feature;
@@ -1356,10 +1405,13 @@ en fonction du résultat de ces tests
             rootFeature.code = function() {
                 return undefined;
             };
-            rootFeature.test = function() {
+            rootFeature.pass = function() {
                 return true;
             };
             rootFeature.ensure(fn);
+            rootFeature.dependents.forEach(function(feature) {
+                Iterable.remove(feature.dependencies, rootFeature);
+            });
         }
 
         return {
