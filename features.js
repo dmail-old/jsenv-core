@@ -119,35 +119,31 @@
         function produceFromPath() {
             var feature = this;
             var result;
-            // désactive hasOwnProperty result sinon on ne peut pas relancer le test
-            // puisque une fois le test fait une fois, feature.result existe
-            // ou alors il faudrais delete feature.result pour relancer le test
-            if (feature.hasOwnProperty('result')) {
-                result = feature.result;
-            } else if (feature.parent) {
-                var parentResult = feature.parent.result;
+            var parent = feature.parent;
+
+            if (parent) {
+                var parentResult = parent.result;
+                result = parentResult;
+
                 if (feature.hasOwnProperty('path')) {
                     var path = feature.path;
                     var parts = path.split('.');
-                    var endValue = parentResult;
                     var i = 0;
                     var j = parts.length;
                     while (i < j) {
                         var part = parts[i];
-                        if (part in endValue) {
-                            endValue = endValue[part];
+                        if (part in result) {
+                            result = result[part];
                         } else {
-                            endValue = noValue;
+                            result = noValue;
                             break;
                         }
                         i++;
                     }
-                    result = endValue;
-                } else {
-                    result = parentResult;
                 }
             } else {
-                throw new Error('feature without parent must have a result property');
+                result = jsenv.global;
+                // throw new Error('feature without parent must have a result property');
             }
             return result;
         }
@@ -179,7 +175,6 @@
         }
 
         register('global', {
-            result: jsenv.global,
             code: produceFromPath,
             pass: presence
         }).ensure(function(register) {
@@ -345,6 +340,9 @@
             register('array', {
                 path: 'Array'
             }).ensure(function(register) {
+                register('from', {
+                    path: 'from'
+                });
                 register('prototype', {
                     path: 'prototype'
                 }).ensure(function(register) {
@@ -406,31 +404,39 @@
                             }
                         });
                         register('new', {
-                            pass: function() {
-                                // eslint-disable-next-line no-new-func
-                                return (new Function()).name === 'anonymous';
+                            code: transpile`(function() {
+                                return new Function();
+                            })`,
+                            pass: function(fn) {
+                                return fn().name === 'anonymous';
                             }
                         });
                         register('bind', {
-                            pass: function() {
+                            code: transpile`(function() {
                                 function foo() {}
                                 var boundFoo = foo.bind({});
-                                var boundAnonymous = (function() {}).bind({}); // eslint-disable-line no-extra-bind
-
+                                var boundAnonymous = (function() {}).bind({});
+                                return [boundFoo, boundAnonymous];
+                            })`,
+                            pass: function(fn) {
+                                var result = fn();
                                 return (
-                                    boundFoo.name === "bound foo" &&
-                                    boundAnonymous.name === "bound "
+                                    result[0].name === "bound foo" &&
+                                    result[1].name === "bound "
                                 );
                             }
                         });
                         register('var', {
-                            pass: function() {
-                                var foo = function() {};
-                                var bar = function baz() {};
-
+                            code: transpile`(function() {
+                                var a = function() {};
+                                var b = function c() {};
+                                return [a, b];
+                            })`,
+                            pass: function(fn) {
+                                var result = fn();
                                 return (
-                                    foo.name === "foo" &&
-                                    bar.name === "baz"
+                                    result[0].name === 'a' &&
+                                    result[1].name === 'c'
                                 );
                             }
                         });
@@ -452,17 +458,20 @@
                             }
                         });
                         register('method', {
-                            pass: function() {
+                            code: transpile`function() {
                                 var result = {
-                                    foo: function() {},
-                                    bar: function baz() {}
+                                    a: function() {},
+                                    b: function c() {};
                                 };
-                                result.qux = function() {};
-
+                                result.d = function() {};
+                                return result;
+                            })`,
+                            pass: function(fn) {
+                                var result = fn();
                                 return (
-                                    result.foo.name === 'foo' &&
-                                    result.bar.name === 'baz' &&
-                                    result.qux.name === ''
+                                    result.a.name === 'a' &&
+                                    result.b.name === 'c' &&
+                                    result.d.name === ''
                                 );
                             }
                         });
@@ -498,21 +507,22 @@
                                 'symbol',
                                 'computed-properties'
                             ],
-                            code: transpile`(function(first, second) {
+                            code: transpile`(function() {
+                                var first = Symbol('foo');
+                                var second = Symbol();
                                 return {
+                                    first: first,
+                                    second: second,
                                     [first]: function() {},
                                     [second]: function() {}
                                 };
                             })`,
                             pass: function(fn) {
-                                var name = 'foo';
-                                var first = Symbol(name);
-                                var second = Symbol();
-                                var result = fn(first, second);
+                                var result = fn();
 
                                 return (
-                                    result[first].name === '[' + name + ']' &&
-                                    result[second].name === ''
+                                    result[result.first].name === '[foo]' &&
+                                    result[result.second].name === ''
                                 );
                             }
                         });
@@ -663,7 +673,7 @@
                     if (true) const bar = 1;
                 })`,
                 fail: function(error) {
-                    return error instanceof Error;
+                    return error.name === 'SyntaxError';
                 }
             });
             register('throw-redefine', {
@@ -772,7 +782,7 @@
                     if (true) let result = 1;
                 })`,
                 fail: function(error) {
-                    return error instanceof Error;
+                    return error.name === 'SyntaxError';
                 }
             });
             register('temporal-dead-zone', {

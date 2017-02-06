@@ -1,39 +1,22 @@
 {
 	"sourceEtags": [
-		"\"c373-rcSW6725eJckwRxoW0Vu85RIsW8\""
+		"\"c39a-+bYD2a9qj+doCqvrc+Xj77/VYS8\""
 	],
 	"value": {
 		"invalids": [
-			"symbol-to-primitive",
-			"date-prototype-symbol-to-primitive",
 			"function-prototype-name-new",
-			"function-prototype-name-var",
 			"function-prototype-name-accessor",
 			"function-prototype-name-method",
 			"function-prototype-name-method-computed-symbol",
-			"url",
-			"url-search-params",
 			"const-throw-statement",
 			"const-throw-redefine",
-			"const-scoped-for-body",
-			"const-scoped-for-of-body",
-			"let-scoped-for-body",
-			"destructuring-declaration-array-iterable-instance",
-			"destructuring-declaration-object-computed-properties",
-			"destructuring-assignment-object",
-			"destructuring-assignment-object-empty",
-			"destructuring-assignment-object-expression-return",
 			"destructuring-assignment-object-throw-left-parenthesis",
-			"destructuring-assignment-object-chain",
 			"destructuring-parameters-array-new-function",
 			"destructuring-parameters-object-new-function",
 			"spread-function-call-throw-non-iterable",
 			"function-default-parameters-temporal-dead-zone",
 			"function-default-parameters-scope-own",
 			"function-default-parameters-new-function",
-			"function-rest-parameters",
-			"function-rest-parameters-throw-setter",
-			"function-rest-parameters-length",
 			"function-rest-parameters-arguments",
 			"function-rest-parameters-new-function"
 		]

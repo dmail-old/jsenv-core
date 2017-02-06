@@ -1411,6 +1411,7 @@ en fonction du résultat de ces tests
             rootFeature.ensure(fn);
             rootFeature.dependents.forEach(function(feature) {
                 Iterable.remove(feature.dependencies, rootFeature);
+                delete feature.parent;
             });
         }
 

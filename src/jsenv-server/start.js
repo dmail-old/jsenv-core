@@ -206,11 +206,13 @@ coreJSModule('es6.date-to-string', {
 coreJSModule('es6.function.name', {
     features: [
         'function-prototype-name'
-        // pas vraiment polyfillable si function-description est non configurable
-        // on ne pourra rien y faire, du coup faut l'exclure non ?
-        // 'function-prototype-name-description'
     ]
 });
+// coreJSModule('es6.function.bind', {
+//     features: [
+//         'function-prototype-bind',
+//     ]
+// });
 coreJSModule('es6.object.assign', {
     features: [
         'object-assign'
@@ -220,6 +222,11 @@ coreJSModule('es6.array.iterator', {
     features: [
         'array-prototype-symbol-iterator',
         'array-prototype-symbol-iterator-sparse'
+    ]
+});
+coreJSModule('es6.array.from', {
+    features: [
+        'array-from'
     ]
 });
 coreJSModule('es6.string.iterator', {
@@ -285,8 +292,15 @@ function babelPlugin(name, descriptor) {
     babelTasks.push(task);
     return task;
 }
-babelPlugin('check-es2015-constants', {
-    required: true
+babelPlugin('transform-es2015-function-name', {
+    required: 'auto',
+    features: [
+        'function-prototype-name-statement',
+        'function-prototype-name-expression',
+        'function-prototype-name-var',
+        'function-prototype-name-method-shorthand',
+        'function-prototype-name-method-shorthand-lexical-binding'
+    ]
 });
 babelPlugin('transform-regenerator', {
     required: false, // on désactive pour le moment, j'ai pas fait les feature correspondantes
@@ -330,8 +344,6 @@ babelPlugin('transform-es2015-block-scoping', {
     required: 'auto',
     features: [
         'const',
-        'const-throw-statement',
-        'const-throw-redefine',
         'const-temporal-dead-zone',
         'const-scoped',
         'const-scoped-for-statement',
@@ -361,21 +373,6 @@ babelPlugin('transform-es2015-for-of', {
         'for-of-iterable-return-called-on-throw'
     ]
 });
-babelPlugin('transform-es2015-function-name', {
-    required: 'auto',
-    features: [
-        'function-prototype-name-statement',
-        'function-prototype-name-expression',
-        'function-prototype-name-new',
-        'function-prototype-name-bind',
-        'function-prototype-name-var',
-        'function-prototype-name-accessor',
-        'function-prototype-name-method',
-        'function-prototype-name-method-shorthand',
-        'function-prototype-name-method-shorthand-lexical-binding',
-        'function-prototype-name-method-computed-symbol'
-    ]
-});
 babelPlugin('transform-es2015-parameters', {
     required: 'auto',
     features: [
@@ -383,15 +380,10 @@ babelPlugin('transform-es2015-parameters', {
         'function-default-parameters-explicit-undefined',
         'function-default-parameters-refer-previous',
         'function-default-parameters-arguments',
-        'function-default-parameters-temporal-dead-zone',
-        'function-default-parameters-scope-own',
-        'function-default-parameters-new-function',
 
         'function-rest-parameters',
         'function-rest-parameters-throw-setter',
-        'function-rest-parameters-length',
-        'function-rest-parameters-arguments',
-        'function-rest-parameters-new-function'
+        'function-rest-parameters-length'
     ]
 });
 babelPlugin('transform-es2015-shorthand-properties', {
@@ -405,12 +397,9 @@ babelPlugin('transform-es2015-spread', {
     required: 'auto',
     features: [
         'spread-function-call',
-        'spread-function-call-throw-non-iterable',
-        // 'spread-function-call-generator',
         'spread-function-call-iterable',
         'spread-function-call-iterable-instance',
         'spread-literal-array',
-        // 'spread-literal-array-generator',
         'spread-literal-array-iterable',
         'spread-literal-array-iterable-instance'
     ]
@@ -458,12 +447,13 @@ babelPlugin('transform-es2015-destructuring', {
 
         'destructuring-parameters-array',
         'destructuring-parameters-array-function-length',
-        'destructuring-parameters-array-new-function',
 
         'destructuring-parameters-object',
-        'destructuring-parameters-object-function-length',
-        'destructuring-parameters-object-new-function'
+        'destructuring-parameters-object-function-length'
     ]
+});
+babelPlugin('check-es2015-constants', {
+    required: true
 });
 
 function start() {
@@ -573,15 +563,13 @@ function flattenImplementation(options) {
         return getBeforeFlattenReport(options).then(
             reviveReport
         ).then(function(beforeReport) {
-            // implementation.disable('function-prototype-name-description');
-
             var features = beforeReport.features;
             callEveryHook('afterScanHook', features);
             var unhandledProblematicFeatures = features.filter(function(feature) {
                 return feature.isEnabled() && feature.isInvalid();
             });
             if (unhandledProblematicFeatures.length) {
-                throw new Error('no solution for: ' + unhandledProblematicFeatures.join(','));
+                throw new Error('environement miss unfixable features ' + unhandledProblematicFeatures.join(','));
             }
         });
     }
@@ -606,6 +594,28 @@ function flattenImplementation(options) {
         });
     }
     function reviveReport(report) {
+        [
+            'const-throw-statement',
+            'const-throw-redefine',
+            'function-prototype-name-new',
+            'function-prototype-name-accessor',
+            'function-prototype-name-method',
+            'function-prototype-name-method-computed-symbol',
+            'function-prototype-name-bind', // corejs & babel fail this
+            'function-default-parameters-temporal-dead-zone',
+            'function-default-parameters-scope-own',
+            'function-default-parameters-new-function',
+            'function-rest-parameters-arguments',
+            'function-rest-parameters-new-function',
+            'spread-function-call-throw-non-iterable',
+            'destructuring-assignment-object-throw-left-parenthesis',
+            'destructuring-parameters-array-new-function',
+            'destructuring-parameters-object-new-function'
+        ].forEach(function(featureName) {
+            implementation.disable(featureName, 'babel do not provide this');
+        });
+        implementation.disable('function-prototype-name-description', 'cannot be polyfilled');
+
         var invalidFeatureNames = report.invalids;
         var features = Iterable.map(implementation.features, function(feature) {
             var featureCopy = jsenv.createFeature(feature.name, feature.version);
@@ -803,87 +813,87 @@ function flattenImplementation(options) {
         };
         callEveryTaskHook(babelTasks, 'afterInstallHook');
     }
+    function customPlugin(babel) {
+        // inspired from babel-transform-template-literals
+        // https://github.com/babel/babel/blob/master/packages/babel-plugin-transform-es2015-template-literals/src/index.js#L36
+        var t = babel.types;
+
+        function transpileTemplate(strings) {
+            var result;
+            var raw = strings.raw;
+            var i = 0;
+            var j = raw.length;
+            result = raw[i];
+            i++;
+            while (i < j) {
+                result += arguments[i];
+                result += raw[i];
+                i++;
+            }
+
+            try {
+                return transpiler.transpile(result, {
+                    sourceMaps: false,
+                    plugins: transpiler.plugins
+                });
+            } catch (e) {
+                // if there is an error
+                // let test a chance to eval untranspiled string
+                // and catch error it may be a test which is trying
+                // to ensure compilation error (syntax error for example)
+                return result;
+            }
+        }
+
+        function visitTaggedTemplateExpression(path, state) {
+            var TAG_NAME = state.opts.tag || 'transpile';
+            var node = path.node;
+            if (!t.isIdentifier(node.tag, {name: TAG_NAME})) {
+                return;
+            }
+            var quasi = node.quasi;
+            var quasis = quasi.quasis;
+            var expressions = quasi.expressions;
+
+            var values = expressions.map(function(expression) {
+                return expression.evaluate().value;
+            });
+            var strings = quasis.map(function(quasi) {
+                return quasi.value.cooked;
+            });
+            var raw = quasis.map(function(quasi) {
+                return quasi.value.raw;
+            });
+            strings.raw = raw;
+
+            var tanspileArgs = [];
+            tanspileArgs.push(strings);
+            tanspileArgs.push.apply(tanspileArgs, values);
+            var transpiled = transpileTemplate.apply(null, tanspileArgs);
+
+            var args = [];
+            var templateObject = state.file.addTemplateObject(
+                'taggedTemplateLiteral',
+                t.arrayExpression([
+                    t.stringLiteral(transpiled)
+                ]),
+                t.arrayExpression([
+                    t.stringLiteral(transpiled)
+                ])
+            );
+            args.push(templateObject);
+            path.replaceWith(t.callExpression(node.tag, args));
+        }
+
+        return {
+            visitor: {
+                TaggedTemplateExpression: visitTaggedTemplateExpression
+            }
+        };
+    }
     function getAfterFlattenFeatures() {
         var createFeatures = function() {
             return fsAsync.getFileContent(rootPath + '/features.js').then(function(code) {
-                // inspired from babel-transform-template-literals
-                // https://github.com/babel/babel/blob/master/packages/babel-plugin-transform-es2015-template-literals/src/index.js#L36
-                var customPlugin = function(babel) {
-                    var t = babel.types;
-
-                    function visitTaggedTemplateExpression(path, state) {
-                        var TAG_NAME = state.opts.tag || 'transpile';
-                        var node = path.node;
-                        if (!t.isIdentifier(node.tag, {name: TAG_NAME})) {
-                            return;
-                        }
-                        var quasi = node.quasi;
-                        var quasis = quasi.quasis;
-                        var expressions = quasi.expressions;
-
-                        var values = expressions.map(function(expression) {
-                            return expression.evaluate().value;
-                        });
-                        var strings = quasis.map(function(quasi) {
-                            return quasi.value.cooked;
-                        });
-                        var raw = quasis.map(function(quasi) {
-                            return quasi.value.raw;
-                        });
-                        strings.raw = raw;
-
-                        var transpileTemplate = function(strings) {
-                            var result;
-                            var raw = strings.raw;
-                            var i = 0;
-                            var j = raw.length;
-                            result = raw[i];
-                            i++;
-                            while (i < j) {
-                                result += arguments[i];
-                                result += raw[i];
-                                i++;
-                            }
-
-                            try {
-                                return transpiler.transpile(result, {
-                                    sourceMaps: false,
-                                    plugins: transpiler.plugins
-                                });
-                            } catch (e) {
-                                // if there is an error
-                                // let test a chance to eval untranspiled string
-                                // and catch error it may be a test which is trying
-                                // to ensure compilation error (syntax error for example)
-                                return result;
-                            }
-                        };
-
-                        var tanspileArgs = [];
-                        tanspileArgs.push(strings);
-                        tanspileArgs.push.apply(tanspileArgs, values);
-                        var transpiled = transpileTemplate.apply(null, tanspileArgs);
-
-                        var args = [];
-                        var templateObject = state.file.addTemplateObject(
-                            'taggedTemplateLiteral',
-                            t.arrayExpression([
-                                t.stringLiteral(transpiled)
-                            ]),
-                            t.arrayExpression([
-                                t.stringLiteral(transpiled)
-                            ])
-                        );
-                        args.push(templateObject);
-                        path.replaceWith(t.callExpression(node.tag, args));
-                    }
-
-                    return {
-                        visitor: {
-                            TaggedTemplateExpression: visitTaggedTemplateExpression
-                        }
-                    };
-                };
                 var babel = require('babel-core');
                 var result = babel.transform(code, {
                     plugins: [
@@ -918,11 +928,6 @@ function flattenImplementation(options) {
                 });
             }
 
-            // faudrais faire un tru comme ça afin de pouvoir retester
-            // jsenv.implementation.features.forEach(function(feature) {
-            //     feature.status = 'unspecified';
-            // });
-
             var remainingProblematicFeatures = afterReport.features.filter(function(feature) {
                 var currentFeature = implementation.get(feature.name);
                 return currentFeature.isEnabled() && feature.isInvalid();
@@ -934,6 +939,9 @@ function flattenImplementation(options) {
                         throw new Error('cannot find task for feature ' + feature.name);
                     }
                     console.log(featureTask.name, 'is not a valid alternative for feature ' + feature.name);
+                    if (feature.name === 'function-prototype-name-var') {
+                        console.log('feature', implementation.get(feature.name));
+                    }
                 });
                 return Promise.reject();
             }
