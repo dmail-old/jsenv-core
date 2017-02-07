@@ -26,102 +26,6 @@ function memoizeAsync(fn, store) {
 
 var fs = require('fs');
 var fsAsync = require('./fs-async.js');
-function fileStore(path, customOptions) {
-    var defaultOptions = {
-        prevalidate: function() {
-            return true;
-        },
-        postvalidate: function() {
-            return true;
-        },
-        encode: function(value) {
-            return value;
-        },
-        decode: function(value) {
-            return value;
-        },
-        wrap: function(value) {
-            return value;
-        },
-        unwrap: function(value) {
-            return value;
-        }
-    };
-    var options = {};
-    /* eslint-disable guard-for-in */
-    var key;
-    for (key in defaultOptions) {
-        options[key] = defaultOptions[key];
-    }
-    for (key in (customOptions || {})) {
-        options[key] = customOptions[key];
-    }
-
-    var invalidEntry = {
-        valid: false,
-        value: undefined
-    };
-    function prevalidate() {
-        var visible = (fs.constants || fs).F_OK;
-        return fsAsync('access', path, visible).then(
-            function() {
-                return Promise.resolve(options.prevalidate(path)).then(function(preValidity) {
-                    if (!preValidity) {
-                        return Promise.reject(invalidEntry);
-                    }
-                });
-            },
-            function() {
-                return Promise.reject(invalidEntry);
-            }
-        );
-    }
-    function postvalidate(value) {
-        return Promise.resolve(options.postvalidate(value)).then(function(postValidity) {
-            if (postValidity) {
-                return value;
-            }
-            return Promise.reject(invalidEntry);
-        });
-    }
-
-    var store = {
-        read: function() {
-            return prevalidate().then(function() {
-                return fsAsync.getFileContent(path);
-            }).then(
-                options.decode
-            ).then(
-                postvalidate
-            ).then(
-                options.unwrap
-            ).then(function(value) {
-                return {
-                    valid: true,
-                    value: value
-                };
-            }).catch(function(value) {
-                if (value === invalidEntry) {
-                    return invalidEntry;
-                }
-                return Promise.reject(value);
-            });
-        },
-
-        write: function(value) {
-            return Promise.resolve(value).then(
-                options.wrap
-            ).then(
-                options.encode
-            ).then(function(value) {
-                return fsAsync.setFileContent(path, value);
-            });
-        }
-    };
-
-    return store;
-}
-
 function memoizeUsingFile(fn, path, sources, validationStrategy) {
     if (typeof sources === 'string') {
         sources = [sources];
@@ -225,6 +129,101 @@ function memoizeUsingFile(fn, path, sources, validationStrategy) {
     var store = fileStore(path, options);
 
     return memoizeAsync(fn, store);
+}
+function fileStore(path, customOptions) {
+    var defaultOptions = {
+        prevalidate: function() {
+            return true;
+        },
+        postvalidate: function() {
+            return true;
+        },
+        encode: function(value) {
+            return value;
+        },
+        decode: function(value) {
+            return value;
+        },
+        wrap: function(value) {
+            return value;
+        },
+        unwrap: function(value) {
+            return value;
+        }
+    };
+    var options = {};
+    /* eslint-disable guard-for-in */
+    var key;
+    for (key in defaultOptions) {
+        options[key] = defaultOptions[key];
+    }
+    for (key in (customOptions || {})) {
+        options[key] = customOptions[key];
+    }
+
+    var invalidEntry = {
+        valid: false,
+        value: undefined
+    };
+    function prevalidate() {
+        var visible = (fs.constants || fs).F_OK;
+        return fsAsync('access', path, visible).then(
+            function() {
+                return Promise.resolve(options.prevalidate(path)).then(function(preValidity) {
+                    if (!preValidity) {
+                        return Promise.reject(invalidEntry);
+                    }
+                });
+            },
+            function() {
+                return Promise.reject(invalidEntry);
+            }
+        );
+    }
+    function postvalidate(value) {
+        return Promise.resolve(options.postvalidate(value)).then(function(postValidity) {
+            if (postValidity) {
+                return value;
+            }
+            return Promise.reject(invalidEntry);
+        });
+    }
+
+    var store = {
+        read: function() {
+            return prevalidate().then(function() {
+                return fsAsync.getFileContent(path);
+            }).then(
+                options.decode
+            ).then(
+                postvalidate
+            ).then(
+                options.unwrap
+            ).then(function(value) {
+                return {
+                    valid: true,
+                    value: value
+                };
+            }).catch(function(value) {
+                if (value === invalidEntry) {
+                    return invalidEntry;
+                }
+                return Promise.reject(value);
+            });
+        },
+
+        write: function(value) {
+            return Promise.resolve(value).then(
+                options.wrap
+            ).then(
+                options.encode
+            ).then(function(value) {
+                return fsAsync.setFileContent(path, value);
+            });
+        }
+    };
+
+    return store;
 }
 
 function getFileContentEtag(path) {

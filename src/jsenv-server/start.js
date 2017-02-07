@@ -65,21 +65,21 @@ qui est finalement écrit
 
 */
 
-require('../../index.js');
+require('../jsenv.js');
+var rootFolder = '../..';
+var cacheFolder = rootFolder + '/cache';
+var jsenv = global.jsenv;
+var Iterable = jsenv.Iterable;
+var implementation = jsenv.implementation;
+var memoize = require('./memoize.js');
+var fsAsync = require('./fs-async.js');
+var getFileStore = require('./fs-store.js');
 
 var options = {
     cache: true
 };
 
-var jsenv = global.jsenv;
-var Iterable = jsenv.Iterable;
-var implementation = jsenv.implementation;
-var cuid = require('cuid');
-var memoize = require('./memoize.js');
-var fsAsync = require('./fs-async.js');
-var rootPath = jsenv.dirname.slice('file:///'.length);
-var mainCacheFolder = rootPath + '/cache';
-
+// renommer fix/solution/solver/solve
 var createTask = (function() {
     function Task(name, descriptor) {
         this.name = name;
@@ -142,6 +142,7 @@ var createTask = (function() {
 var coreJSTasks = [];
 function coreJSModule(name, descriptor) {
     var task = createTask(name, descriptor);
+    task.type = 'polyfill';
 
     task.beforeInstallFeatureEffect = function(feature) {
         feature.statusReason = 'polyfilling';
@@ -240,10 +241,11 @@ coreJSModule('es6.string.iterator', {
 var fileTasks = [];
 function file(name, descriptor) {
     if (name[0] === '.' && name[1] === '/') {
-        name = rootPath + name.slice(1);
+        name = rootFolder + name.slice(1);
     }
 
     var task = createTask(name, descriptor);
+    task.type = 'polyfill';
 
     task.beforeInstallFeatureEffect = function(feature) {
         feature.statusReason = 'polyfilling';
@@ -277,6 +279,7 @@ file('./src/polyfill/url-search-params/index.js', {
 var babelTasks = [];
 function babelPlugin(name, descriptor) {
     var task = createTask(name, descriptor);
+    task.type = 'transpile';
 
     task.beforeInstallFeatureEffect = function(feature) {
         feature.statusIsFrozen = true;
@@ -456,6 +459,57 @@ babelPlugin('check-es2015-constants', {
     required: true
 });
 
+function getBeforeFlattenStoreEntry(meta) {
+    var path = cacheFolder + '/before-flatten';
+    var match = function(entryMeta, meta) {
+        return entryMeta.userAgent === meta.userAgent;
+    };
+
+    return getFileStore(path, match).then(function(store) {
+        return store.match(meta);
+    });
+}
+function getPolyfillStoreEntry(meta) {
+    var path = cacheFolder + '/polyfill';
+    var match = function(entryMeta, meta) {
+        return (
+            entryMeta.coreJs.sort().join() === meta.coreJS.sort().join() &&
+            entryMeta.files.sort().join() === meta.files.sort().join()
+        );
+    };
+    return getFileStore(path, match).then(function(store) {
+        return store.match(meta);
+    });
+}
+function getTranspileStoreEntry(meta) {
+    var path = cacheFolder + '/transpile';
+    var match = function(entryMeta, meta) {
+        return entryMeta.plugins.sort().join() === meta.plugins.sort().join();
+    };
+    return getFileStore(path, match).then(function(store) {
+        return store.match(meta);
+    });
+}
+function getAfterFlattenStoreEntry(meta) {
+    var path = cacheFolder + '/after-flatten';
+    var match = function(entryMeta, meta) {
+        return entryMeta.features.sort().join() === meta.features.sort().join();
+    };
+
+    return getFileStore(path, match).then(function(store) {
+        return store.match(meta);
+    });
+}
+
+function findFeatureTask(feature) {
+    var tasks = coreJSTasks.concat(fileTasks, babelTasks);
+    return Iterable.find(tasks, function(task) {
+        return Iterable.find(task.features, function(taskFeature) {
+            return taskFeature.match(feature);
+        });
+    });
+}
+
 function start() {
     System.trace = true;
     System.meta['*.json'] = {format: 'json'};
@@ -531,12 +585,13 @@ function start() {
     });
 }
 function flattenImplementation(options) {
-    var polyfill;
+    var polyfiller;
     var transpiler;
+    var featuresPath = rootFolder + '/features/features.js';
 
     function getBeforeFlattenFeatures() {
         var createFeatures = function() {
-            return fsAsync.getFileContent(rootPath + '/features.js').then(function(code) {
+            return fsAsync.getFileContent(featuresPath).then(function(code) {
                 var babel = require('babel-core');
                 var result = babel.transform(code, {
                     plugins: [
@@ -547,11 +602,11 @@ function flattenImplementation(options) {
             });
         };
 
-        if (options.cacheFolder) {
+        if (options.cache) {
             createFeatures = memoize.file(
                 createFeatures,
-                options.cacheFolder + '/features-before-flatten.js',
-                rootPath + '/features.js',
+                cacheFolder + '/features.transpiled.js',
+                featuresPath,
                 'mtime'
             );
         }
@@ -572,16 +627,20 @@ function flattenImplementation(options) {
             }
         });
     }
-    function getBeforeFlattenReport() {
+    function getBeforeFlattenReport(options) {
         var createReport = scan;
 
-        if (options.cacheFolder) {
-            createReport = memoize.file(
-                createReport,
-                options.cacheFolder + '/implementation-report-before-flatten.json',
-                rootPath + '/features.js',
-                'eTag'
-            );
+        if (options.cache) {
+            return getBeforeFlattenStoreEntry({
+                userAgent: jsenv.userAgent
+            }).then(function(usrAgentEntry) {
+                return memoize.file(
+                    createReport,
+                    usrAgentEntry.path + '/report-before-flatten.json',
+                    rootFolder + '/features/features.js',
+                    'eTag'
+                )();
+            });
         }
 
         return createReport();
@@ -648,69 +707,70 @@ function flattenImplementation(options) {
     }
     function fixImplementation() {
         return Promise.all([
-            getPolyfill(options).then(function(value) {
+            getPolyfiller(options).then(function(value) {
                 callEveryTaskHook(coreJSTasks, 'beforeInstallHook');
                 callEveryTaskHook(fileTasks, 'beforeInstallHook');
-                polyfill = value;
+                polyfiller = value;
             }),
             getTranspiler(options).then(function(value) {
                 callEveryTaskHook(babelTasks, 'beforeInstallHook');
                 transpiler = value;
             })
         ]).then(function() {
-            return installPolyfill(options);
+            return installPolyfiller(options);
         }).then(function() {
             return installTranspiler(options);
         });
     }
-    function getPolyfill() {
-        function createCoreJSPolyfill() {
-            var requiredModules = coreJSTasks.filter(function(module) {
-                return module.required;
-            });
-            var requiredModulesAsOption = requiredModules.map(function(module) {
-                return module.name;
-            });
-
-            console.log('required corejs modules', requiredModulesAsOption);
-
-            return new Promise(function(resolve) {
-                var buildCoreJS = require('core-js-builder');
-                var promise = buildCoreJS({
-                    modules: requiredModulesAsOption,
-                    librabry: false,
-                    umd: true
-                });
-                resolve(promise);
-            });
-        }
-        function createOwnFilePolyfill() {
-            var requiredFiles = Iterable.filter(fileTasks, function(file) {
-                return file.required;
-            });
-            var requiredFilePaths = Iterable.map(requiredFiles, function(file) {
-                return file.name;
-            });
-            console.log('required files', requiredFilePaths);
-
-            var fs = require('fs');
-            var sourcesPromises = Iterable.map(requiredFilePaths, function(filePath) {
-                return new Promise(function(resolve, reject) {
-                    fs.readFile(filePath, function(error, buffer) {
-                        if (error) {
-                            reject(error);
-                        } else {
-                            resolve(buffer.toString());
-                        }
-                    });
-                });
-            });
-            return Promise.all(sourcesPromises).then(function(sources) {
-                return sources.join('\n\n');
-            });
-        }
+    function getPolyfiller() {
+        var requiredModules = coreJSTasks.filter(function(module) {
+            return module.required;
+        });
+        var requiredModuleNames = requiredModules.map(function(module) {
+            return module.name;
+        });
+        var requiredFiles = Iterable.filter(fileTasks, function(file) {
+            return file.required;
+        });
+        var requiredFilePaths = Iterable.map(requiredFiles, function(file) {
+            return file.name;
+        });
 
         var createPolyfill = function() {
+            function createCoreJSPolyfill() {
+                var requiredModulesAsOption = requiredModuleNames;
+                console.log('concat corejs modules', requiredModuleNames);
+
+                return new Promise(function(resolve) {
+                    var buildCoreJS = require('core-js-builder');
+                    var promise = buildCoreJS({
+                        modules: requiredModulesAsOption,
+                        librabry: false,
+                        umd: true
+                    });
+                    resolve(promise);
+                });
+            }
+            function createOwnFilePolyfill() {
+                console.log('concat files', requiredFilePaths);
+
+                var fs = require('fs');
+                var sourcesPromises = Iterable.map(requiredFilePaths, function(filePath) {
+                    return new Promise(function(resolve, reject) {
+                        fs.readFile(filePath, function(error, buffer) {
+                            if (error) {
+                                reject(error);
+                            } else {
+                                resolve(buffer.toString());
+                            }
+                        });
+                    });
+                });
+                return Promise.all(sourcesPromises).then(function(sources) {
+                    return sources.join('\n\n');
+                });
+            }
+
             return Promise.all([
                 createCoreJSPolyfill(),
                 createOwnFilePolyfill()
@@ -719,23 +779,31 @@ function flattenImplementation(options) {
             });
         };
 
-        if (options.cacheFolder) {
-            var requiredFiles = Iterable.filter(fileTasks, function(file) {
-                return file.required;
+        if (options.cache) {
+            return Promise.resolve().then(function() {
+                return getPolyfillStoreEntry({
+                    coreJs: requiredModuleNames,
+                    files: requiredFilePaths
+                });
+            }).then(function(polyfillEntry) {
+                return memoize.file(
+                    createPolyfill,
+                    polyfillEntry.path + '/polyfill.js',
+                    requiredFilePaths,
+                    'mtime'
+                )();
+            }).then(function(polyfill) {
+                return {
+                    code: polyfill
+                };
             });
-            var requiredFilesNames = requiredFiles.map(function(file) {
-                return file.name;
-            });
-
-            createPolyfill = memoize.file(
-                createPolyfill,
-                options.cacheFolder + '/polyfill.js',
-                requiredFilesNames,
-                'mtime'
-            );
         }
 
-        return createPolyfill();
+        return createPolyfill().then(function(polyfill) {
+            return {
+                code: polyfill
+            };
+        });
     }
     function getTranspiler() {
         var requiredPlugins = babelTasks.filter(function(plugin) {
@@ -748,28 +816,77 @@ function flattenImplementation(options) {
             return plugin.name;
         }));
 
-        var babel = require('babel-core');
-        var transpile = function(code, babelOptions) {
-            // https://babeljs.io/docs/core-packages/#options
-            // inputSourceMap: null,
-            // minified: false
-            babelOptions = babelOptions || {};
-            // babelOptions.plugins = pluginsAsOptions;
-            if ('sourceMaps' in babelOptions === false) {
-                babelOptions.sourceMaps = 'inline';
+        var transpile = function(code, filename, transpilationOptions) {
+            var transpileCode = function(sourceURL) {
+                transpilationOptions = transpilationOptions || {};
+
+                var plugins;
+                if (transpilationOptions.as === 'module') {
+                    plugins = pluginsAsOptions.slice();
+                    plugins.unshift('transform-es2015-modules-systemjs');
+                } else {
+                    plugins = pluginsAsOptions;
+                }
+
+                // https://babeljs.io/docs/core-packages/#options
+                // inputSourceMap: null,
+                // minified: false
+
+                var babelOptions = {};
+                babelOptions.plugins = plugins;
+                babelOptions.ast = false;
+                if ('sourceMaps' in transpilationOptions) {
+                    babelOptions.sourceMaps = transpilationOptions.sourceMaps;
+                } else {
+                    babelOptions.sourceMaps = 'inline';
+                }
+
+                var babel = require('babel-core');
+                var result = babel.transform(code, babelOptions);
+                var transpiledCode = result.code;
+                transpiledCode += '\n//# sourceURL=' + sourceURL;
+                return transpiledCode;
+            };
+
+            if (options.cache) {
+                var nodeFilePath;
+                if (filename.indexOf('file:///') === 0) {
+                    nodeFilePath = filename.slice('file:///'.length);
+                } else {
+                    nodeFilePath = filename;
+                }
+
+                if (nodeFilePath.indexOf(rootFolder) === 0) {
+                    var relativeFilePath = nodeFilePath.slice(rootFolder.length);
+
+                    return getTranspileStoreEntry({
+                        plugins: pluginsAsOptions
+                    }).then(function(entry) {
+                        var storePath = entry.path + '/modules/' + relativeFilePath;
+
+                        return memoize.file(
+                            transpileCode,
+                            storePath,
+                            nodeFilePath,
+                            'mtime'
+                        )(storePath);
+                    });
+                }
             }
 
-            return babel.transform(code, babelOptions).code;
+            return transpileCode(filename + '!transpiled');
         };
 
-        return Promise.resolve({
+        var transpiler = {
             plugins: pluginsAsOptions,
             transpile: transpile
-        });
+        };
+
+        return Promise.resolve(transpiler);
     }
-    function installPolyfill() {
-        if (polyfill) {
-            eval(polyfill); // eslint-disable-line
+    function installPolyfiller() {
+        if (polyfiller.code) {
+            eval(polyfiller.code); // eslint-disable-line
         }
         callEveryTaskHook(coreJSTasks, 'afterInstallHook');
         callEveryTaskHook(fileTasks, 'afterInstallHook');
@@ -778,38 +895,11 @@ function flattenImplementation(options) {
         jsenv.global.System.translate = function(load) {
             var code = load.source;
             var filename = load.address;
-
             load.metadata.format = 'register';
 
-            var transpile = function() {
-                var plugins = transpiler.plugins.slice();
-                plugins.unshift('transform-es2015-modules-systemjs');
-
-                var result = transpiler.transpile(code, {
-                    filename: filename,
-                    ast: false,
-                    plugins: plugins
-                });
-                result += '\n//# sourceURL=' + filename + '!transpiled';
-                return result;
-            };
-
-            if (options.cacheFolder) {
-                var baseURL = String(jsenv.baseURL);
-
-                if (filename.indexOf(baseURL) === 0) {
-                    var relativeFilePath = filename.slice(baseURL.length);
-                    var nodeFilePath = filename.slice('file:///'.length);
-                    transpile = memoize.file(
-                        transpile,
-                        options.cacheFolder + '/modules/' + relativeFilePath,
-                        nodeFilePath,
-                        'mtime'
-                    );
-                }
-            }
-
-            return transpile();
+            return transpiler.transpile(code, filename, {
+                as: 'module'
+            });
         };
         callEveryTaskHook(babelTasks, 'afterInstallHook');
     }
@@ -833,9 +923,7 @@ function flattenImplementation(options) {
 
             try {
                 return transpiler.transpile(result, {
-                    sourceMaps: false,
-                    ast: false,
-                    plugins: transpiler.plugins
+                    as: 'code'
                 });
             } catch (e) {
                 // if there is an error
@@ -894,7 +982,8 @@ function flattenImplementation(options) {
     }
     function getAfterFlattenFeatures() {
         var createFeatures = function() {
-            return fsAsync.getFileContent(rootPath + '/features.js').then(function(code) {
+            // ça je peux le récup depuis le cache mais bon pour le moment ignorons
+            return fsAsync.getFileContent(featuresPath).then(function(code) {
                 var babel = require('babel-core');
                 var result = babel.transform(code, {
                     plugins: [
@@ -905,30 +994,12 @@ function flattenImplementation(options) {
             });
         };
 
-        if (options.cacheFolder) {
-            createFeatures = memoize.file(
-                createFeatures,
-                options.cacheFolder + '/features-after-flatten.js',
-                rootPath + '/features.js',
-                'mtime'
-            );
-        }
-
         return createFeatures();
     }
     function ensureImplementation() {
         return getAfterFlattenReport(options).then(
             reviveReport
         ).then(function(afterReport) {
-            function findFeatureTask(feature) {
-                var tasks = coreJSTasks.concat(fileTasks, babelTasks);
-                return Iterable.find(tasks, function(task) {
-                    return Iterable.find(task.features, function(taskFeature) {
-                        return taskFeature.match(feature);
-                    });
-                });
-            }
-
             var remainingProblematicFeatures = afterReport.features.filter(function(feature) {
                 var currentFeature = implementation.get(feature.name);
                 return currentFeature.isEnabled() && feature.isInvalid();
@@ -952,13 +1023,23 @@ function flattenImplementation(options) {
     function getAfterFlattenReport() {
         var createReport = scan;
 
-        if (options.cacheFolder) {
-            createReport = memoize.file(
-                createReport,
-                options.cacheFolder + '/implementation-report-after-flatten.json',
-                rootPath + '/index.js',
-                'eTag'
-            );
+        if (options.cache) {
+            return getAfterFlattenStoreEntry({
+                features: [] // à récup
+            }).then(function(entry) {
+                return memoize.file(
+                    createReport,
+                    entry.path + '/report-after-flatten.json',
+                    [
+                        rootFolder + '/features/features.js',
+                        rootFolder + '/features/fix.js'
+                        // dépend d'un troisième fichier '.jsenv.js'
+                        // qui n'existe pas encore mais spécifiera quelles features on utilise
+                        // parmi ce qui est disponible
+                    ],
+                    'eTag'
+                )();
+            });
         }
 
         return createReport();
@@ -981,123 +1062,8 @@ function flattenImplementation(options) {
         return ensureImplementation();
     });
 }
-function getCache(folderPath) {
-    var entriesPath = folderPath + '/entries.json';
 
-    function add() {
-        var i = arguments.length;
-        var total = 0;
-        while (i--) {
-            total += arguments[i];
-        }
-        return total;
-    }
-    function getEntryLastMatch(entry) {
-        return Math.max.apply(null, entry.branches.map(function(branch) {
-            return branch.lastMatch;
-        }));
-    }
-    function getEntryMatchCount(entry) {
-        return add.apply(null, entry.branches.map(function(branch) {
-            return branch.matchCount;
-        }));
-    }
-    function compareEntry(a, b) {
-        var order;
-        var aLastMatch = getEntryLastMatch(a);
-        var bLastMatch = getEntryLastMatch(b);
-        var lastMatchDiff = aLastMatch - bLastMatch;
-
-        if (lastMatchDiff === 0) {
-            var aMatchCount = getEntryMatchCount(a);
-            var bMatchCount = getEntryMatchCount(b);
-            var matchCountDiff = aMatchCount - bMatchCount;
-
-            order = matchCountDiff;
-        } else {
-            order = lastMatchDiff;
-        }
-
-        return order;
-    }
-
-    return fsAsync.getFileContent(entriesPath, '[]').then(JSON.parse).then(function(entries) {
-        var cache = {
-            match: function(state) {
-                var foundBranch;
-                var foundEntry = Iterable.find(entries, function(entry) {
-                    foundBranch = Iterable.find(entry.branches, function(branch) {
-                        return state.userAgent === branch.condition.userAgent;
-                    });
-                    return Boolean(foundBranch);
-                });
-
-                if (foundEntry) {
-                    foundBranch.matchCount = 'matchCount' in foundBranch ? foundBranch.matchCount + 1 : 1;
-                    foundBranch.lastMatch = Math.max(foundBranch.lastMatch, Number(Date.now()));
-                    cache.update();
-                    return foundEntry;
-                }
-
-                var entry = {
-                    name: cuid(),
-                    branches: [
-                        {
-                            condition: {
-                                userAgent: String(state.userAgent)
-                            },
-                            matchCount: 1,
-                            lastMatch: Number(Date.now())
-                        }
-                    ]
-                };
-
-                entries.push(entry);
-                return cache.update().then(function() {
-                    return entry;
-                });
-            },
-
-            update: function() {
-                entries = entries.sort(compareEntry);
-
-                console.log('set file content', entriesPath);
-
-                return fsAsync.setFileContent(entriesPath, JSON.stringify(entries, null, '\t')).then(function() {
-                    return entries;
-                });
-            }
-        };
-
-        return cache;
-    });
-}
-
-var promise = Promise.resolve();
-if (options.cache) {
-    promise = promise.then(function() {
-        return getCache(mainCacheFolder);
-    }).then(function(cache) {
-        var userAgent = '';
-        userAgent += jsenv.agent.name;
-        userAgent += '/';
-        userAgent += jsenv.agent.version;
-        userAgent += ' (';
-        userAgent += jsenv.platform.name;
-        userAgent += '; ';
-        userAgent += jsenv.platform.version;
-        userAgent += ')';
-        var state = {
-            userAgent: userAgent
-        };
-
-        return cache.match(state);
-    }).then(function(entry) {
-        options.cacheFolder = mainCacheFolder + '/' + entry.name;
-    });
-}
-
-promise.then(function() {
+Promise.resolve().then(function() {
     return flattenImplementation(options);
 }).then(function() {
     return start(options);

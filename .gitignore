@@ -46,5 +46,5 @@ Temporary Items
 
 node_modules/
 coverage-final.json
-cache/*/*
-!cache/user-agent/*
+cache/*
+!cache/before-flatten

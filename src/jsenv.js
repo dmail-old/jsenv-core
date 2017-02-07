@@ -475,6 +475,25 @@ ainsi que quelques utilitaires comme assign, Iterable et Predicate
             platform: platform
         };
     });
+    provide(function userAgent() {
+        function createUserAgent() {
+            var userAgent = '';
+            userAgent += jsenv.agent.name;
+            userAgent += '/';
+            userAgent += jsenv.agent.version;
+            userAgent += ' (';
+            userAgent += jsenv.platform.name;
+            userAgent += '; ';
+            userAgent += jsenv.platform.version;
+            userAgent += ')';
+            return userAgent;
+        }
+
+        return {
+            createUserAgent: createUserAgent,
+            userAgent: createUserAgent()
+        };
+    });
     provide(function locationInformations() {
         var baseURL;
         var internalURL;
