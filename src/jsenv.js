@@ -957,6 +957,9 @@ en fonction du résultat de ces tests
             },
             isDisabled: function() {
                 return this.enabled !== true;
+            },
+            isProblematic: function() {
+                return this.isInvalid() && this.isEnabled();
             }
         };
         jsenv.makeVersionnable(VersionnedFeature);
@@ -1335,6 +1338,14 @@ en fonction du résultat de ces tests
         featurePrototype.addDependent = function(dependentFeature, options) {
             dependentFeature.addDependency(this, options);
             return this;
+        };
+        featurePrototype.toJSON = function() {
+            return {
+                name: this.name,
+                status: this.status,
+                statusDetail: this.statusDetail,
+                statusReason: this.statusReason
+            };
         };
         var implementation = jsenv.implementation;
         var features;
