@@ -7,15 +7,6 @@ ensure implementation has a list of features we want to use
 /*
 faut trouver un nom qui parle pour tout ça:
 
-cache/before-fix
--> store
-cache/before-fix/dzuoiuoiusoiuoi
--> branch
-cache/before-fix/jkljkjkjkljkl/file.js
--> entry
-cache/before-fix/jkljkjkjkljkl/file.js#content
--> data
-
 - modifier le code de getFileStore pour ajouter store/branch/entry/data
 
 - améliorer memoize.file pour qu'on puisse lui passer directement
@@ -30,8 +21,7 @@ var solutionsPath = rootFolder + '/src/features/solutions.js';
 
 var memoize = require('../memoize.js');
 var fsAsync = require('../fs-async.js');
-var getFileStore = require('../fs-store.js');
-require(featuresPath);
+var store = require('../store.js');
 
 var jsenv = global.jsenv;
 var Iterable = jsenv.Iterable;
@@ -58,7 +48,7 @@ function findFeatureSolution(feature) {
 }
 
 handlers['INITIAL'] = function(state) {
-    return getBeforeFixStoreBranch(state).then(
+    return getBeforeFixCacheBranch(state).then(
         getBeforeFixReportEntry
     ).then(function(entry) {
         return entry.read();
@@ -80,21 +70,18 @@ handlers['INITIAL'] = function(state) {
         });
     });
 };
-function getBeforeFixStoreBranch(state) {
-    return getBeforeFixStore().then(function(store) {
-        return store.match(state.data);
+function getBeforeFixCacheBranch(state) {
+    return getBeforeFixCache().then(function(cache) {
+        return cache.match(state.data);
     });
 }
-function getBeforeFixStore() {
+function getBeforeFixCache() {
     var path = cacheFolder + '/before-fix';
-    var match = function(storeMeta, meta) {
-        return storeMeta.userAgent === meta.userAgent;
-    };
-
-    return getFileStore(path, match);
+    return store.fileSystemCache(path);
 }
-function getBeforeFixReportEntry(storeBranch) {
-    return storeBranch.entry('report.json', {
+function getBeforeFixReportEntry(cacheBranch) {
+    return cacheBranch.entry({
+        name: 'report.json',
         sources: [
             {name: featuresPath, strategy: 'eTag'}
         ]
@@ -114,11 +101,14 @@ function getBeforeFixFeatures() {
     };
 
     if (options.cache) {
-        createFeatures = memoize.file(
+        createFeatures = memoize.async(
             createFeatures,
-            cacheFolder + '/features.js',
-            featuresPath,
-            'mtime'
+            store.fileSystemEntry({
+                path: cacheFolder + '/features.js',
+                sources: [
+                    {path: featuresPath, strategy: 'mtime'}
+                ]
+            })
         );
     }
 
@@ -160,8 +150,8 @@ handlers['SCAN'] = function(state, shortCircuited) {
         }
     };
 
-    return getAfterFixStoreBranch(state).then(function(storeBranch) {
-        var reportEntry = getAfterFixReportEntry(storeBranch);
+    return getAfterFixCacheBranch(state).then(function(cacheBranch) {
+        var reportEntry = getAfterFixReportEntry(cacheBranch);
         var requiredPolyfillSolutions = Iterable.filter(solutions, function(solution) {
             return solution.type === 'polyfill' && solution.isRequired(implementation);
         });
@@ -179,7 +169,7 @@ handlers['SCAN'] = function(state, shortCircuited) {
                 return instruction;
             }
             instruction.code = 'FIX+SCAN';
-            return getAfterFixFeatures(storeBranch).then(function(code) {
+            return getAfterFixFeatures(cacheBranch).then(function(code) {
                 instruction.detail.scan = code;
                 return instruction;
             });
@@ -187,7 +177,7 @@ handlers['SCAN'] = function(state, shortCircuited) {
     });
 };
 function writeBeforeFixReport(state) {
-    return getBeforeFixStoreBranch(state).then(
+    return getBeforeFixCacheBranch(state).then(
         getBeforeFixReportEntry
     ).then(function(entry) {
         return entry.write(state.data.report);
@@ -242,13 +232,18 @@ function createImplementation(report) {
 
     return implementation;
 }
-function getAfterFixStoreBranch(meta) {
-    return getAfterFixStore().then(function(store) {
-        return store.match(meta);
+function getAfterFixCacheBranch(meta) {
+    return getAfterFixCache().then(function(cache) {
+        return cache.match(meta);
     });
 }
-function getAfterFixReportEntry(storeBranch) {
-    return storeBranch.entry('report.json', {
+function getAfterFixCache() {
+    var path = cacheFolder + '/after-fix';
+    return store.fileSystemCache(path);
+}
+function getAfterFixReportEntry(cacheBranch) {
+    return cacheBranch.entry({
+        name: 'report.json',
         sources: [
             {name: featuresPath, strategy: 'eTag'},
             {name: solutionsPath, strategy: 'eTag'}
@@ -256,17 +251,6 @@ function getAfterFixReportEntry(storeBranch) {
             // {name: '.jsenv.js', strategy: 'eTag'}
         ]
     });
-}
-function getAfterFixStore() {
-    var path = cacheFolder + '/after-fix';
-    var match = function(storeMeta, meta) {
-        return (
-            storeMeta.userAgent === meta.userAgent &&
-            storeMeta.features.sort().join() === meta.features.sort().join()
-        );
-    };
-
-    return getFileStore(path, match);
 }
 function getPolyfiller(requiredSolutions) {
     var requiredModules = Iterable.filter(requiredSolutions, function(solution) {
@@ -326,28 +310,28 @@ function getPolyfiller(requiredSolutions) {
     };
 
     if (options.cache) {
-        var getPolyfillStoreBranch = function(meta) {
+        var getPolyfillCacheBranch = function(meta) {
             var path = cacheFolder + '/polyfill';
-            var match = function(entryMeta, meta) {
-                return (
-                    entryMeta.coreJs.sort().join() === meta.coreJS.sort().join() &&
-                    entryMeta.files.sort().join() === meta.files.sort().join()
-                );
-            };
-            return getFileStore(path, match).then(function(store) {
-                return store.match(meta);
+            return store.fileSystemCache(path).then(function(cache) {
+                return cache.match(meta);
             });
         };
 
-        return getPolyfillStoreBranch({
+        return getPolyfillCacheBranch({
             coreJs: requiredModuleNames,
             files: requiredFilePaths
         }).then(function(storeBranch) {
-            return memoize.file(
+            return memoize.async(
                 createPolyfill,
-                storeBranch.path + '/polyfill.js',
-                requiredFilePaths,
-                'mtime'
+                storeBranch.entry({
+                    name: 'polyfill.js',
+                    sources: requiredFilePaths.map(function(filePath) {
+                        return {
+                            path: filePath,
+                            strategy: 'mtime'
+                        };
+                    })
+                })
             )();
         }).then(function(code) {
             return {
@@ -362,8 +346,9 @@ function getPolyfiller(requiredSolutions) {
         };
     });
 }
-function getAfterFixFeatures(implementation, storeBranch) {
-    var featureEntry = storeBranch.entry('features.js', {
+function getAfterFixFeatures(implementation, cacheBranch) {
+    var featureEntry = cacheBranch.entry({
+        name: 'features.js',
         sources: [
             {name: featuresPath, strategy: 'eTag'},
             {name: solutionsPath, strategy: 'eTag'}
@@ -465,27 +450,27 @@ function getTranspiler(requiredPlugins) {
             if (nodeFilePath.indexOf(rootFolder) === 0) {
                 var relativeFilePath = nodeFilePath.slice(rootFolder.length);
 
-                var getTranspileStoreBranch = function(meta) {
+                var getTranspileCacheBranch = function(meta) {
                     var path = cacheFolder + '/transpile';
-                    var match = function(entryMeta, meta) {
-                        return entryMeta.plugins.sort().join() === meta.plugins.sort().join();
-                    };
-                    return getFileStore(path, match).then(function(store) {
+                    return store.fileSystemCache(path).then(function(store) {
                         return store.match(meta);
                     });
                 };
 
-                return getTranspileStoreBranch({
+                return getTranspileCacheBranch({
                     plugins: pluginsAsOptions
                 }).then(function(storeBranch) {
-                    var storePath = storeBranch.path + '/modules/' + relativeFilePath;
+                    var entry = storeBranch.entry({
+                        name: 'modules/' + relativeFilePath,
+                        sources: [
+                            {path: nodeFilePath, strategy: 'mtime'}
+                        ]
+                    });
 
-                    return memoize.file(
+                    return memoize.async(
                         transpileCode,
-                        storePath,
-                        nodeFilePath,
-                        'mtime'
-                    )(storePath);
+                        entry
+                    )(entry.path);
                 });
             }
         }
@@ -616,7 +601,7 @@ handlers['FIX'] = function(state, shortCircuited) {
     }
 };
 function writeAfterFixReport(state) {
-    return getAfterFixStoreBranch(state).then(
+    return getAfterFixCacheBranch(state).then(
         getAfterFixReportEntry
     ).then(function(entry) {
         return entry.write(state.data.report);

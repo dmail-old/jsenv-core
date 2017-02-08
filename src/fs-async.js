@@ -97,4 +97,39 @@ fsAsync.getFileContent = getFileContent;
 fsAsync.setFileContent = setFileContent;
 fsAsync.createFolder = createFolder;
 
+function getFileMtime(path) {
+    return ensureFileStat(path).then(function(stat) {
+        return stat.mtime;
+    });
+}
+function ensureFileStat(path) {
+    return fsAsync('stat', path).then(function(stat) {
+        if (stat.isFile()) {
+            return stat;
+        }
+        throw new Error(path + ' must be a file');
+    });
+}
+fsAsync.getFileMtime = getFileMtime;
+
+function getFileContentEtag(path) {
+    return fsAsync.getFileContent(path).then(createEtag);
+}
+var crypto = require('crypto');
+var base64PadCharRegExp = /\=+$/;
+function createEtag(string) {
+    if (string.length === 0) {
+        // fast-path empty
+        return '"0-2jmj7l5rSw0yVb/vlWAYkK/YBwk"';
+    }
+
+    var hash = crypto.createHash('sha1');
+    hash.update(string, 'utf8');
+    var result = hash.digest('base64');
+    result = result.replace(base64PadCharRegExp, '');
+
+    return '"' + string.length.toString(16) + '-' + result + '"';
+}
+fsAsync.getFileContentEtag = getFileContentEtag;
+
 module.exports = fsAsync;
