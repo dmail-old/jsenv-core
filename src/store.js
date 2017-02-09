@@ -143,6 +143,11 @@ var createFileSystemCacheBranch = (function() {
 
 var createFileSystemCacheBranchEntry = (function() {
     function FileSystemCacheBranchEntry(properties) {
+        this.data = {
+            valid: undefined,
+            value: undefined
+        };
+
         for (var key in properties) { // eslint-disable-line
             this[key] = properties[key];
         }
@@ -310,11 +315,7 @@ var createFileSystemCacheBranchEntry = (function() {
         read: function() {
             var entry = this;
             var path = entry.path;
-            var data = {
-                valid: undefined,
-                value: undefined
-            };
-            entry.data = data;
+            var data = entry.data;
 
             return fsAsync('access', path, FS_VISIBLE).catch(function() {
                 return Promise.reject(INVALID);
@@ -352,11 +353,9 @@ var createFileSystemCacheBranchEntry = (function() {
         write: function(value) {
             var entry = this;
             var path = entry.path;
-            var data = {
-                valid: true,
-                value: value
-            };
-            entry.data = data;
+            var data = entry.data;
+            data.valid = true;
+            data.value = value;
 
             return Promise.resolve().then(function() {
                 data.value = entry.wrap(data.value);
@@ -377,7 +376,7 @@ var store = {};
 store.fileSystemCache = createFileSystemCache;
 store.fileSystemBranch = createFileSystemCacheBranch;
 store.fileSystemEntry = createFileSystemCacheBranchEntry;
-store.memory = function(value) {
+store.memoryEntry = function(value) {
     var data = {
         valid: arguments.length > 0,
         value: value

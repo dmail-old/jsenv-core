@@ -59,7 +59,7 @@ qui est finalement écrit
 */
 
 require('../jsenv.js');
-// var createEnsureTask = require('../features/ensure.js');
+var ensure = require('../features/ensure.js');
 var jsenv = global.jsenv;
 var userAgent = jsenv.userAgent;
 
@@ -79,49 +79,54 @@ permettent de skip une/plusieur étapes pour aller directement à la fin
 
 donc il faut comencer par faire un truc qui dit ok je suis {userAgent} que dois-je faire ?
 
+FIX+SCAN et FIX+COMPLETE serais plus propre si on avait un moyen
+de récupérer une liste d'instruction et pas une seule
 */
 
 function ensureImplementation(completeCallback, failCallback/* , progressCallback */) {
     var handlers = {
-        'SCAN'(detail, resolve) {
-            eval(detail.features); // eslint-disable-line no-eval
+        'SCAN'(instruction, resolve) {
+            eval(instruction.detail.scan); // eslint-disable-line no-eval
             jsenv.implementation.scan(function(report) {
-                resolve({report: report});
+                resolve({
+                    report: report
+                });
             });
         },
-        'FIX+SCAN'(detail, resolve) {
-            eval(detail.fix); // eslint-disable-line no-eval
+        'FIX+SCAN'(instruction, resolve) {
+            eval(instruction.detail.fix); // eslint-disable-line no-eval
+            eval(instruction.detail.scan); // eslint-disable-line no-eval
             jsenv.implementation.scan(function(report) {
-                resolve({report: report});
+                resolve({
+                    report: report
+                });
             });
         },
-        'FIX'(detail, resolve) {
-            eval(detail.fix); // eslint-disable-line no-eval
-            resolve();
+        'FIX+COMPLETE'(instruction, resolve) {
+            eval(instruction.detail.fix); // eslint-disable-line no-eval
+            this['COMPLETE'](instruction, resolve); // eslint-disable-line new-cap, dot-notation
         },
-        'FAIL'(detail, resolve) {
-            resolve(detail);
+        'COMPLETE'(instruction, resolve) {
+            resolve({
+                status: 'COMPLETED',
+                reason: instruction.reason,
+                detail: instruction.detail
+            });
+        },
+        'FAIL'(instruction, resolve) {
+            resolve({
+                status: 'FAILED',
+                reason: instruction.reason,
+                detail: instruction.detail
+            });
         }
     };
     function handleInstruction(instruction, state) {
         state.step = instruction.code;
 
         var method = handlers[instruction.code];
-        var args = [instruction.detail, function(data) {
-            jsenv.assign(state.data, data || {});
-
-            if (state.step === 'FIX+SCAN') {
-                // vérifie state.data.report ou directement data.report
-                // ça conditionnera completed/failed
-                // on envoie une requête au serveur mais peu importe sa réponse
-                // on sait déjà si on fail ou pas
-                // le serveur se contente
-            } else if (state.step === 'FIX') {
-                state.status = 'COMPLETED';
-            } else if (state.step === 'FAIL') {
-                state.status = 'FAILED';
-            }
-
+        var args = [instruction, function(data) {
+            jsenv.assign(state, data || {});
             handleState(state);
         }];
 
@@ -144,32 +149,19 @@ function ensureImplementation(completeCallback, failCallback/* , progressCallbac
                 state,
                 function(instruction) {
                     handleInstruction(instruction, state);
-                },
-                function(value) {
-                    state.status = 'FAILED';
-                    state.statusReason = ''; // on sait pas
-                    state.statusDetail = value;
-                    handleState(state);
                 }
             );
         }
     }
     function getInstruction(state, resolve) {
         // la version browser enverras une requête pour savoir
-        // cette versin va juste appeler une méthode faite exprès pour sur ensureImplementation
-        resolve({
-            code: 'SCAN',
-            detail: {
-                features: 'console.log(true);'
-            }
-        });
+        // cette version va juste appeler une méthode faite exprès pour sur ensureImplementation
+        ensure.getInstruction(state, resolve);
     }
     var state = {
         step: 'INITIAL',
         status: 'PENDING',
-        data: {
-            userAgent: userAgent
-        }
+        userAgent: userAgent
     };
     handleState(state);
 }

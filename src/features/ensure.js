@@ -29,6 +29,34 @@ var handlers = {};
 var options = {
     cache: true
 };
+var beforeFixFeaturesEntryProperties = {
+    path: cacheFolder + '/features.js',
+    sources: [
+        {path: featuresPath, strategy: 'mtime'}
+    ]
+};
+var beforeFixReportEntryProperties = {
+    name: 'report.json',
+    sources: [
+        {path: featuresPath, strategy: 'eTag'}
+    ]
+};
+var afterFixFeaturesEntryProperties = {
+    name: 'features.js',
+    sources: [
+        {path: featuresPath, strategy: 'mtime'},
+        {path: solutionsPath, strategy: 'mtime'}
+    ]
+};
+var afterFixReportEntryProperties = {
+    name: 'report.json',
+    sources: [
+        {path: featuresPath, strategy: 'eTag'},
+        {path: solutionsPath, strategy: 'eTag'}
+        // servira à spécifier quelles features on utilise parmi celles dispos
+        // {name: '.jsenv.js', strategy: 'eTag'}
+    ]
+};
 
 var solutions = require(solutionsPath);
 function filterFeatureWithoutSolution(features) {
@@ -54,10 +82,9 @@ handlers['INITIAL'] = function(state) {
         return entry.read();
     }).then(function(data) {
         if (data.valid) {
-            state.step = 'SCAN';
-            state.data.report = data.value;
+            state.report = data.value;
             // go to next step (SCAN)
-            return getInstruction(state, true);
+            return getInstruction('SCAN', state, true);
         }
         return getBeforeFixFeatures().then(function(features) {
             var instruction = {
@@ -72,7 +99,9 @@ handlers['INITIAL'] = function(state) {
 };
 function getBeforeFixCacheBranch(state) {
     return getBeforeFixCache().then(function(cache) {
-        return cache.match(state.data);
+        return cache.match({
+            userAgent: state.userAgent
+        });
     });
 }
 function getBeforeFixCache() {
@@ -80,12 +109,7 @@ function getBeforeFixCache() {
     return store.fileSystemCache(path);
 }
 function getBeforeFixReportEntry(cacheBranch) {
-    return cacheBranch.entry({
-        name: 'report.json',
-        sources: [
-            {name: featuresPath, strategy: 'eTag'}
-        ]
-    });
+    return cacheBranch.entry(beforeFixReportEntryProperties);
 }
 function getBeforeFixFeatures() {
     var createFeatures = function() {
@@ -103,12 +127,7 @@ function getBeforeFixFeatures() {
     if (options.cache) {
         createFeatures = memoize.async(
             createFeatures,
-            store.fileSystemEntry({
-                path: cacheFolder + '/features.js',
-                sources: [
-                    {path: featuresPath, strategy: 'mtime'}
-                ]
-            })
+            store.fileSystemEntry(beforeFixFeaturesEntryProperties)
         );
     }
 
@@ -117,10 +136,12 @@ function getBeforeFixFeatures() {
 
 handlers['SCAN'] = function(state, shortCircuited) {
     if (!shortCircuited) {
-        writeBeforeFixReport(state);
+        writeBeforeFixReport({
+            userAgent: state.userAgent
+        }, state.report);
     }
 
-    var implementation = createImplementation(state.data.report);
+    var implementation = createImplementation(state.report);
     var problematicFeatures = implementation.getProblematicFeatures();
     var problematicFeaturesWithoutSolution = filterFeatureWithoutSolution(problematicFeatures);
     if (problematicFeaturesWithoutSolution.length) {
@@ -136,21 +157,65 @@ handlers['SCAN'] = function(state, shortCircuited) {
         });
         return Promise.reject({
             code: 'FAIL',
-            detail: {
-                problems: problems
-            }
+            reason: 'missing-solution',
+            detail: problems
         });
     }
 
     var instruction = {
-        code: '', // 'FIX'ou 'FIX+SCAN'
+        code: '', // 'FIX+COMPLETE'ou 'FIX+SCAN'
         detail: {
             fix: '', // contient le code à éxécuter pour fix une partie des features
             scan: '' // vide si 'FIX', sinon contient le code à éxécuter avant de refaire le scan
         }
     };
 
-    return getAfterFixCacheBranch(state).then(function(cacheBranch) {
+    function getAfterFixFeatures(cacheBranch) {
+        function createAfterFixFeatures() {
+            var requiredTranspileSolutions = Iterable.filter(solutions, function(solution) {
+                return solution.type === 'transpile' && solution.isRequired(implementation);
+            });
+            var requiredPlugins = requiredTranspileSolutions.map(function(solution) {
+                return {
+                    name: solution.name,
+                    options: solution.getConfig(implementation)
+                };
+            });
+
+            return Promise.all([
+                getTranspiler(requiredPlugins),
+                fsAsync.getFileContent(featuresPath)
+            ]).then(function([transpiler, code]) {
+                var babel = require('babel-core');
+                var plugin = createTransformTemplateLiteralsTaggedWithPlugin(function(code) {
+                    return transpiler.transpile(code, featuresPath, {
+                        as: 'code',
+                        cache: false // c'est le seul cas connu
+                        // ou il ne faut pas mettre en cache le résultat
+                        // puisque le fichier est stocké ailleurs
+                        // on pourrait aussi le chercher à cet endroit
+                        // mais c'est plus pénible car il faut connaitre la liste
+                        // des plugins babel utilisé pour matcher dessus
+                    });
+                }, 'transpile');
+
+                var result = babel.transform(code, {
+                    plugins: [
+                        [plugin]
+                    ]
+                });
+                return result.code;
+            });
+        }
+
+        var featureEntry = cacheBranch.entry(afterFixFeaturesEntryProperties);
+        return memoize.async(createAfterFixFeatures, featureEntry)();
+    }
+
+    return getAfterFixCacheBranch({
+        userAgent: state.userAgent,
+        problematicFeatures: problematicFeatures
+    }).then(function(cacheBranch) {
         var reportEntry = getAfterFixReportEntry(cacheBranch);
         var requiredPolyfillSolutions = Iterable.filter(solutions, function(solution) {
             return solution.type === 'polyfill' && solution.isRequired(implementation);
@@ -160,27 +225,31 @@ handlers['SCAN'] = function(state, shortCircuited) {
             reportEntry.read(),
             getPolyfiller(requiredPolyfillSolutions)
         ]).then(function([polyfiller, data]) {
-            instruction.detail.fix = polyfiller.code;
-
             if (data.valid) {
-                instruction.code = 'FIX';
-                // il faut dire au client le résultat de scan after-fix
-                // pour qu'il puisse régir en conséquence
-                return instruction;
+                state.report = data.value;
+                // si le précédent rapport fail alors on le dit au client
+                // y'a même pas besoin de fix (getInstruction va reject)
+                // sinon dans le then on donne bien l'instruction de fix
+                return getInstruction('FIX', state, true).then(function() {
+                    instruction.code = 'FIX+COMPLETE';
+                    instruction.detail.fix = polyfiller.code;
+                    return instruction;
+                });
             }
-            instruction.code = 'FIX+SCAN';
             return getAfterFixFeatures(cacheBranch).then(function(code) {
+                instruction.code = 'FIX+SCAN';
+                instruction.detail.fix = polyfiller.code;
                 instruction.detail.scan = code;
                 return instruction;
             });
         });
     });
 };
-function writeBeforeFixReport(state) {
-    return getBeforeFixCacheBranch(state).then(
+function writeBeforeFixReport(meta, value) {
+    return getBeforeFixCacheBranch(meta).then(
         getBeforeFixReportEntry
     ).then(function(entry) {
-        return entry.write(state.data.report);
+        return entry.write(value);
     });
 }
 function createImplementation(report) {
@@ -242,15 +311,7 @@ function getAfterFixCache() {
     return store.fileSystemCache(path);
 }
 function getAfterFixReportEntry(cacheBranch) {
-    return cacheBranch.entry({
-        name: 'report.json',
-        sources: [
-            {name: featuresPath, strategy: 'eTag'},
-            {name: solutionsPath, strategy: 'eTag'}
-            // servira à spécifier quelles features on utilise parmi celles dispos
-            // {name: '.jsenv.js', strategy: 'eTag'}
-        ]
-    });
+    return cacheBranch.entry(afterFixReportEntryProperties);
 }
 function getPolyfiller(requiredSolutions) {
     var requiredModules = Iterable.filter(requiredSolutions, function(solution) {
@@ -344,59 +405,6 @@ function getPolyfiller(requiredSolutions) {
         return {
             code: polyfill
         };
-    });
-}
-function getAfterFixFeatures(implementation, cacheBranch) {
-    var featureEntry = cacheBranch.entry({
-        name: 'features.js',
-        sources: [
-            {name: featuresPath, strategy: 'eTag'},
-            {name: solutionsPath, strategy: 'eTag'}
-        ]
-    });
-
-    return featureEntry.read().then(function(data) {
-        if (data.valid) {
-            return data.value;
-        }
-
-        var requiredTranspileSolutions = Iterable.filter(solutions, function(solution) {
-            return solution.type === 'transpile' && solution.isRequired(implementation);
-        });
-        var requiredPlugins = requiredTranspileSolutions.map(function(solution) {
-            return {
-                name: solution.name,
-                options: solution.getConfig(implementation)
-            };
-        });
-
-        return Promise.all([
-            getTranspiler(requiredPlugins),
-            fsAsync.getFileContent(featuresPath)
-        ]).then(function([transpiler, code]) {
-            var babel = require('babel-core');
-            var plugin = createTransformTemplateLiteralsTaggedWithPlugin(function(code) {
-                return transpiler.transpile(code, featuresPath, {
-                    as: 'code',
-                    cache: false // c'est le seul cas connu
-                    // ou il ne faut pas mettre en cache le résultat
-                    // puisque le fichier est stocké ailleurs
-                    // on pourrait aussi le chercher à cet endroit
-                    // mais c'est plus pénible car il faut connaitre la liste
-                    // des plugins babel utilisé pour matcher dessus
-                });
-            }, 'transpile');
-
-            var result = babel.transform(code, {
-                plugins: [
-                    [plugin]
-                ]
-            });
-            return result.code;
-        }).then(function(code) {
-            featureEntry.write(code);
-            return code;
-        });
     });
 }
 function getTranspiler(requiredPlugins) {
@@ -567,12 +575,15 @@ function createTransformTemplateLiteralsTaggedWithPlugin(transpile, TAG_NAME) {
 }
 
 handlers['FIX'] = function(state, shortCircuited) {
-    if (!shortCircuited) {
-        writeAfterFixReport(state);
-    }
-
-    var implementation = createImplementation(state.data.report);
+    var implementation = createImplementation(state.report);
     var problematicFeatures = implementation.getProblematicFeatures();
+
+    if (!shortCircuited) {
+        writeAfterFixReport({
+            userAgent: state.userAgent,
+            problematicFeatures: problematicFeatures
+        }, state.report);
+    }
 
     if (problematicFeatures.length) {
         var problems = Iterable.map(problematicFeatures, function(feature) {
@@ -594,33 +605,33 @@ handlers['FIX'] = function(state, shortCircuited) {
         });
         return Promise.reject({
             code: 'FAIL',
-            detail: {
-                problems: problems
-            }
+            reason: 'invalid-solution',
+            detail: problems
         });
     }
+    return Promise.resolve({
+        code: 'COMPLETE',
+        reason: 'fixed',
+        detail: undefined
+    });
 };
-function writeAfterFixReport(state) {
-    return getAfterFixCacheBranch(state).then(
+function writeAfterFixReport(meta, value) {
+    return getAfterFixCacheBranch(meta).then(
         getAfterFixReportEntry
     ).then(function(entry) {
-        return entry.write(state.data.report);
+        return entry.write(value);
     });
 }
 
-function getInstruction(state, shortCircuited) {
+function getInstruction(step, state, shortCircuited) {
     return new Promise(function(resolve) {
-        resolve(handlers[state.step](state, shortCircuited));
+        resolve(handlers[step](state, shortCircuited));
+    }).catch(function() {
+        // si e est une instruction nickel
+        // sinon on fail avec reason = 'throw' et detail = e
     });
 }
 
-module.exports = function(state, resolve, reject) {
-    return getInstruction(state).then(
-        function(instruction) {
-            resolve(instruction);
-        },
-        function() {
-            reject();
-        }
-    );
+module.exports = function(state, resolve) {
+    return getInstruction(state.step, state).then(resolve);
 };
