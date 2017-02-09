@@ -86,25 +86,24 @@ de récupérer une liste d'instruction et pas une seule
 function ensureImplementation(completeCallback, failCallback/* , progressCallback */) {
     var handlers = {
         'SCAN'(instruction, resolve) {
-            eval(instruction.detail.scan); // eslint-disable-line no-eval
+            eval(instruction.detail.code); // eslint-disable-line no-eval
             jsenv.implementation.scan(function(report) {
                 resolve({
                     report: report
                 });
             });
         },
-        'FIX+SCAN'(instruction, resolve) {
-            eval(instruction.detail.fix); // eslint-disable-line no-eval
-            eval(instruction.detail.scan); // eslint-disable-line no-eval
+        'FIX'(instruction, resolve) {
+            eval(instruction.detail.code); // eslint-disable-line no-eval
+            resolve();
+        },
+        'CHECK'(instruction, resolve) {
+            eval(instruction.detail.code); // eslint-disable-line no-eval
             jsenv.implementation.scan(function(report) {
                 resolve({
                     report: report
                 });
             });
-        },
-        'FIX+COMPLETE'(instruction, resolve) {
-            eval(instruction.detail.fix); // eslint-disable-line no-eval
-            this['COMPLETE'](instruction, resolve); // eslint-disable-line new-cap, dot-notation
         },
         'COMPLETE'(instruction, resolve) {
             resolve({
@@ -122,6 +121,29 @@ function ensureImplementation(completeCallback, failCallback/* , progressCallbac
         }
     };
     function handleInstruction(instruction, state) {
+        // si l'instruction est une instruction composée
+        // il faut la décomposer et faire instruction par instruction (en série)
+        // avant de renvoyer un state composée pour chaque résultat d'instruction
+        // complete et fail sont ignoré
+        // le serveur stockera l'info sur l'instruction fix pour savoir comment elle se déroule
+        // même si 99% du temps il ne devrait pas y avoir de souci
+        // si jamais eval des polyfill génère une erreur il ne sers à rien de continuer
+        // et le serveur doit posséder cette information
+        // ceci est vrai à chaque étape qui peut fail et le serveur en serait alors informé
+        // sauf pour des erreurs connue genre réseau etc qui sont pas critique
+        // toutes les erreurs non prévue sont considérées comme fatales
+        // et font échouer l'ensemble du processus
+        // je ne sais pas encore comment je vais gérer ça mais je suppose
+        // scan seras stocké dans before-fix (bah oui avec report.json)
+        // mais en fait on va appeler ça scan-result.json
+        // fix-result.json sera stocké dans after-fix
+        // rescan-result.json sera stocké aussi dans after-fix
+        // on pourrait aussi avoir 3 folder genre scan/fix/check
+        // le truc c'est que fix et rescan utilise le même cache
+        // quoique fix n'a besoin que des problematicfeatures de type polyfill
+        // alors que rescan de toutes les problematicFeatures
+        // n'économisons pas les ressources pour de la perf, soyons clair
+
         state.step = instruction.code;
 
         var method = handlers[instruction.code];

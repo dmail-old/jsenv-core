@@ -6,6 +6,14 @@ var createSolution = (function() {
     function Solution(name, descriptor) {
         this.name = name;
         jsenv.assign(this, descriptor);
+
+        // il serais pratique d'avoir un peu comme pour feature ici
+        // c'est à dire de pouvoir exprimer une liste de dépendances
+        // de sorte que isRequired() retourne true si un dépendent retourne isRequired()
+        // pratique pour le cas transform-generator
+        // c'est du boulot et pas indipensable donc reporté à plus tard
+        // this.dependencies = [];
+        // this.dependents = [];
     }
 
     Solution.prototype = {

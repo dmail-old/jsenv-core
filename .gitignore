@@ -47,4 +47,5 @@ Temporary Items
 node_modules/
 coverage-final.json
 cache/*
-!cache/before-fix
+!cache/readme.md
+!cache/scan

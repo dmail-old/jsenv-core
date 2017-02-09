@@ -5,12 +5,11 @@ ensure implementation has a list of features we want to use
 /* eslint-disable dot-notation */
 
 /*
-faut trouver un nom qui parle pour tout ça:
 
-- modifier le code de getFileStore pour ajouter store/branch/entry/data
-
-- améliorer memoize.file pour qu'on puisse lui passer directement
-une storeEntry et pas qu'elle soit créé dynamiquement
+transpile/ (dossier contenant les fichiers transpilé pour une config de plugins babel donné)
+on peut retrouver le cache transpile en utilisant user-agent qui nous donne scan-output.json
+(si ce cache n'existe pas le serveur renverra une erreur spécifique car c'est jaamis censé arriver)
+ce qui permet de reproduire la config de plugins nécéssaire et de hit le cache ou pas
 
 */
 
@@ -29,27 +28,20 @@ var handlers = {};
 var options = {
     cache: true
 };
-var beforeFixFeaturesEntryProperties = {
+var transpiledFeaturesProperties = {
     path: cacheFolder + '/features.js',
     sources: [
         {path: featuresPath, strategy: 'mtime'}
     ]
 };
-var beforeFixReportEntryProperties = {
-    name: 'report.json',
+var scanResultProperties = {
+    name: 'scan-result.json',
     sources: [
         {path: featuresPath, strategy: 'eTag'}
     ]
 };
-var afterFixFeaturesEntryProperties = {
-    name: 'features.js',
-    sources: [
-        {path: featuresPath, strategy: 'mtime'},
-        {path: solutionsPath, strategy: 'mtime'}
-    ]
-};
-var afterFixReportEntryProperties = {
-    name: 'report.json',
+var fixResultEntryProperties = {
+    name: 'fix-result.json',
     sources: [
         {path: featuresPath, strategy: 'eTag'},
         {path: solutionsPath, strategy: 'eTag'}
@@ -58,6 +50,13 @@ var afterFixReportEntryProperties = {
     ]
 };
 
+function instruct(code, reason, detail) {
+    return {
+        code: code,
+        reason: reason,
+        detail: detail
+    };
+}
 var solutions = require(solutionsPath);
 function filterFeatureWithoutSolution(features) {
     return Iterable.filter(features, function(feature) {
@@ -76,42 +75,50 @@ function findFeatureSolution(feature) {
 }
 
 handlers['INITIAL'] = function(state) {
-    return getBeforeFixCacheBranch(state).then(
-        getBeforeFixReportEntry
-    ).then(function(entry) {
-        return entry.read();
+    return readScanResult({
+        userAgent: state.meta.userAgent
     }).then(function(data) {
         if (data.valid) {
-            state.report = data.value;
-            // go to next step (SCAN)
-            return getInstruction('SCAN', state, true);
+            var scanResult = data.value;
+            return getInstruction({
+                step: 'SCAN',
+                meta: {
+                    userAgent: state.meta.userAgent
+                },
+                status: scanResult.status,
+                reason: scanResult.reason,
+                detail: scanResult.detail
+            }, true);
         }
-        return getBeforeFixFeatures().then(function(features) {
-            var instruction = {
-                code: 'SCAN',
-                detail: {
-                    scan: features
-                }
-            };
-            return instruction;
+        return getTranspiledFeatures().then(function(features) {
+            return instruct('SCAN', 'unknown-implementation', features);
         });
     });
 };
-function getBeforeFixCacheBranch(state) {
-    return getBeforeFixCache().then(function(cache) {
-        return cache.match({
-            userAgent: state.userAgent
+function readScanResult(meta) {
+    return getScanResultEntry(meta).then(function(entry) {
+        return entry.read();
+    });
+}
+function writeScanResult(meta, state) {
+    return getScanResultEntry(meta).then(function(entry) {
+        return entry.write({
+            status: state.status,
+            reason: state.reason,
+            detail: state.detail
         });
     });
 }
-function getBeforeFixCache() {
-    var path = cacheFolder + '/before-fix';
-    return store.fileSystemCache(path);
+function getScanResultEntry(meta) {
+    var path = cacheFolder + '/scan';
+
+    return store.fileSystemCache(path).then(function(cache) {
+        return cache.match(meta);
+    }).then(function(cacheBranch) {
+        return cacheBranch.entry(scanResultProperties);
+    });
 }
-function getBeforeFixReportEntry(cacheBranch) {
-    return cacheBranch.entry(beforeFixReportEntryProperties);
-}
-function getBeforeFixFeatures() {
+function getTranspiledFeatures() {
     var createFeatures = function() {
         return fsAsync.getFileContent(featuresPath).then(function(code) {
             var babel = require('babel-core');
@@ -127,7 +134,7 @@ function getBeforeFixFeatures() {
     if (options.cache) {
         createFeatures = memoize.async(
             createFeatures,
-            store.fileSystemEntry(beforeFixFeaturesEntryProperties)
+            store.fileSystemEntry(transpiledFeaturesProperties)
         );
     }
 
@@ -136,12 +143,12 @@ function getBeforeFixFeatures() {
 
 handlers['SCAN'] = function(state, shortCircuited) {
     if (!shortCircuited) {
-        writeBeforeFixReport({
-            userAgent: state.userAgent
-        }, state.report);
+        writeScanResult({
+            userAgent: state.meta.userAgent
+        }, state);
     }
 
-    var implementation = createImplementation(state.report);
+    var implementation = createImplementation(state.detail);
     var problematicFeatures = implementation.getProblematicFeatures();
     var problematicFeaturesWithoutSolution = filterFeatureWithoutSolution(problematicFeatures);
     if (problematicFeaturesWithoutSolution.length) {
@@ -155,101 +162,103 @@ handlers['SCAN'] = function(state, shortCircuited) {
                 }
             };
         });
-        return Promise.reject({
-            code: 'FAIL',
-            reason: 'missing-solution',
-            detail: problems
+        return instruct('FAIL', 'missing-solution', problems);
+    }
+
+    function getFixedFeatures() {
+        var requiredTranspileSolutions = Iterable.filter(solutions, function(solution) {
+            return solution.type === 'transpile' && solution.isRequired(implementation);
+        });
+        var requiredPlugins = requiredTranspileSolutions.map(function(solution) {
+            return {
+                name: solution.name,
+                options: solution.getConfig(implementation)
+            };
+        });
+        var pluginsAsOptions = Iterable.map(requiredPlugins, function(plugin) {
+            return [plugin.name, plugin.options];
+        });
+
+        return getTranspiler(pluginsAsOptions).then(function(transpiler) {
+            var plugin = createTransformTemplateLiteralsTaggedWithPlugin(function(code) {
+                return transpiler.transpile(code, featuresPath, {
+                    as: 'code',
+                    cache: false // disable cache to prevent race condition with transpileFile() below
+                });
+            }, 'transpile');
+
+            return transpiler.transpileFile(featuresPath, {
+                as: 'code',
+                plugins: [
+                    plugin
+                ],
+                sources: [
+                     {path: solutionsPath, strategy: 'mtime'}
+                ]
+            });
         });
     }
 
-    var instruction = {
-        code: '', // 'FIX+COMPLETE'ou 'FIX+SCAN'
-        detail: {
-            fix: '', // contient le code à éxécuter pour fix une partie des features
-            scan: '' // vide si 'FIX', sinon contient le code à éxécuter avant de refaire le scan
-        }
-    };
-
-    function getAfterFixFeatures(cacheBranch) {
-        function createAfterFixFeatures() {
-            var requiredTranspileSolutions = Iterable.filter(solutions, function(solution) {
-                return solution.type === 'transpile' && solution.isRequired(implementation);
-            });
-            var requiredPlugins = requiredTranspileSolutions.map(function(solution) {
-                return {
-                    name: solution.name,
-                    options: solution.getConfig(implementation)
-                };
-            });
-
-            return Promise.all([
-                getTranspiler(requiredPlugins),
-                fsAsync.getFileContent(featuresPath)
-            ]).then(function([transpiler, code]) {
-                var babel = require('babel-core');
-                var plugin = createTransformTemplateLiteralsTaggedWithPlugin(function(code) {
-                    return transpiler.transpile(code, featuresPath, {
-                        as: 'code',
-                        cache: false // c'est le seul cas connu
-                        // ou il ne faut pas mettre en cache le résultat
-                        // puisque le fichier est stocké ailleurs
-                        // on pourrait aussi le chercher à cet endroit
-                        // mais c'est plus pénible car il faut connaitre la liste
-                        // des plugins babel utilisé pour matcher dessus
-                    });
-                }, 'transpile');
-
-                var result = babel.transform(code, {
-                    plugins: [
-                        [plugin]
-                    ]
-                });
-                return result.code;
-            });
-        }
-
-        var featureEntry = cacheBranch.entry(afterFixFeaturesEntryProperties);
-        return memoize.async(createAfterFixFeatures, featureEntry)();
-    }
-
-    return getAfterFixCacheBranch({
-        userAgent: state.userAgent,
+    return readFixResult({
+        userAgent: state.meta.userAgent,
         problematicFeatures: problematicFeatures
-    }).then(function(cacheBranch) {
-        var reportEntry = getAfterFixReportEntry(cacheBranch);
+    }).then(function(data) {
+        var fixResult = data.value;
+        if (data.valid) {
+            if (fixResult.status === 'failed') {
+                return instruct('FAIL', fixResult.reason, fixResult.detail);
+            }
+        }
+
         var requiredPolyfillSolutions = Iterable.filter(solutions, function(solution) {
             return solution.type === 'polyfill' && solution.isRequired(implementation);
         });
+        return getPolyfiller(requiredPolyfillSolutions).then(function(polyfiller) {
+            var fixInstruction = instruct('FIX', 'missing-features', {fix: polyfiller.code});
 
-        return Promise.all([
-            reportEntry.read(),
-            getPolyfiller(requiredPolyfillSolutions)
-        ]).then(function([polyfiller, data]) {
+            // fix
             if (data.valid) {
-                state.report = data.value;
-                // si le précédent rapport fail alors on le dit au client
-                // y'a même pas besoin de fix (getInstruction va reject)
-                // sinon dans le then on donne bien l'instruction de fix
-                return getInstruction('FIX', state, true).then(function() {
-                    instruction.code = 'FIX+COMPLETE';
-                    instruction.detail.fix = polyfiller.code;
-                    return instruction;
+                return getInstruction({
+                    step: 'FIX',
+                    meta: state.meta,
+                    status: fixResult.status,
+                    reason: fixResult.reason,
+                    detail: fixResult.detail
+                }, true).then(function(fixInstruction) {
+                    if (fixInstruction.status === 'COMPLETE') {
+                        return fixInstruction;
+                    }
+                    return fixInstruction;
                 });
             }
-            return getAfterFixFeatures(cacheBranch).then(function(code) {
-                instruction.code = 'FIX+SCAN';
-                instruction.detail.fix = polyfiller.code;
-                instruction.detail.scan = code;
-                return instruction;
+            // fix + check and send back how it went
+            return getFixedFeatures().then(function(code) {
+                fixInstruction.detail.features = code;
+                return fixInstruction;
             });
         });
     });
 };
-function writeBeforeFixReport(meta, value) {
-    return getBeforeFixCacheBranch(meta).then(
-        getBeforeFixReportEntry
-    ).then(function(entry) {
-        return entry.write(value);
+function readFixResult(meta) {
+    return getFixResultEntry(meta).then(function(fixResultEntry) {
+        return fixResultEntry.read();
+    });
+}
+function writeFixResult(meta, state) {
+    return getFixResultEntry(meta).then(function(entry) {
+        return entry.write({
+            status: state.status,
+            reason: state.reason,
+            detail: state.detail
+        });
+    });
+}
+function getFixResultEntry(meta) {
+    var path = cacheFolder + '/fix';
+    return store.fileSystemCache(path).then(function(cache) {
+        return cache.match(meta);
+    }).then(function(cacheBranch) {
+        return cacheBranch.entry(fixResultEntryProperties);
     });
 }
 function createImplementation(report) {
@@ -300,18 +309,6 @@ function createImplementation(report) {
     implementation.get('function-prototype-name-description').disable('cannot be polyfilled');
 
     return implementation;
-}
-function getAfterFixCacheBranch(meta) {
-    return getAfterFixCache().then(function(cache) {
-        return cache.match(meta);
-    });
-}
-function getAfterFixCache() {
-    var path = cacheFolder + '/after-fix';
-    return store.fileSystemCache(path);
-}
-function getAfterFixReportEntry(cacheBranch) {
-    return cacheBranch.entry(afterFixReportEntryProperties);
 }
 function getPolyfiller(requiredSolutions) {
     var requiredModules = Iterable.filter(requiredSolutions, function(solution) {
@@ -407,20 +404,68 @@ function getPolyfiller(requiredSolutions) {
         };
     });
 }
-function getTranspiler(requiredPlugins) {
-    console.log('required babel plugins', requiredPlugins.map(function(plugin) {
-        return plugin.name;
+function getTranspiler(pluginsAsOptions) {
+    console.log('required babel plugins', pluginsAsOptions.map(function(plugin) {
+        return plugin[0];
     }));
-    var pluginsAsOptions = Iterable.map(requiredPlugins, function(plugin) {
-        return [plugin.name, plugin.options];
-    });
+
+    function getNodeFilePath(path) {
+        var nodeFilePath;
+        if (path.indexOf('file:///') === 0) {
+            nodeFilePath = path.slice('file:///'.length);
+        } else {
+            nodeFilePath = path;
+        }
+        return nodeFilePath;
+    }
+    function getTranspileCacheBranch() {
+        var path = cacheFolder + '/transpile';
+        return store.fileSystemCache(path).then(function(store) {
+            return store.match({
+                plugins: pluginsAsOptions
+            });
+        });
+    }
+    function getFileEntry(path, transpilationOptions) {
+        var nodeFilePath = getNodeFilePath(path);
+
+        if (nodeFilePath.indexOf(rootFolder) === 0) {
+            var relativeFilePath = nodeFilePath.slice(rootFolder.length);
+
+            return getTranspileCacheBranch().then(function(storeBranch) {
+                var entryName;
+                if (transpilationOptions.as === 'module') {
+                    entryName = 'modules/' + relativeFilePath;
+                } else {
+                    entryName = relativeFilePath;
+                }
+
+                var entrySources;
+                if (transpilationOptions.sources) {
+                    entrySources = transpilationOptions.sources.slice();
+                } else {
+                    entrySources = [];
+                }
+                entrySources.push({path: nodeFilePath, strategy: 'mtime'});
+
+                var entry = storeBranch.entry({
+                    name: entryName,
+                    sources: entrySources
+                });
+                return entry;
+            });
+        }
+        return Promise.resolve(null);
+    }
 
     var transpile = function(code, filename, transpilationOptions) {
         transpilationOptions = transpilationOptions || {};
 
         var transpileCode = function(sourceURL) {
             var plugins;
-            if (transpilationOptions.as === 'module') {
+            if (transpilationOptions.plugins) {
+                plugins = transpilationOptions.plugins;
+            } else if (transpilationOptions.as === 'module') {
                 plugins = pluginsAsOptions.slice();
                 plugins.unshift('transform-es2015-modules-systemjs');
             } else {
@@ -448,47 +493,43 @@ function getTranspiler(requiredPlugins) {
         };
 
         if (options.cache && transpilationOptions.cache !== false) {
-            var nodeFilePath;
-            if (filename.indexOf('file:///') === 0) {
-                nodeFilePath = filename.slice('file:///'.length);
-            } else {
-                nodeFilePath = filename;
-            }
-
-            if (nodeFilePath.indexOf(rootFolder) === 0) {
-                var relativeFilePath = nodeFilePath.slice(rootFolder.length);
-
-                var getTranspileCacheBranch = function(meta) {
-                    var path = cacheFolder + '/transpile';
-                    return store.fileSystemCache(path).then(function(store) {
-                        return store.match(meta);
-                    });
-                };
-
-                return getTranspileCacheBranch({
-                    plugins: pluginsAsOptions
-                }).then(function(storeBranch) {
-                    var entry = storeBranch.entry({
-                        name: 'modules/' + relativeFilePath,
-                        sources: [
-                            {path: nodeFilePath, strategy: 'mtime'}
-                        ]
-                    });
-
-                    return memoize.async(
-                        transpileCode,
-                        entry
-                    )(entry.path);
-                });
+            var entry = getFileEntry(filename);
+            if (entry) {
+                return memoize.async(
+                    transpileCode,
+                    entry
+                )(entry.path);
             }
         }
-
         return transpileCode(filename + '!transpiled');
     };
 
     var transpiler = {
         plugins: pluginsAsOptions,
-        transpile: transpile
+        transpile: transpile,
+        transpileFile: function(filePath, transpilationOptions) {
+            function createTranspiledCode(transpilationOptions) {
+                return fsAsync.getFileContent().then(function(code) {
+                    return transpiler.tranpile(code, transpilationOptions);
+                });
+            }
+
+            var entry = getFileEntry(filePath, transpilationOptions);
+            if (entry) {
+                // désactive le cache lorsque entry ne matche pas
+                // puisqu'on a déjà tester s'il existait un cache valide
+                var unmemoizedOptions = {};
+                jsenv.assign(unmemoizedOptions, transpilationOptions);
+                unmemoizedOptions.cache = false;
+
+                return memoize.async(
+                    createTranspiledCode,
+                    entry
+                )(unmemoizedOptions);
+            }
+
+            return createTranspiledCode(transpilationOptions);
+        }
     };
 
     return Promise.resolve(transpiler);
@@ -575,63 +616,67 @@ function createTransformTemplateLiteralsTaggedWithPlugin(transpile, TAG_NAME) {
 }
 
 handlers['FIX'] = function(state, shortCircuited) {
-    var implementation = createImplementation(state.report);
-    var problematicFeatures = implementation.getProblematicFeatures();
+    var promise = Promise.resolve();
 
     if (!shortCircuited) {
-        writeAfterFixReport({
-            userAgent: state.userAgent,
-            problematicFeatures: problematicFeatures
-        }, state.report);
+        readScanResult({
+            userAgent: state.meta.userAgent
+        }).then(function(data) {
+            if (data.valid) {
+                var scanResult = data.value;
+                var scanImplementation = createImplementation(scanResult.detail);
+                var scanProblematicFeatures = scanImplementation.getProblematicFeatures();
+
+                writeFixResult({
+                    userAgent: state.meta.userAgent,
+                    problematicFeatures: scanProblematicFeatures
+                }, state);
+            } else {
+                // on ne peut pas écrire dans le cache on ne connait pas les features problématiques
+            }
+        });
     }
 
-    if (problematicFeatures.length) {
-        var problems = Iterable.map(problematicFeatures, function(feature) {
-            var solution = findFeatureSolution(feature);
+    var implementation = createImplementation(state.data);
+    var problematicFeatures = implementation.getProblematicFeatures();
 
-            return {
-                type: 'feature-solution-is-invalid',
-                meta: {
-                    feature: {
-                        name: feature.name
-                    },
-                    solution: {
-                        name: solution.name,
-                        type: solution.type,
-                        author: solution.author
+    return promise.then(function() {
+        if (problematicFeatures.length) {
+            var problems = Iterable.map(problematicFeatures, function(feature) {
+                var solution = findFeatureSolution(feature);
+
+                return {
+                    type: 'feature-solution-is-invalid',
+                    meta: {
+                        feature: {
+                            name: feature.name
+                        },
+                        solution: {
+                            name: solution.name,
+                            type: solution.type,
+                            author: solution.author
+                        }
                     }
-                }
-            };
-        });
-        return Promise.reject({
-            code: 'FAIL',
-            reason: 'invalid-solution',
-            detail: problems
-        });
-    }
-    return Promise.resolve({
-        code: 'COMPLETE',
-        reason: 'fixed',
-        detail: undefined
+                };
+            });
+            return instruct('FAIL', 'invalid-solution', problems);
+        }
+        return instruct('COMPLETE', 'fixed');
     });
 };
-function writeAfterFixReport(meta, value) {
-    return getAfterFixCacheBranch(meta).then(
-        getAfterFixReportEntry
-    ).then(function(entry) {
-        return entry.write(value);
-    });
-}
 
-function getInstruction(step, state, shortCircuited) {
+function getInstruction(state, shortCircuited) {
     return new Promise(function(resolve) {
-        resolve(handlers[step](state, shortCircuited));
-    }).catch(function() {
-        // si e est une instruction nickel
-        // sinon on fail avec reason = 'throw' et detail = e
+        resolve(handlers[state.step](state, shortCircuited));
+    }).catch(function(value) {
+        return instruct(
+            'FAIL',
+            'unhandled-rejection',
+            value
+        );
     });
 }
 
 module.exports = function(state, resolve) {
-    return getInstruction(state.step, state).then(resolve);
+    return getInstruction(state).then(resolve);
 };
