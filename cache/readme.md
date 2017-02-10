@@ -1,6 +1,6 @@
 # cache
 
-This folder speed up things by caching many output such as polyfill builds or transpiled files.
+This folder speed up things by caching many output such as polyfill builds or transpiled files.  
 Most content is ignored by .gitignore rules because it contains dynamic content.
 
 ## features.js
