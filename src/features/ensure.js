@@ -5,12 +5,6 @@ ensure implementation has a list of features we want to use
 /* eslint-disable dot-notation */
 
 /*
-
-transpile/ (dossier contenant les fichiers transpilé pour une config de plugins babel donné)
-on peut retrouver le cache transpile en utilisant user-agent qui nous donne scan-output.json
-(si ce cache n'existe pas le serveur renverra une erreur spécifique car c'est jaamis censé arriver)
-ce qui permet de reproduire la config de plugins nécéssaire et de hit le cache ou pas
-
 */
 
 var rootFolder = '../..';
@@ -45,16 +39,16 @@ var fixResultEntryProperties = {
     sources: [
         {path: featuresPath, strategy: 'eTag'},
         {path: solutionsPath, strategy: 'eTag'}
-        // servira à spécifier quelles features on utilise parmi celles dispos
-        // {name: '.jsenv.js', strategy: 'eTag'}
     ]
 };
 
-function instruct(code, reason, detail) {
+function instruct(name, data) {
     return {
-        code: code,
-        reason: reason,
-        detail: detail
+        name: name,
+        result: {
+            status: 'pending',
+            value: data
+        }
     };
 }
 var solutions = require(solutionsPath);
@@ -74,24 +68,20 @@ function findFeatureSolution(feature) {
     });
 }
 
-handlers['INITIAL'] = function(state) {
-    return readScanResult({
-        userAgent: state.meta.userAgent
-    }).then(function(data) {
+handlers['START'] = function(instruction) {
+    var meta = instruction.meta;
+
+    return readScanResult(meta).then(function(data) {
         if (data.valid) {
             var scanResult = data.value;
-            return getInstruction({
-                step: 'SCAN',
-                meta: {
-                    userAgent: state.meta.userAgent
-                },
-                status: scanResult.status,
-                reason: scanResult.reason,
-                detail: scanResult.detail
+            return getNextInstruction({
+                name: 'SCAN',
+                meta: meta,
+                result: scanResult
             }, true);
         }
         return getTranspiledFeatures().then(function(features) {
-            return instruct('SCAN', 'unknown-implementation', features);
+            return instruct('SCAN', features);
         });
     });
 };
@@ -100,13 +90,9 @@ function readScanResult(meta) {
         return entry.read();
     });
 }
-function writeScanResult(meta, state) {
+function writeScanResult(meta, instruction) {
     return getScanResultEntry(meta).then(function(entry) {
-        return entry.write({
-            status: state.status,
-            reason: state.reason,
-            detail: state.detail
-        });
+        return entry.write(instruction.result);
     });
 }
 function getScanResultEntry(meta) {
@@ -141,14 +127,8 @@ function getTranspiledFeatures() {
     return createFeatures();
 }
 
-handlers['SCAN'] = function(state, shortCircuited) {
-    if (!shortCircuited) {
-        writeScanResult({
-            userAgent: state.meta.userAgent
-        }, state);
-    }
-
-    var implementation = createImplementation(state.detail);
+handlers['SCAN'] = function(instruction) {
+    var implementation = createImplementation(instruction.result.value);
     var problematicFeatures = implementation.getProblematicFeatures();
     var problematicFeaturesWithoutSolution = filterFeatureWithoutSolution(problematicFeatures);
     if (problematicFeaturesWithoutSolution.length) {
@@ -162,7 +142,7 @@ handlers['SCAN'] = function(state, shortCircuited) {
                 }
             };
         });
-        return instruct('FAIL', 'missing-solution', problems);
+        return instruct('FAIL', problems);
     }
 
     function getFixedFeatures() {
@@ -200,13 +180,13 @@ handlers['SCAN'] = function(state, shortCircuited) {
     }
 
     return readFixResult({
-        userAgent: state.meta.userAgent,
+        userAgent: instruction.meta.userAgent,
         problematicFeatures: problematicFeatures
     }).then(function(data) {
         var fixResult = data.value;
         if (data.valid) {
             if (fixResult.status === 'failed') {
-                return instruct('FAIL', fixResult.reason, fixResult.detail);
+                return instruct('FAIL', fixResult.value);
             }
         }
 
@@ -214,27 +194,25 @@ handlers['SCAN'] = function(state, shortCircuited) {
             return solution.type === 'polyfill' && solution.isRequired(implementation);
         });
         return getPolyfiller(requiredPolyfillSolutions).then(function(polyfiller) {
-            var fixInstruction = instruct('FIX', 'missing-features', {fix: polyfiller.code});
-
-            // fix
             if (data.valid) {
-                return getInstruction({
-                    step: 'FIX',
-                    meta: state.meta,
-                    status: fixResult.status,
-                    reason: fixResult.reason,
-                    detail: fixResult.detail
-                }, true).then(function(fixInstruction) {
-                    if (fixInstruction.status === 'COMPLETE') {
-                        return fixInstruction;
+                return getNextInstruction({
+                    name: 'FIX',
+                    meta: instruction.meta,
+                    result: fixResult
+                }).then(function(nextInstruction) {
+                    if (nextInstruction.name === 'FAIL') {
+                        return nextInstruction;
                     }
-                    return fixInstruction;
+                    return instruct('FIX', {
+                        fix: polyfiller.code
+                    });
                 });
             }
-            // fix + check and send back how it went
             return getFixedFeatures().then(function(code) {
-                fixInstruction.detail.features = code;
-                return fixInstruction;
+                return instruct('FIX', {
+                    fix: polyfiller.code,
+                    features: code
+                });
             });
         });
     });
@@ -244,13 +222,9 @@ function readFixResult(meta) {
         return fixResultEntry.read();
     });
 }
-function writeFixResult(meta, state) {
+function writeFixResult(meta, instruction) {
     return getFixResultEntry(meta).then(function(entry) {
-        return entry.write({
-            status: state.status,
-            reason: state.reason,
-            detail: state.detail
-        });
+        return entry.write(instruction.result);
     });
 }
 function getFixResultEntry(meta) {
@@ -615,68 +589,106 @@ function createTransformTemplateLiteralsTaggedWithPlugin(transpile, TAG_NAME) {
     return transformTemplateLiteralsTaggedWithPlugin;
 }
 
-handlers['FIX'] = function(state, shortCircuited) {
-    var promise = Promise.resolve();
-
-    if (!shortCircuited) {
-        readScanResult({
-            userAgent: state.meta.userAgent
-        }).then(function(data) {
-            if (data.valid) {
-                var scanResult = data.value;
-                var scanImplementation = createImplementation(scanResult.detail);
-                var scanProblematicFeatures = scanImplementation.getProblematicFeatures();
-
-                writeFixResult({
-                    userAgent: state.meta.userAgent,
-                    problematicFeatures: scanProblematicFeatures
-                }, state);
-            } else {
-                // on ne peut pas écrire dans le cache on ne connait pas les features problématiques
-            }
-        });
-    }
-
-    var implementation = createImplementation(state.data);
+handlers['FIX'] = function(instruction) {
+    var implementation = createImplementation(instruction.result.value);
     var problematicFeatures = implementation.getProblematicFeatures();
 
-    return promise.then(function() {
-        if (problematicFeatures.length) {
-            var problems = Iterable.map(problematicFeatures, function(feature) {
-                var solution = findFeatureSolution(feature);
+    if (problematicFeatures.length) {
+        var problems = Iterable.map(problematicFeatures, function(feature) {
+            var solution = findFeatureSolution(feature);
 
-                return {
-                    type: 'feature-solution-is-invalid',
-                    meta: {
-                        feature: {
-                            name: feature.name
-                        },
-                        solution: {
-                            name: solution.name,
-                            type: solution.type,
-                            author: solution.author
-                        }
+            return {
+                type: 'feature-solution-is-invalid',
+                meta: {
+                    feature: {
+                        name: feature.name
+                    },
+                    solution: {
+                        name: solution.name,
+                        type: solution.type,
+                        author: solution.author
                     }
-                };
-            });
-            return instruct('FAIL', 'invalid-solution', problems);
-        }
-        return instruct('COMPLETE', 'fixed');
-    });
+                }
+            };
+        });
+        return instruct('FAIL', problems);
+    }
+    return instruct('COMPLETE');
 };
 
-function getInstruction(state, shortCircuited) {
-    return new Promise(function(resolve) {
-        resolve(handlers[state.step](state, shortCircuited));
+function getNextInstruction(instruction, fromCache) {
+    return Promise.resolve().then(function() {
+        // on est obligé de s'assurer que result est bien écrit en cache
+        // sinon l'instruction suivante pourrait ne pas trouver l'info dont elle a besoin
+
+        if (instruction.result.status === 'failed') {
+            var failInstruction = instruct('FAIL', instruction.result.value);
+            return failInstruction;
+        }
+
+        if (instruction.name === 'START') {
+            var startMeta = instruction.meta;
+            return readScanResult(startMeta).then(function(data) {
+                if (data.valid) {
+                    var nextInstructionResult = data.value;
+                    return getNextInstruction({
+                        name: 'SCAN',
+                        meta: startMeta,
+                        result: nextInstructionResult
+                    }, true);
+                }
+                return handlers['START'](instruction); // eslint-disable-line new-cap
+            });
+        } else if (instruction.name === 'SCAN') {
+            var scanPromise;
+            if (fromCache) {
+                scanPromise = Promise.resolve();
+            } else {
+                scanPromise = writeScanResult(instruction.meta, instruction);
+            }
+
+            return Promise.all([
+                scanPromise,
+                handlers['SCAN'](instruction) // eslint-disable-line new-cap
+            ]);
+        } else if (instruction.name === 'FIX') {
+            var fixPromise;
+            if (fromCache) {
+                fixPromise = Promise.resolve();
+            } else {
+                fixPromise = readScanResult(instruction.meta).then(function(data) {
+                    if (data.valid) {
+                        var scanResult = data.value; // (previousStepResult)
+                        var scanImplementation = createImplementation(scanResult.value);
+                        var scanProblematicFeatures = scanImplementation.getProblematicFeatures();
+
+                        return writeFixResult({
+                            userAgent: instruction.meta.userAgent,
+                            problematicFeatures: scanProblematicFeatures
+                        }, instruction);
+                    }
+                    // on ne peut pas écrire dans le cache on ne connait pas les features problématiques
+                    // ce n'est SURTOUT pas censé arriver
+                    // la cache est instable et rien ne fonctionnera
+                });
+            }
+
+            return Promise.all([
+                fixPromise,
+                handlers['FIX'](instruction) // eslint-disable-line new-cap
+            ]);
+        }
     }).catch(function(value) {
+        // ceci est un erreur serveur
+        // il ne faudrais pas que le client considère cela comme un éched venant de lui
+        // les erreurs ne venant pas de lui ne doivent pas être mise en cache ou envoyé au serveur
         return instruct(
             'FAIL',
-            'unhandled-rejection',
             value
         );
     });
 }
 
-module.exports = function(state, resolve) {
-    return getInstruction(state).then(resolve);
+module.exports = function(instruction, resolve) {
+    return getNextInstruction(instruction).then(resolve);
 };

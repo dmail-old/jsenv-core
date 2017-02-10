@@ -294,6 +294,7 @@ var createFileSystemCacheBranchEntry = (function() {
     var INVALID = {};
     FileSystemCacheBranchEntry.prototype = {
         constructor: FileSystemCacheBranchEntry,
+        mode: 'default',
         prevalidate: function() {
             return true;
         },
@@ -316,6 +317,11 @@ var createFileSystemCacheBranchEntry = (function() {
             var entry = this;
             var path = entry.path;
             var data = entry.data;
+
+            if (this.mode === 'write-only') {
+                data.valid = false;
+                return Promise.resolve(data);
+            }
 
             return fsAsync('access', path, FS_VISIBLE).catch(function() {
                 return Promise.reject(INVALID);
@@ -348,9 +354,17 @@ var createFileSystemCacheBranchEntry = (function() {
                     return data;
                 }
                 return Promise.reject(value);
+            }).then(function() {
+                if (entry.mode === 'only-if-cached' && data.valid === false) {
+                    throw new Error('missing cache at ' + entry.path);
+                }
             });
         },
         write: function(value) {
+            if (this.mode === 'read-only') {
+                return Promise.resolve();
+            }
+
             var entry = this;
             var path = entry.path;
             var data = entry.data;

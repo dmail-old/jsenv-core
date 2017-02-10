@@ -29,26 +29,22 @@ le plus simple serait donc de renvoyer un js
 - sous quel format dit-on au client: voici le polyfill que tu dois éxécuter, pas besoin de test ?
 -> 200 + le pollyfill en tant que fichier js qu'on éxécute sans se poser de question
 
-- changer memoize.file pour une écriture comme suit:
-memoize.file(fn, path, {
-    sources: [
-        {path: , strategy: 'mtime'},
-        {path: , strategy: 'eTag'},
-    ],
-    mode: 'default'
-    // pour voir comment le cache http fonctionne (pas utile pour le moment)
-    https://fetch.spec.whatwg.org/#requests
-    // default : peut écrire et lire depuis le cache (cas par défaut)
-    // read-only : peut lire depuis le cache, n'écrira pas dedans (pour travis)
-    // write-only : ne peut pas lire depuis le cache, écrira dedans (inutile)
-    // only-if-cached: peut lire et throw si le cache est invalide au lieu d'apeller la fonction (inutile mais pourra le devenir un jour)
-})
+// pour voir comment le cache http fonctionne (pas utile pour le moment)
+https://fetch.spec.whatwg.org/#requests
 
 - externaliser sourcemap au lie de inline base64, enfin faire une option
 cela signifie que pour que le cache soit valide il faudra aussi check l'existance de son fichier sourcemap
 ou alors toruver une autre soluce
 
 - yield, async, generator, prévoir les features/plugins/polyfill correspondant
+
+-  chaque progresscallback devrait pouvoir dire attend que je te le dise pour faire
+le suite, voir même laisse tomber (aucun interêt mais bon) genre event.waitUntil
+de sorte qu'on pourrais avoir une interface qui dit
+"Nous avons besoin de scanner votre environnement"
+[Allez-y]
+"Nous avons besoin d'appliquer des correctifs"
+[Alley-y]
 
 - race condition writefile ?
 si oui faudrais une queue de write pour s'assurer que la dernière version est bien celle
@@ -78,114 +74,106 @@ par contre il est possible qu'à tout moment les appels distants
 permettent de skip une/plusieur étapes pour aller directement à la fin
 
 donc il faut comencer par faire un truc qui dit ok je suis {userAgent} que dois-je faire ?
-
-FIX+SCAN et FIX+COMPLETE serais plus propre si on avait un moyen
-de récupérer une liste d'instruction et pas une seule
 */
 
-function ensureImplementation(completeCallback, failCallback/* , progressCallback */) {
+function ensureImplementation(completeCallback, failCallback, progressCallback) {
     var handlers = {
-        'SCAN'(instruction, resolve) {
-            eval(instruction.detail.code); // eslint-disable-line no-eval
-            jsenv.implementation.scan(function(report) {
-                resolve({
-                    report: report
-                });
-            });
-        },
-        'FIX'(instruction, resolve) {
-            eval(instruction.detail.code); // eslint-disable-line no-eval
-            resolve();
-        },
-        'CHECK'(instruction, resolve) {
-            eval(instruction.detail.code); // eslint-disable-line no-eval
-            jsenv.implementation.scan(function(report) {
-                resolve({
-                    report: report
-                });
-            });
-        },
-        'COMPLETE'(instruction, resolve) {
-            resolve({
-                status: 'COMPLETED',
-                reason: instruction.reason,
-                detail: instruction.detail
-            });
-        },
-        'FAIL'(instruction, resolve) {
-            resolve({
-                status: 'FAILED',
-                reason: instruction.reason,
-                detail: instruction.detail
-            });
-        }
-    };
-    function handleInstruction(instruction, state) {
-        // si l'instruction est une instruction composée
-        // il faut la décomposer et faire instruction par instruction (en série)
-        // avant de renvoyer un state composée pour chaque résultat d'instruction
-        // complete et fail sont ignoré
-        // le serveur stockera l'info sur l'instruction fix pour savoir comment elle se déroule
-        // même si 99% du temps il ne devrait pas y avoir de souci
-        // si jamais eval des polyfill génère une erreur il ne sers à rien de continuer
-        // et le serveur doit posséder cette information
-        // ceci est vrai à chaque étape qui peut fail et le serveur en serait alors informé
-        // sauf pour des erreurs connue genre réseau etc qui sont pas critique
-        // toutes les erreurs non prévue sont considérées comme fatales
-        // et font échouer l'ensemble du processus
-        // je ne sais pas encore comment je vais gérer ça mais je suppose
-        // scan seras stocké dans before-fix (bah oui avec report.json)
-        // mais en fait on va appeler ça scan-result.json
-        // fix-result.json sera stocké dans after-fix
-        // rescan-result.json sera stocké aussi dans after-fix
-        // on pourrait aussi avoir 3 folder genre scan/fix/check
-        // le truc c'est que fix et rescan utilise le même cache
-        // quoique fix n'a besoin que des problematicfeatures de type polyfill
-        // alors que rescan de toutes les problematicFeatures
-        // n'économisons pas les ressources pour de la perf, soyons clair
+        'SCAN'(instruction, complete) {
+            eval(instruction.value.code); // eslint-disable-line no-eval
 
-        state.step = instruction.code;
-
-        var method = handlers[instruction.code];
-        var args = [instruction, function(data) {
-            jsenv.assign(state, data || {});
-            handleState(state);
-        }];
-
-        try {
-            method.apply(handlers, args);
-        } catch (e) {
-            state.status = 'FAILED';
-            state.statusReason = 'throw';
-            state.statusDetail = e;
-            handleState(state);
-        }
-    }
-    function handleState(state) {
-        if (state.status === 'FAILED') {
-            failCallback();
-        } else if (state.status === 'COMPLETED') {
-            completeCallback();
-        } else {
-            getInstruction(
-                state,
-                function(instruction) {
-                    handleInstruction(instruction, state);
+            jsenv.implementation.scan(
+                function(report) {
+                    complete(report);
+                },
+                function(event) {
+                    progressCallback({
+                        step: 'scan-progress',
+                        event: event
+                    });
                 }
             );
+        },
+        'FIX'(instruction, complete) {
+            eval(instruction.value.fix); // eslint-disable-line no-eval
+
+            if ('features' in instruction.value) {
+                eval(instruction.value.features); // eslint-disable-line no-eval
+                jsenv.implementation.scan(
+                    function(report) {
+                        complete(report);
+                    },
+                    function(event) {
+                        progressCallback({
+                            step: 'fixed-scan-progress',
+                            event: event
+                        });
+                    }
+                );
+            } else {
+                complete();
+            }
+        }
+    };
+    function handleInstruction(instruction) {
+        var result = instruction.result;
+
+        function complete(data) {
+            result.status = 'completed';
+            result.value = data || {};
+            getNextInstruction(instruction);
+        }
+        function fail(data) {
+            result.status = 'failed';
+            result.value = data || {};
+            getNextInstruction(instruction);
+        }
+
+        if (result.status === 'pending') {
+            var method = handlers[instruction.name];
+            var args = [instruction, complete, fail];
+
+            try {
+                method.apply(handlers, args);
+            } catch (e) {
+                fail(e);
+            }
+        } else {
+            getNextInstruction(instruction);
         }
     }
-    function getInstruction(state, resolve) {
+    function getNextInstruction(instruction) {
         // la version browser enverras une requête pour savoir
         // cette version va juste appeler une méthode faite exprès pour sur ensureImplementation
-        ensure.getInstruction(state, resolve);
+        ensure.getNextInstruction(
+            instruction,
+            function(nextInstruction) {
+                nextInstruction.meta = instruction.meta;
+                progressCallback({
+                    step: 'after-' + nextInstruction.name
+                });
+                if (nextInstruction.name === 'COMPLETE') {
+                    completeCallback();
+                } else if (nextInstruction.name === 'FAIL') {
+                    failCallback();
+                } else {
+                    progressCallback({
+                        step: 'before-' + nextInstruction.name
+                    });
+                    handleInstruction(nextInstruction);
+                }
+            }
+        );
     }
-    var state = {
-        step: 'INITIAL',
-        status: 'PENDING',
-        userAgent: userAgent
+    var instruction = {
+        name: 'START',
+        meta: {
+            userAgent: userAgent
+        },
+        result: {
+            status: 'completed'
+        }
     };
-    handleState(state);
+    getNextInstruction(instruction);
 }
 
 ensureImplementation(
@@ -202,29 +190,6 @@ ensureImplementation(
         là on a l'example ou ça fail pour des raisons maitriser
         ça peut aussi fail à cause du réseau
         ou d'une erreur interne
-        failEvent = {
-            type: 'fail',
-            detail: {
-                problems: [
-                     {
-                        type: 'feature-has-no-solution',
-                        meta: {
-                            feature: {
-                                name: 'feature-name'
-                            }
-                        }
-                    },
-                    {
-                        type: 'feature-solution-is-invalid',
-                        meta: {
-                            feature: {
-                                name: 'other-feature-name
-                            }
-                        }
-                    }
-                ]
-            }
-        };
         */
 
         console.log('implementation failed', failEvent);
