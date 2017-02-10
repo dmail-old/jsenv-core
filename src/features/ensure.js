@@ -5,16 +5,30 @@ ensure implementation has a list of features we want to use
 /* eslint-disable dot-notation */
 
 /*
+
+refaire fonctionner le report après un scan
+ce doit être une liste de features avec le résultat associé (valid/invalid) et pourquoi
+et vérifier qu'on manipule correctement cette liste sans parler du revive report etc
+
 */
 
-var rootFolder = '../..';
+var rootFolder = require('path').resolve(__dirname, '../..');
 var cacheFolder = rootFolder + '/cache';
 var featuresPath = rootFolder + '/src/features/features.js';
 var solutionsPath = rootFolder + '/src/features/solutions.js';
+var scanFolder = cacheFolder + '/scan';
+var polyfillFolder = cacheFolder + '/polyfill';
+var transpileFolder = cacheFolder + '/transpile';
+var fixFolder = cacheFolder + '/fix';
 
 var memoize = require('../memoize.js');
 var fsAsync = require('../fs-async.js');
 var store = require('../store.js');
+
+var scanCache = store.fileSystemCache(scanFolder);
+var polyfillCache = store.fileSystemCache(polyfillFolder);
+var transpileCache = store.fileSystemCache(transpileFolder);
+var fixCache = store.fileSystemCache(fixFolder);
 
 var jsenv = global.jsenv;
 var Iterable = jsenv.Iterable;
@@ -68,20 +82,20 @@ function findFeatureSolution(feature) {
     });
 }
 
-handlers['START'] = function(instruction) {
+handlers['start'] = function(instruction) {
     var meta = instruction.meta;
 
     return readScanResult(meta).then(function(data) {
         if (data.valid) {
             var scanResult = data.value;
             return getNextInstruction({
-                name: 'SCAN',
+                name: 'scan',
                 meta: meta,
                 result: scanResult
             }, true);
         }
         return getTranspiledFeatures().then(function(features) {
-            return instruct('SCAN', features);
+            return instruct('scan', features);
         });
     });
 };
@@ -96,11 +110,7 @@ function writeScanResult(meta, instruction) {
     });
 }
 function getScanResultEntry(meta) {
-    var path = cacheFolder + '/scan';
-
-    return store.fileSystemCache(path).then(function(cache) {
-        return cache.match(meta);
-    }).then(function(cacheBranch) {
+    return scanCache.match(meta).then(function(cacheBranch) {
         return cacheBranch.entry(scanResultProperties);
     });
 }
@@ -127,7 +137,8 @@ function getTranspiledFeatures() {
     return createFeatures();
 }
 
-handlers['SCAN'] = function(instruction) {
+handlers['scan'] = function(instruction) {
+    console.log('after scan instruction', instruction);
     var implementation = createImplementation(instruction.result.value);
     var problematicFeatures = implementation.getProblematicFeatures();
     var problematicFeaturesWithoutSolution = filterFeatureWithoutSolution(problematicFeatures);
@@ -142,7 +153,7 @@ handlers['SCAN'] = function(instruction) {
                 }
             };
         });
-        return instruct('FAIL', problems);
+        return instruct('fail', problems);
     }
 
     function getFixedFeatures() {
@@ -179,14 +190,20 @@ handlers['SCAN'] = function(instruction) {
         });
     }
 
+    var problematicFeaturesNames = Iterable.map(problematicFeatures, function(feature) {
+        return feature.name;
+    });
     return readFixResult({
         userAgent: instruction.meta.userAgent,
-        problematicFeatures: problematicFeatures
+        problematicFeatures: problematicFeaturesNames
     }).then(function(data) {
         var fixResult = data.value;
         if (data.valid) {
             if (fixResult.status === 'failed') {
-                return instruct('FAIL', fixResult.value);
+                return instruct('fail', fixResult.value);
+            }
+            if (fixResult.status === 'crashed') {
+                return instruct('crash', fixResult.value);
             }
         }
 
@@ -196,20 +213,20 @@ handlers['SCAN'] = function(instruction) {
         return getPolyfiller(requiredPolyfillSolutions).then(function(polyfiller) {
             if (data.valid) {
                 return getNextInstruction({
-                    name: 'FIX',
+                    name: 'fix',
                     meta: instruction.meta,
                     result: fixResult
                 }).then(function(nextInstruction) {
-                    if (nextInstruction.name === 'FAIL') {
+                    if (nextInstruction.name !== 'complete') {
                         return nextInstruction;
                     }
-                    return instruct('FIX', {
+                    return instruct('fix', {
                         fix: polyfiller.code
                     });
                 });
             }
             return getFixedFeatures().then(function(code) {
-                return instruct('FIX', {
+                return instruct('fix', {
                     fix: polyfiller.code,
                     features: code
                 });
@@ -228,17 +245,16 @@ function writeFixResult(meta, instruction) {
     });
 }
 function getFixResultEntry(meta) {
-    var path = cacheFolder + '/fix';
-    return store.fileSystemCache(path).then(function(cache) {
-        return cache.match(meta);
-    }).then(function(cacheBranch) {
+    return fixCache.match(meta).then(function(cacheBranch) {
         return cacheBranch.entry(fixResultEntryProperties);
     });
 }
 function createImplementation(report) {
     var features = Iterable.map(report.features, function(featureData) {
         var feature = jsenv.createFeature(featureData.name);
-        jsenv.assign(feature, featureData);
+        feature.status = featureData.result.status;
+        feature.statusReason = featureData.result.reason;
+        feature.statusDetail = featureData.result.detail;
         return feature;
     });
     var implementation = {
@@ -248,7 +264,7 @@ function createImplementation(report) {
                 return feature.match(name);
             });
             if (!foundfeature) {
-                throw new Error('feature not found ' + foundfeature);
+                throw new Error('feature not found ' + name);
             }
             return foundfeature;
         },
@@ -285,6 +301,9 @@ function createImplementation(report) {
     return implementation;
 }
 function getPolyfiller(requiredSolutions) {
+    var requiredSolutionNames = Iterable.map(requiredSolutions, function(solution) {
+        return solution.name;
+    });
     var requiredModules = Iterable.filter(requiredSolutions, function(solution) {
         return solution.author === 'corejs';
     });
@@ -295,7 +314,7 @@ function getPolyfiller(requiredSolutions) {
         return module.name;
     });
     var requiredFilePaths = Iterable.map(requiredFiles, function(file) {
-        return file.name;
+        return file.path;
     });
 
     var createPolyfill = function() {
@@ -342,20 +361,12 @@ function getPolyfiller(requiredSolutions) {
     };
 
     if (options.cache) {
-        var getPolyfillCacheBranch = function(meta) {
-            var path = cacheFolder + '/polyfill';
-            return store.fileSystemCache(path).then(function(cache) {
-                return cache.match(meta);
-            });
-        };
-
-        return getPolyfillCacheBranch({
-            coreJs: requiredModuleNames,
-            files: requiredFilePaths
-        }).then(function(storeBranch) {
+        return polyfillCache.match({
+            solutions: requiredSolutionNames
+        }).then(function(cacheBranch) {
             return memoize.async(
                 createPolyfill,
-                storeBranch.entry({
+                cacheBranch.entry({
                     name: 'polyfill.js',
                     sources: requiredFilePaths.map(function(filePath) {
                         return {
@@ -392,21 +403,15 @@ function getTranspiler(pluginsAsOptions) {
         }
         return nodeFilePath;
     }
-    function getTranspileCacheBranch() {
-        var path = cacheFolder + '/transpile';
-        return store.fileSystemCache(path).then(function(store) {
-            return store.match({
-                plugins: pluginsAsOptions
-            });
-        });
-    }
     function getFileEntry(path, transpilationOptions) {
         var nodeFilePath = getNodeFilePath(path);
 
         if (nodeFilePath.indexOf(rootFolder) === 0) {
             var relativeFilePath = nodeFilePath.slice(rootFolder.length);
 
-            return getTranspileCacheBranch().then(function(storeBranch) {
+            return transpileCache.match({
+                plugins: pluginsAsOptions
+            }).then(function(cacheBranch) {
                 var entryName;
                 if (transpilationOptions.as === 'module') {
                     entryName = 'modules/' + relativeFilePath;
@@ -422,7 +427,7 @@ function getTranspiler(pluginsAsOptions) {
                 }
                 entrySources.push({path: nodeFilePath, strategy: 'mtime'});
 
-                var entry = storeBranch.entry({
+                var entry = cacheBranch.entry({
                     name: entryName,
                     sources: entrySources
                 });
@@ -483,26 +488,26 @@ function getTranspiler(pluginsAsOptions) {
         transpile: transpile,
         transpileFile: function(filePath, transpilationOptions) {
             function createTranspiledCode(transpilationOptions) {
-                return fsAsync.getFileContent().then(function(code) {
+                return fsAsync.getFileContent(filePath).then(function(code) {
                     return transpiler.tranpile(code, transpilationOptions);
                 });
             }
 
-            var entry = getFileEntry(filePath, transpilationOptions);
-            if (entry) {
-                // désactive le cache lorsque entry ne matche pas
-                // puisqu'on a déjà tester s'il existait un cache valide
-                var unmemoizedOptions = {};
-                jsenv.assign(unmemoizedOptions, transpilationOptions);
-                unmemoizedOptions.cache = false;
+            return getFileEntry(filePath, transpilationOptions).then(function(entry) {
+                if (entry) {
+                    // désactive le cache lorsque entry ne matche pas
+                    // puisqu'on a déjà tester s'il existait un cache valide
+                    var unmemoizedOptions = {};
+                    jsenv.assign(unmemoizedOptions, transpilationOptions);
+                    unmemoizedOptions.cache = false;
 
-                return memoize.async(
-                    createTranspiledCode,
-                    entry
-                )(unmemoizedOptions);
-            }
-
-            return createTranspiledCode(transpilationOptions);
+                    return memoize.async(
+                        createTranspiledCode,
+                        entry
+                    )(unmemoizedOptions);
+                }
+                return createTranspiledCode(transpilationOptions);
+            });
         }
     };
 
@@ -589,7 +594,7 @@ function createTransformTemplateLiteralsTaggedWithPlugin(transpile, TAG_NAME) {
     return transformTemplateLiteralsTaggedWithPlugin;
 }
 
-handlers['FIX'] = function(instruction) {
+handlers['fix'] = function(instruction) {
     var implementation = createImplementation(instruction.result.value);
     var problematicFeatures = implementation.getProblematicFeatures();
 
@@ -611,9 +616,9 @@ handlers['FIX'] = function(instruction) {
                 }
             };
         });
-        return instruct('FAIL', problems);
+        return instruct('fail', problems);
     }
-    return instruct('COMPLETE');
+    return instruct('complete');
 };
 
 function getNextInstruction(instruction, fromCache) {
@@ -622,36 +627,38 @@ function getNextInstruction(instruction, fromCache) {
         // sinon l'instruction suivante pourrait ne pas trouver l'info dont elle a besoin
 
         if (instruction.result.status === 'failed') {
-            var failInstruction = instruct('FAIL', instruction.result.value);
-            return failInstruction;
+            return instruct('fail', instruction.result.value);
+        }
+        if (instruction.result.status === 'crashed') {
+            return instruct('crash', instruction.result.value);
         }
 
-        if (instruction.name === 'START') {
-            var startMeta = instruction.meta;
-            return readScanResult(startMeta).then(function(data) {
+        if (instruction.name === 'start') {
+            return readScanResult(instruction.meta).then(function(data) {
                 if (data.valid) {
                     var nextInstructionResult = data.value;
                     return getNextInstruction({
-                        name: 'SCAN',
-                        meta: startMeta,
+                        name: 'scan',
+                        meta: instruction.meta,
                         result: nextInstructionResult
                     }, true);
                 }
-                return handlers['START'](instruction); // eslint-disable-line new-cap
+                return handlers['start'](instruction); // eslint-disable-line new-cap
             });
-        } else if (instruction.name === 'SCAN') {
+        } else if (instruction.name === 'scan') {
             var scanPromise;
             if (fromCache) {
                 scanPromise = Promise.resolve();
             } else {
+                console.log('writing', instruction);
                 scanPromise = writeScanResult(instruction.meta, instruction);
             }
 
             return Promise.all([
                 scanPromise,
-                handlers['SCAN'](instruction) // eslint-disable-line new-cap
+                handlers['scan'](instruction) // eslint-disable-line new-cap
             ]);
-        } else if (instruction.name === 'FIX') {
+        } else if (instruction.name === 'fix') {
             var fixPromise;
             if (fromCache) {
                 fixPromise = Promise.resolve();
@@ -661,10 +668,13 @@ function getNextInstruction(instruction, fromCache) {
                         var scanResult = data.value; // (previousStepResult)
                         var scanImplementation = createImplementation(scanResult.value);
                         var scanProblematicFeatures = scanImplementation.getProblematicFeatures();
+                        var scanProblematicFeaturesNames = Iterable.map(scanProblematicFeatures, function(feature) {
+                            return feature.name;
+                        });
 
                         return writeFixResult({
                             userAgent: instruction.meta.userAgent,
-                            problematicFeatures: scanProblematicFeatures
+                            problematicFeatures: scanProblematicFeaturesNames
                         }, instruction);
                     }
                     // on ne peut pas écrire dans le cache on ne connait pas les features problématiques
@@ -675,20 +685,24 @@ function getNextInstruction(instruction, fromCache) {
 
             return Promise.all([
                 fixPromise,
-                handlers['FIX'](instruction) // eslint-disable-line new-cap
+                handlers['fix'](instruction) // eslint-disable-line new-cap
             ]);
         }
     }).catch(function(value) {
-        // ceci est un erreur serveur
-        // il ne faudrais pas que le client considère cela comme un éched venant de lui
-        // les erreurs ne venant pas de lui ne doivent pas être mise en cache ou envoyé au serveur
         return instruct(
-            'FAIL',
+            'crash',
             value
         );
     });
 }
 
-module.exports = function(instruction, resolve) {
-    return getNextInstruction(instruction).then(resolve);
+module.exports = {
+    getNextInstruction(instruction, resolve) {
+        return getNextInstruction(instruction).then(function(nextInstruction) {
+            // prevent error catching using setTimeout
+            setTimeout(function() {
+                resolve(nextInstruction);
+            });
+        });
+    }
 };

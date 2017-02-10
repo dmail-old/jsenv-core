@@ -483,7 +483,7 @@ ainsi que quelques utilitaires comme assign, Iterable et Predicate
             userAgent += jsenv.agent.version;
             userAgent += ' (';
             userAgent += jsenv.platform.name;
-            userAgent += '; ';
+            userAgent += ' ';
             userAgent += jsenv.platform.version;
             userAgent += ')';
             return userAgent;
@@ -1048,15 +1048,12 @@ en fonction du résultat de ces tests
                 var groupIndex = -1;
                 var groupCount = groups.length;
                 var done = function() {
-                    var invalidFeatures = jsenv.Iterable.filter(self.features, function(feature) {
-                        return feature.isInvalid();
-                    });
-                    var invalidFeaturesNames = invalidFeatures.map(function(feature) {
-                        return feature.name;
-                    });
                     self.preventScanReason = undefined;
+                    var featureResults = Iterable.map(self.features, function(feature) {
+                        return feature.toJSON();
+                    });
                     doneCallback({
-                        invalids: invalidFeaturesNames
+                        features: featureResults
                     });
                 };
 
@@ -1342,9 +1339,11 @@ en fonction du résultat de ces tests
         featurePrototype.toJSON = function() {
             return {
                 name: this.name,
-                status: this.status,
-                statusDetail: this.statusDetail,
-                statusReason: this.statusReason
+                result: {
+                    status: this.status,
+                    reason: this.statusReason,
+                    detail: this.statusDetail
+                }
             };
         };
         var implementation = jsenv.implementation;

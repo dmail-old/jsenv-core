@@ -1,11 +1,13 @@
+var rootFolder = require('path').resolve(__dirname, '../..');
 var jsenv = global.jsenv;
 var Iterable = jsenv.Iterable;
-var rootFolder = '';
 
 var createSolution = (function() {
     function Solution(name, descriptor) {
         this.name = name;
         jsenv.assign(this, descriptor);
+
+        // TODO : si une solution utilise déjà name il faut throw
 
         // il serais pratique d'avoir un peu comme pour feature ici
         // c'est à dire de pouvoir exprimer une liste de dépendances
@@ -154,36 +156,41 @@ var coreJSSolutions = [
 ];
 var fileSolutions = [
     {
-        name: locate('./node_modules/systemjs/dist/system.src.js'),
+        name: 'system-js',
+        path: locate('./node_modules/systemjs/dist/system.src.js'),
         required: true,
         features: [
             'system'
         ]
     },
     {
-        name: locate('./src/polyfill/url/index.js'),
+        name: 'url',
+        path: locate('./src/polyfill/url/index.js'),
         features: [
             'url'
         ]
     },
     {
-        name: locate('./src/polyfill/url-search-params/index.js'),
+        name: 'url-search-params',
+        path: locate('./src/polyfill/url-search-params/index.js'),
         features: [
             'url-search-params'
         ]
     },
     {
-        name: locate('./node_modules/regenerator/dist/regenerator.js'),
+        name: 'regenerator',
+        path: locate('./node_modules/regenerator/dist/regenerator.js'),
         required: 'auto',
-        isRequired: function(implementation) {
-            var features = [
-                'function-generator',
-                'function-async',
-                'function-generator-async'
-            ];
-            return Iterable.some(features, function(featureName) {
-                return implementation.get(featureName).isProblematic();
-            });
+        isRequired: function() {
+            return false;
+            // var features = [
+            //     'function-generator',
+            //     'function-async',
+            //     'function-generator-async'
+            // ];
+            // return Iterable.some(features, function(featureName) {
+            //     return implementation.get(featureName).isProblematic();
+            // });
         }
     }
 ];

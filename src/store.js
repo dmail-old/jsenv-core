@@ -44,7 +44,7 @@ var createFileSystemCache = (function() {
             return branch;
         },
 
-        match: function(branchMeta) {
+        find: function(branchMeta) {
             branchMeta = branchMeta || {};
             var branch;
             var branches = this.branches;
@@ -80,6 +80,13 @@ var createFileSystemCache = (function() {
             });
         },
 
+        match: function(meta) {
+            var self = this;
+            return this.revive().then(function() {
+                return self.find(meta);
+            });
+        },
+
         update: function() {
             var branches = this.branches.sort(compareBranch);
             var branchesSource = JSON.stringify(branches, null, '\t');
@@ -111,9 +118,9 @@ var createFileSystemCache = (function() {
     }
 
     return function(folderPath) {
-        return new FileSystemCache(folderPath).revive();
+        return new FileSystemCache(folderPath);
     };
-});
+})();
 
 var createFileSystemCacheBranch = (function() {
     function FileSystemCacheBranch(properties) {
@@ -173,6 +180,7 @@ var createFileSystemCacheBranchEntry = (function() {
                 return JSON.parse(value);
             };
         }
+        this.format = format;
 
         var eTagIndex = -1;
         var validators = sources.map(function(source) {
@@ -294,7 +302,7 @@ var createFileSystemCacheBranchEntry = (function() {
     var INVALID = {};
     FileSystemCacheBranchEntry.prototype = {
         constructor: FileSystemCacheBranchEntry,
-        mode: 'default',
+        mode: 'write-only', // utile pour le debug
         prevalidate: function() {
             return true;
         },
@@ -358,6 +366,7 @@ var createFileSystemCacheBranchEntry = (function() {
                 if (entry.mode === 'only-if-cached' && data.valid === false) {
                     throw new Error('missing cache at ' + entry.path);
                 }
+                return data;
             });
         },
         write: function(value) {
@@ -372,9 +381,13 @@ var createFileSystemCacheBranchEntry = (function() {
             data.value = value;
 
             return Promise.resolve().then(function() {
-                data.value = entry.wrap(data.value);
+                return entry.wrap(data.value);
+            }).then(function(wrappedValue) {
+                data.value = wrappedValue;
             }).then(function() {
-                data.value = entry.encode(data.value);
+                return entry.encode(data.value);
+            }).then(function(encodedValue) {
+                data.value = encodedValue;
             }).then(function() {
                 return fsAsync.setFileContent(path, data.value);
             });

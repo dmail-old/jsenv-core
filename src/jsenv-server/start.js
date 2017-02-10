@@ -76,108 +76,148 @@ permettent de skip une/plusieur étapes pour aller directement à la fin
 donc il faut comencer par faire un truc qui dit ok je suis {userAgent} que dois-je faire ?
 */
 
-function ensureImplementation(completeCallback, failCallback, progressCallback) {
-    var handlers = {
-        'SCAN'(instruction, complete) {
-            eval(instruction.value.code); // eslint-disable-line no-eval
+// https://github.com/rpominov/fun-task/blob/master/docs/exceptions.md#trycatch
+// il faut complete/fail/crash et idéalement crash on va juste pas fournir de callback
+// ce qui par défaut signife throw
 
-            jsenv.implementation.scan(
-                function(report) {
-                    complete(report);
-                },
-                function(event) {
-                    progressCallback({
-                        step: 'scan-progress',
-                        event: event
-                    });
+function ensureImplementation(createNextInstruction, meta) {
+    function run(hooks) {
+        hooks = hooks || {};
+        var defaultHooks = {
+            crash: function(event) {
+                throw event.value;
+            }
+        };
+        function hook(name, event) {
+            if (name in hooks) {
+                hooks[name](event);
+            } else if (name in defaultHooks) {
+                defaultHooks[name](event);
+            }
+        }
+
+        function getNextInstruction(instruction) {
+            // la version browser enverras une requête pour savoir
+            // cette version va juste appeler une méthode faite exprès pour sur ensureImplementation
+            createNextInstruction(
+                instruction,
+                function(nextInstruction) {
+                    return handleNextInstruction(nextInstruction, instruction);
                 }
             );
-        },
-        'FIX'(instruction, complete) {
-            eval(instruction.value.fix); // eslint-disable-line no-eval
+        }
 
-            if ('features' in instruction.value) {
-                eval(instruction.value.features); // eslint-disable-line no-eval
+        var handlers = {
+            'scan'(instruction, complete) {
+                eval(instruction.result.value); // eslint-disable-line no-eval
+
                 jsenv.implementation.scan(
                     function(report) {
                         complete(report);
                     },
                     function(event) {
-                        progressCallback({
-                            step: 'fixed-scan-progress',
+                        hook('progress', {
+                            step: 'scan-progress',
                             event: event
                         });
                     }
                 );
-            } else {
-                complete();
-            }
-        }
-    };
-    function handleInstruction(instruction) {
-        var result = instruction.result;
+            },
+            'fix'(instruction, complete) {
+                eval(instruction.value.fix); // eslint-disable-line no-eval
 
-        function complete(data) {
-            result.status = 'completed';
-            result.value = data || {};
-            getNextInstruction(instruction);
-        }
-        function fail(data) {
-            result.status = 'failed';
-            result.value = data || {};
-            getNextInstruction(instruction);
-        }
-
-        if (result.status === 'pending') {
-            var method = handlers[instruction.name];
-            var args = [instruction, complete, fail];
-
-            try {
-                method.apply(handlers, args);
-            } catch (e) {
-                fail(e);
-            }
-        } else {
-            getNextInstruction(instruction);
-        }
-    }
-    function getNextInstruction(instruction) {
-        // la version browser enverras une requête pour savoir
-        // cette version va juste appeler une méthode faite exprès pour sur ensureImplementation
-        ensure.getNextInstruction(
-            instruction,
-            function(nextInstruction) {
-                nextInstruction.meta = instruction.meta;
-                progressCallback({
-                    step: 'after-' + nextInstruction.name
-                });
-                if (nextInstruction.name === 'COMPLETE') {
-                    completeCallback();
-                } else if (nextInstruction.name === 'FAIL') {
-                    failCallback();
+                if ('features' in instruction.value) {
+                    eval(instruction.value.features); // eslint-disable-line no-eval
+                    jsenv.implementation.scan(
+                        function(report) {
+                            complete(report);
+                        },
+                        function(event) {
+                            hook('progress', {
+                                step: 'fixed-scan-progress',
+                                event: event
+                            });
+                        }
+                    );
                 } else {
-                    progressCallback({
-                        step: 'before-' + nextInstruction.name
-                    });
-                    handleInstruction(nextInstruction);
+                    complete();
                 }
             }
-        );
-    }
-    var instruction = {
-        name: 'START',
-        meta: {
-            userAgent: userAgent
-        },
-        result: {
-            status: 'completed'
+        };
+
+        function handleNextInstruction(nextInstruction, instruction) {
+            nextInstruction.meta = meta;
+
+            hook('progress', {
+                step: 'after-' + instruction.name
+            });
+            if (nextInstruction.name === 'complete') {
+                hook('complete');
+            } else if (nextInstruction.name === 'fail') {
+                hook('fail', {
+                    value: nextInstruction.result.value
+                });
+            } else if (nextInstruction.name === 'crash') {
+                hook('crash', {
+                    value: nextInstruction.result.value
+                });
+            } else {
+                hook('progress', {
+                    step: 'before-' + nextInstruction.name
+                });
+                var result = nextInstruction.result;
+                var complete = function(value) {
+                    result.status = 'completed';
+                    result.value = value;
+                    getNextInstruction(nextInstruction);
+                };
+                var fail = function(value) {
+                    result.status = 'failed';
+                    result.value = value;
+                    getNextInstruction(nextInstruction);
+                };
+                var crash = function(value) {
+                    result.status = 'crashed';
+                    result.value = value;
+                    getNextInstruction(nextInstruction);
+                };
+
+                if (result.status === 'pending') {
+                    var method = handlers[nextInstruction.name];
+                    var args = [nextInstruction, complete, fail, crash];
+
+                    try {
+                        method.apply(handlers, args);
+                    } catch (e) {
+                        crash(e);
+                    }
+                } else {
+                    getNextInstruction(nextInstruction);
+                }
+            }
         }
+
+        getNextInstruction(createFirstInstruction());
+    }
+
+    function createFirstInstruction() {
+        var instruction = {
+            name: 'start',
+            meta: meta,
+            result: {
+                status: 'completed'
+            }
+        };
+        return instruction;
+    }
+
+    return {
+        run: run
     };
-    getNextInstruction(instruction);
 }
 
-ensureImplementation(
-    function(completeEvent) {
+ensureImplementation(ensure.getNextInstruction, {userAgent: userAgent}).run({
+    complete: function(completeEvent) {
         /*
         à specifier, que peut valoir completeEvent d'intéréssant ?
         le temps que ça a pris, est ce que ça venait du cache etc...
@@ -185,7 +225,7 @@ ensureImplementation(
 
         console.log('implementation completed', completeEvent);
     },
-    function(failEvent) {
+    fail: function(failEvent) {
         /*
         là on a l'example ou ça fail pour des raisons maitriser
         ça peut aussi fail à cause du réseau
@@ -194,16 +234,21 @@ ensureImplementation(
 
         console.log('implementation failed', failEvent);
     },
-    function(progressEvent) {
+    progress: function(progressEvent) {
         /*
         à spécifier
         quelles valeurs peut prendre l'event progress
         surement pas grand chose, à voir
         */
 
-        console.log('implementation progress', progressEvent);
+        if (progressEvent.step === 'scan-progress') {
+            var event = progressEvent.event;
+            console.log('scanned', event.target.name, event.target.status, event.loaded, '/', event.total);
+        } else {
+            console.log('implementation progress', progressEvent.step);
+        }
     }
-);
+});
 
 /*
 function start() {
