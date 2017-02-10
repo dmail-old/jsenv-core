@@ -152,6 +152,7 @@ var createFileSystemCacheBranchEntry = (function() {
     function FileSystemCacheBranchEntry(properties) {
         this.data = {
             valid: undefined,
+            reason: '',
             value: undefined
         };
 
@@ -182,21 +183,15 @@ var createFileSystemCacheBranchEntry = (function() {
         }
         this.format = format;
 
-        var eTagIndex = -1;
-        var validators = sources.map(function(source) {
-            if (source.strategy === 'mtime') {
-                return createMtimeValidator(path, source.path);
-            }
-            if (source.strategy === 'eTag') {
-                if (format !== 'json') {
-                    throw new Error('eTag strategy only supported with JSON format');
-                }
-                eTagIndex++;
-                return createEtagValidator(path, source.path, eTagIndex);
-            }
-            throw new Error('unknown strategy');
-        }, this);
-        this.prevalidate = composeValidators(validators);
+        var sourcesUsingMtimeStrategy = sources.filter(function(source) {
+            return source.strategy === 'mtime';
+        });
+        var mtimeValidators = sourcesUsingMtimeStrategy.map(function(source) {
+            return createMtimeValidator(path, source.path);
+        });
+        this.prevalidate = function() {
+            return composeValidators(mtimeValidators).call(this);
+        };
 
         /*
         eTag ne march qu'avec JSON parce qu'on met les etag dans le fichier json
@@ -206,6 +201,17 @@ var createFileSystemCacheBranchEntry = (function() {
         var sourcesUsingEtagStrategy = sources.filter(function(source) {
             return source.strategy === 'eTag';
         });
+        var eTagIndex = -1;
+        var eTagValidators = sourcesUsingEtagStrategy.map(function(source) {
+            if (format !== 'json') {
+                throw new Error('eTag strategy only supported with JSON format');
+            }
+            eTagIndex++;
+            return createEtagValidator(path, source.path, eTagIndex);
+        });
+        this.postvalidate = function() {
+            return composeValidators(eTagValidators).call(this);
+        };
         if (sourcesUsingEtagStrategy.length) {
             this.wrap = function(value) {
                 return Promise.all(
@@ -232,7 +238,6 @@ var createFileSystemCacheBranchEntry = (function() {
     }
 
     function createMtimeValidator(path, sourcePath) {
-        var debug = false;
         return function() {
             return Promise.all([
                 fsAsync.getFileMtime(path),
@@ -240,35 +245,51 @@ var createFileSystemCacheBranchEntry = (function() {
             ]).then(function(mtimes) {
                 var entryMtime = mtimes[0];
                 var sourceMtime = mtimes[1];
+                var detail = {
+                    path: path,
+                    mtime: entryMtime,
+                    sourcePath: sourcePath,
+                    sourceMtime: sourceMtime
+                };
 
                 if (entryMtime >= sourceMtime) {
-                    if (debug) {
-                        console.log(path, 'uptodate with', sourcePath);
-                    }
-                    return true;
+                    return {
+                        status: 'valid',
+                        reason: 'mtime-up-to-date',
+                        detail: detail
+                    };
                 }
-                if (debug) {
-                    console.log(path, 'outdated against', sourcePath);
-                }
-                return false;
+                return {
+                    status: 'invalid',
+                    reason: 'mtime-outdated',
+                    detail: detail
+                };
             });
         };
     }
     function createEtagValidator(path, sourcePath, index) {
-        var debug = false;
-
-        return function(value) {
+        return function() {
+            var entry = this;
             return fsAsync.getFileContentEtag(sourcePath).then(function(sourceEtag) {
-                if (value.sources[index].eTag === sourceEtag) {
-                    if (debug) {
-                        console.log('etag matching', path, sourcePath);
-                    }
-                    return true;
+                var detail = {
+                    path: path,
+                    expectedEtag: expectedEtag,
+                    sourcePath: sourcePath,
+                    sourceEtag: sourceEtag
+                };
+                var expectedEtag = entry.data.value.sources[index].eTag;
+                if (expectedEtag === sourceEtag) {
+                    return {
+                        status: 'valid',
+                        reason: 'etag-match',
+                        detail: detail
+                    };
                 }
-                if (debug) {
-                    console.log('etag mismatch between', path, 'and', sourcePath);
-                }
-                return false;
+                return {
+                    status: 'invalid',
+                    reason: 'etag-mismatch',
+                    detail: detail
+                };
             });
         };
     }
@@ -278,12 +299,22 @@ var createFileSystemCacheBranchEntry = (function() {
         return function composedValidator() {
             var self = this;
             var args = arguments;
+            var invalidRejection;
+            var entry = this;
+            var data = entry.data;
             var validationPromises = validators.map(function(validator) {
-                return Promise.resolve(validator.apply(self, args)).then(function(valid) {
-                    if (valid) {
-                        return true;
+                return Promise.resolve(validator.apply(self, args)).then(function(result) {
+                    if (typeof result === 'boolean') {
+                        entry.data.valid = result;
                     }
-                    return Promise.reject(rejectedBecauseInvalid);
+                    if (typeof result === 'object') {
+                        data.valid = result.status === 'valid';
+                        data.reason = result.reason;
+                        data.detail = result.detail;
+                    }
+                    if (!entry.data.valid) {
+                        return Promise.reject(rejectedBecauseInvalid);
+                    }
                 });
             });
 
@@ -292,6 +323,9 @@ var createFileSystemCacheBranchEntry = (function() {
             }).catch(function(e) {
                 if (e === rejectedBecauseInvalid) {
                     return false;
+                }
+                if (e === invalidRejection) {
+                    return invalidRejection;
                 }
                 return Promise.reject(e);
             });
@@ -302,12 +336,12 @@ var createFileSystemCacheBranchEntry = (function() {
     var INVALID = {};
     FileSystemCacheBranchEntry.prototype = {
         constructor: FileSystemCacheBranchEntry,
-        mode: 'write-only', // utile pour le debug
+        mode: 'default', // 'write-only', // utile pour le debug
         prevalidate: function() {
-            return true;
+            this.data.valid = true;
         },
         postvalidate: function() {
-            return true;
+            this.data.valid = true;
         },
         encode: function(value) {
             return value;
@@ -328,17 +362,23 @@ var createFileSystemCacheBranchEntry = (function() {
 
             if (this.mode === 'write-only') {
                 data.valid = false;
+                data.reason = 'write-only-mode';
                 return Promise.resolve(data);
             }
 
             return fsAsync('access', path, FS_VISIBLE).catch(function() {
+                data.valid = false;
+                data.reason = 'file-not-found';
+                data.detail = {
+                    path: path
+                };
                 return Promise.reject(INVALID);
             }).then(function() {
-                return Promise.resolve(entry.prevalidate(entry)).then(function(preValidity) {
-                    if (!preValidity) {
-                        return Promise.reject(INVALID);
-                    }
-                });
+                return entry.prevalidate();
+            }).then(function() {
+                if (data.valid === false) {
+                    return Promise.reject(INVALID);
+                }
             }).then(function() {
                 return fsAsync.getFileContent(path);
             }).then(function(value) {
@@ -346,11 +386,11 @@ var createFileSystemCacheBranchEntry = (function() {
             }).then(function() {
                 data.value = entry.decode(data.value);
             }).then(function() {
-                return Promise.resolve(entry.postvalidate(entry)).then(function(postValidity) {
-                    if (!postValidity) {
-                        return Promise.reject(INVALID);
-                    }
-                });
+                return entry.postvalidate();
+            }).then(function() {
+                if (data.valid === false) {
+                    return Promise.reject(INVALID);
+                }
             }).then(function() {
                 data.value = entry.unwrap(data.value);
             }).then(function() {
@@ -358,7 +398,6 @@ var createFileSystemCacheBranchEntry = (function() {
                 return data;
             }).catch(function(value) {
                 if (value === INVALID) {
-                    data.valid = false;
                     return data;
                 }
                 return Promise.reject(value);

@@ -3,6 +3,10 @@
 		{
 			"path": "C:/Users/Damien/Documents/GitHub/core/src/features/features.js",
 			"eTag": "\"ec07-hwklpBwkUEC3hO3iIDFd66m5gUw\""
+		},
+		{
+			"path": "C:/Users/Damien/Documents/GitHub/core/src/features/solutions.js",
+			"eTag": "\"2d28-myoDI8MMjITPHZ1zaVBHtIASQKs\""
 		}
 	],
 	"value": {
@@ -19,8 +23,8 @@
 				{
 					"name": "system",
 					"result": {
-						"status": "invalid",
-						"reason": "missing"
+						"status": "valid",
+						"reason": "present"
 					}
 				},
 				{
@@ -61,8 +65,8 @@
 				{
 					"name": "symbol-to-primitive",
 					"result": {
-						"status": "invalid",
-						"reason": "missing"
+						"status": "valid",
+						"reason": "present"
 					}
 				},
 				{
@@ -110,9 +114,8 @@
 				{
 					"name": "date-prototype-symbol-to-primitive",
 					"result": {
-						"status": "invalid",
-						"reason": "dependency-is-invalid",
-						"detail": "symbol-to-primitive"
+						"status": "valid",
+						"reason": "present"
 					}
 				},
 				{
@@ -276,9 +279,9 @@
 				{
 					"name": "function-prototype-name-var",
 					"result": {
-						"status": "invalid",
+						"status": "valid",
 						"reason": "returned",
-						"detail": false
+						"detail": true
 					}
 				},
 				{
@@ -376,15 +379,15 @@
 				{
 					"name": "url",
 					"result": {
-						"status": "invalid",
-						"reason": "missing"
+						"status": "valid",
+						"reason": "present"
 					}
 				},
 				{
 					"name": "url-search-params",
 					"result": {
-						"status": "invalid",
-						"reason": "missing"
+						"status": "valid",
+						"reason": "present"
 					}
 				},
 				{
@@ -414,17 +417,17 @@
 				{
 					"name": "for-of-iterable-return-called-on-break",
 					"result": {
-						"status": "invalid",
+						"status": "valid",
 						"reason": "returned",
-						"detail": false
+						"detail": true
 					}
 				},
 				{
 					"name": "for-of-iterable-return-called-on-throw",
 					"result": {
-						"status": "invalid",
+						"status": "valid",
 						"reason": "returned",
-						"detail": false
+						"detail": true
 					}
 				},
 				{
@@ -462,80 +465,81 @@
 				{
 					"name": "const-scoped",
 					"result": {
-						"status": "invalid",
-						"reason": "throwed",
-						"detail": {}
+						"status": "valid",
+						"reason": "returned",
+						"detail": true
 					}
 				},
 				{
 					"name": "const-scoped-for-statement",
 					"result": {
-						"status": "invalid",
-						"reason": "throwed",
-						"detail": {}
+						"status": "valid",
+						"reason": "returned",
+						"detail": true
 					}
 				},
 				{
 					"name": "const-scoped-for-body",
 					"result": {
-						"status": "invalid",
+						"status": "valid",
 						"reason": "returned",
-						"detail": false
+						"detail": true
 					}
 				},
 				{
 					"name": "const-scoped-for-of-body",
 					"result": {
-						"status": "invalid",
+						"status": "valid",
 						"reason": "returned",
-						"detail": false
+						"detail": true
 					}
 				},
 				{
 					"name": "let",
 					"result": {
-						"status": "invalid",
-						"reason": "unexpected-compilation-throw"
+						"status": "valid",
+						"reason": "returned",
+						"detail": true
 					}
 				},
 				{
 					"name": "let-throw-statement",
 					"result": {
-						"status": "invalid",
-						"reason": "dependency-is-invalid",
-						"detail": "let"
+						"status": "valid",
+						"reason": "returned",
+						"detail": true
 					}
 				},
 				{
 					"name": "let-temporal-dead-zone",
 					"result": {
-						"status": "invalid",
-						"reason": "dependency-is-invalid",
-						"detail": "let"
+						"status": "valid",
+						"reason": "returned",
+						"detail": true
 					}
 				},
 				{
 					"name": "let-scoped",
 					"result": {
-						"status": "invalid",
-						"reason": "dependency-is-invalid",
-						"detail": "let"
+						"status": "valid",
+						"reason": "returned",
+						"detail": true
 					}
 				},
 				{
 					"name": "let-scoped-for-statement",
 					"result": {
-						"status": "invalid",
-						"reason": "dependency-is-invalid",
-						"detail": "let"
+						"status": "valid",
+						"reason": "returned",
+						"detail": true
 					}
 				},
 				{
 					"name": "let-scoped-for-body",
 					"result": {
-						"status": "invalid",
-						"reason": "dependency-is-invalid",
-						"detail": "let"
+						"status": "valid",
+						"reason": "returned",
+						"detail": true
 					}
 				},
 				{
@@ -549,463 +553,470 @@
 				{
 					"name": "destructuring-declaration-array",
 					"result": {
-						"status": "invalid",
-						"reason": "unexpected-compilation-throw"
+						"status": "valid",
+						"reason": "returned",
+						"detail": true
 					}
 				},
 				{
 					"name": "destructuring-declaration-array-trailing-commas",
 					"result": {
-						"status": "invalid",
-						"reason": "dependency-is-invalid",
-						"detail": "destructuring-declaration-array"
+						"status": "valid",
+						"reason": "returned",
+						"detail": true
 					}
 				},
 				{
 					"name": "destructuring-declaration-array-iterable",
 					"result": {
-						"status": "invalid",
-						"reason": "dependency-is-invalid",
-						"detail": "destructuring-declaration-array"
+						"status": "valid",
+						"reason": "returned",
+						"detail": true
 					}
 				},
 				{
 					"name": "destructuring-declaration-array-iterable-instance",
 					"result": {
-						"status": "invalid",
-						"reason": "dependency-is-invalid",
-						"detail": "destructuring-declaration-array-iterable"
+						"status": "valid",
+						"reason": "returned",
+						"detail": true
 					}
 				},
 				{
 					"name": "destructuring-declaration-array-sparse",
 					"result": {
-						"status": "invalid",
-						"reason": "dependency-is-invalid",
-						"detail": "destructuring-declaration-array"
+						"status": "valid",
+						"reason": "returned",
+						"detail": true
 					}
 				},
 				{
 					"name": "destructuring-declaration-array-nested",
 					"result": {
-						"status": "invalid",
-						"reason": "dependency-is-invalid",
-						"detail": "destructuring-declaration-array"
+						"status": "valid",
+						"reason": "returned",
+						"detail": true
 					}
 				},
 				{
 					"name": "destructuring-declaration-array-for-in-statement",
 					"result": {
-						"status": "invalid",
-						"reason": "dependency-is-invalid",
-						"detail": "destructuring-declaration-array"
+						"status": "valid",
+						"reason": "returned",
+						"detail": true
 					}
 				},
 				{
 					"name": "destructuring-declaration-array-for-of-statement",
 					"result": {
-						"status": "invalid",
-						"reason": "dependency-is-invalid",
-						"detail": "destructuring-declaration-array"
+						"status": "valid",
+						"reason": "returned",
+						"detail": true
 					}
 				},
 				{
 					"name": "destructuring-declaration-array-catch-statement",
 					"result": {
-						"status": "invalid",
-						"reason": "dependency-is-invalid",
-						"detail": "destructuring-declaration-array"
+						"status": "valid",
+						"reason": "returned",
+						"detail": true
 					}
 				},
 				{
 					"name": "destructuring-declaration-array-rest",
 					"result": {
-						"status": "invalid",
-						"reason": "dependency-is-invalid",
-						"detail": "destructuring-declaration-array"
+						"status": "valid",
+						"reason": "returned",
+						"detail": true
 					}
 				},
 				{
 					"name": "destructuring-declaration-array-default",
 					"result": {
-						"status": "invalid",
-						"reason": "dependency-is-invalid",
-						"detail": "destructuring-declaration-array"
+						"status": "valid",
+						"reason": "returned",
+						"detail": true
 					}
 				},
 				{
 					"name": "destructuring-declaration-object",
 					"result": {
-						"status": "invalid",
-						"reason": "unexpected-compilation-throw"
+						"status": "valid",
+						"reason": "returned",
+						"detail": true
 					}
 				},
 				{
 					"name": "destructuring-declaration-object-throw-null",
 					"result": {
-						"status": "invalid",
-						"reason": "dependency-is-invalid",
-						"detail": "destructuring-declaration-object"
+						"status": "valid",
+						"reason": "returned",
+						"detail": true
 					}
 				},
 				{
 					"name": "destructuring-declaration-object-throw-undefined",
 					"result": {
-						"status": "invalid",
-						"reason": "dependency-is-invalid",
-						"detail": "destructuring-declaration-object"
+						"status": "valid",
+						"reason": "returned",
+						"detail": true
 					}
 				},
 				{
 					"name": "destructuring-declaration-object-primitive-return-prototype",
 					"result": {
-						"status": "invalid",
-						"reason": "dependency-is-invalid",
-						"detail": "destructuring-declaration-object"
+						"status": "valid",
+						"reason": "returned",
+						"detail": true
 					}
 				},
 				{
 					"name": "destructuring-declaration-object-trailing-commas",
 					"result": {
-						"status": "invalid",
-						"reason": "dependency-is-invalid",
-						"detail": "destructuring-declaration-object"
+						"status": "valid",
+						"reason": "returned",
+						"detail": true
 					}
 				},
 				{
 					"name": "destructuring-declaration-object-double-dot-as",
 					"result": {
-						"status": "invalid",
-						"reason": "dependency-is-invalid",
-						"detail": "destructuring-declaration-object"
+						"status": "valid",
+						"reason": "returned",
+						"detail": true
 					}
 				},
 				{
 					"name": "destructuring-declaration-object-computed-properties",
 					"result": {
-						"status": "invalid",
-						"reason": "dependency-is-invalid",
-						"detail": "destructuring-declaration-object"
+						"status": "valid",
+						"reason": "returned",
+						"detail": true
 					}
 				},
 				{
 					"name": "destructuring-declaration-object-catch-statement",
 					"result": {
-						"status": "invalid",
-						"reason": "dependency-is-invalid",
-						"detail": "destructuring-declaration-object"
+						"status": "valid",
+						"reason": "returned",
+						"detail": true
 					}
 				},
 				{
 					"name": "destructuring-declaration-object-default",
 					"result": {
-						"status": "invalid",
-						"reason": "dependency-is-invalid",
-						"detail": "destructuring-declaration-object"
+						"status": "valid",
+						"reason": "returned",
+						"detail": true
 					}
 				},
 				{
 					"name": "destructuring-declaration-object-default-let-temporal-dead-zone",
 					"result": {
-						"status": "invalid",
-						"reason": "dependency-is-invalid",
-						"detail": "destructuring-declaration-object"
+						"status": "valid",
+						"reason": "returned",
+						"detail": true
 					}
 				},
 				{
 					"name": "destructuring-declaration-array-chain-object",
 					"result": {
-						"status": "invalid",
-						"reason": "dependency-is-invalid",
-						"detail": "destructuring-declaration-array"
+						"status": "valid",
+						"reason": "returned",
+						"detail": true
 					}
 				},
 				{
 					"name": "destructuring-declaration-array-nest-object",
 					"result": {
-						"status": "invalid",
-						"reason": "dependency-is-invalid",
-						"detail": "destructuring-declaration-array"
+						"status": "valid",
+						"reason": "returned",
+						"detail": true
 					}
 				},
 				{
 					"name": "destructuring-declaration-object-nest-array",
 					"result": {
-						"status": "invalid",
-						"reason": "dependency-is-invalid",
-						"detail": "destructuring-declaration-array"
+						"status": "valid",
+						"reason": "returned",
+						"detail": true
 					}
 				},
 				{
 					"name": "destructuring-assignment-array",
 					"result": {
-						"status": "invalid",
-						"reason": "unexpected-compilation-throw"
+						"status": "valid",
+						"reason": "returned",
+						"detail": true
 					}
 				},
 				{
 					"name": "destructuring-assignment-array-empty",
 					"result": {
-						"status": "invalid",
-						"reason": "dependency-is-invalid",
-						"detail": "destructuring-assignment-array"
+						"status": "valid",
+						"reason": "returned",
+						"detail": true
 					}
 				},
 				{
 					"name": "destructuring-assignment-array-rest-nest",
 					"result": {
-						"status": "invalid",
-						"reason": "dependency-is-invalid",
-						"detail": "destructuring-assignment-array"
+						"status": "valid",
+						"reason": "returned",
+						"detail": true
 					}
 				},
 				{
 					"name": "destructuring-assignment-array-expression-return",
 					"result": {
-						"status": "invalid",
-						"reason": "dependency-is-invalid",
-						"detail": "destructuring-assignment-array"
+						"status": "valid",
+						"reason": "returned",
+						"detail": true
 					}
 				},
 				{
 					"name": "destructuring-assignment-array-chain",
 					"result": {
-						"status": "invalid",
-						"reason": "dependency-is-invalid",
-						"detail": "destructuring-assignment-array"
+						"status": "valid",
+						"reason": "returned",
+						"detail": true
 					}
 				},
 				{
 					"name": "destructuring-assignment-object",
 					"result": {
-						"status": "invalid",
-						"reason": "unexpected-compilation-throw"
+						"status": "valid",
+						"reason": "returned",
+						"detail": true
 					}
 				},
 				{
 					"name": "destructuring-assignment-object-empty",
 					"result": {
-						"status": "invalid",
-						"reason": "dependency-is-invalid",
-						"detail": "destructuring-assignment-object"
+						"status": "valid",
+						"reason": "returned",
+						"detail": true
 					}
 				},
 				{
 					"name": "destructuring-assignment-object-expression-return",
 					"result": {
-						"status": "invalid",
-						"reason": "dependency-is-invalid",
-						"detail": "destructuring-assignment-object"
+						"status": "valid",
+						"reason": "returned",
+						"detail": true
 					}
 				},
 				{
 					"name": "destructuring-assignment-object-throw-left-parenthesis",
 					"result": {
 						"status": "invalid",
-						"reason": "dependency-is-invalid",
-						"detail": "destructuring-assignment-object"
+						"reason": "returned",
+						"detail": false
 					}
 				},
 				{
 					"name": "destructuring-assignment-object-chain",
 					"result": {
-						"status": "invalid",
-						"reason": "dependency-is-invalid",
-						"detail": "destructuring-assignment-object"
+						"status": "valid",
+						"reason": "returned",
+						"detail": true
 					}
 				},
 				{
 					"name": "destructuring-parameters-array",
 					"result": {
-						"status": "invalid",
-						"reason": "unexpected-compilation-throw"
+						"status": "valid",
+						"reason": "returned",
+						"detail": true
 					}
 				},
 				{
 					"name": "destructuring-parameters-array-function-length",
 					"result": {
-						"status": "invalid",
-						"reason": "dependency-is-invalid",
-						"detail": "destructuring-parameters-array"
+						"status": "valid",
+						"reason": "returned",
+						"detail": true
 					}
 				},
 				{
 					"name": "destructuring-parameters-array-new-function",
 					"result": {
 						"status": "invalid",
-						"reason": "dependency-is-invalid",
-						"detail": "destructuring-parameters-array"
+						"reason": "unexpected-compilation-throw"
 					}
 				},
 				{
 					"name": "destructuring-parameters-object",
 					"result": {
-						"status": "invalid",
-						"reason": "unexpected-compilation-throw"
+						"status": "valid",
+						"reason": "returned",
+						"detail": true
 					}
 				},
 				{
 					"name": "destructuring-parameters-object-new-function",
 					"result": {
 						"status": "invalid",
-						"reason": "dependency-is-invalid",
-						"detail": "destructuring-parameters-object"
+						"reason": "unexpected-compilation-throw"
 					}
 				},
 				{
 					"name": "destructuring-parameters-object-function-length",
 					"result": {
-						"status": "invalid",
-						"reason": "dependency-is-invalid",
-						"detail": "destructuring-parameters-object"
+						"status": "valid",
+						"reason": "returned",
+						"detail": true
 					}
 				},
 				{
 					"name": "spread-function-call",
 					"result": {
-						"status": "invalid",
-						"reason": "unexpected-compilation-throw"
+						"status": "valid",
+						"reason": "returned",
+						"detail": true
 					}
 				},
 				{
 					"name": "spread-function-call-throw-non-iterable",
 					"result": {
 						"status": "invalid",
-						"reason": "dependency-is-invalid",
-						"detail": "spread-function-call"
+						"reason": "returned",
+						"detail": false
 					}
 				},
 				{
 					"name": "spread-function-call-iterable",
 					"result": {
-						"status": "invalid",
-						"reason": "dependency-is-invalid",
-						"detail": "spread-function-call"
+						"status": "valid",
+						"reason": "returned",
+						"detail": true
 					}
 				},
 				{
 					"name": "spread-function-call-iterable-instance",
 					"result": {
-						"status": "invalid",
-						"reason": "dependency-is-invalid",
-						"detail": "spread-function-call"
+						"status": "valid",
+						"reason": "returned",
+						"detail": true
 					}
 				},
 				{
 					"name": "spread-literal-array",
 					"result": {
-						"status": "invalid",
-						"reason": "unexpected-compilation-throw"
+						"status": "valid",
+						"reason": "returned",
+						"detail": true
 					}
 				},
 				{
 					"name": "spread-literal-array-iterable",
 					"result": {
-						"status": "invalid",
-						"reason": "dependency-is-invalid",
-						"detail": "spread-literal-array"
+						"status": "valid",
+						"reason": "returned",
+						"detail": true
 					}
 				},
 				{
 					"name": "spread-literal-array-iterable-instance",
 					"result": {
-						"status": "invalid",
-						"reason": "dependency-is-invalid",
-						"detail": "spread-literal-array"
+						"status": "valid",
+						"reason": "returned",
+						"detail": true
 					}
 				},
 				{
 					"name": "function-default-parameters",
 					"result": {
-						"status": "invalid",
-						"reason": "unexpected-compilation-throw"
+						"status": "valid",
+						"reason": "returned",
+						"detail": true
 					}
 				},
 				{
 					"name": "function-default-parameters-explicit-undefined",
 					"result": {
-						"status": "invalid",
-						"reason": "dependency-is-invalid",
-						"detail": "function-default-parameters"
+						"status": "valid",
+						"reason": "returned",
+						"detail": true
 					}
 				},
 				{
 					"name": "function-default-parameters-refer-previous",
 					"result": {
-						"status": "invalid",
-						"reason": "dependency-is-invalid",
-						"detail": "function-default-parameters"
+						"status": "valid",
+						"reason": "returned",
+						"detail": true
 					}
 				},
 				{
 					"name": "function-default-parameters-arguments",
 					"result": {
-						"status": "invalid",
-						"reason": "dependency-is-invalid",
-						"detail": "function-default-parameters"
+						"status": "valid",
+						"reason": "returned",
+						"detail": true
 					}
 				},
 				{
 					"name": "function-default-parameters-temporal-dead-zone",
 					"result": {
 						"status": "invalid",
-						"reason": "dependency-is-invalid",
-						"detail": "function-default-parameters"
+						"reason": "returned",
+						"detail": false
 					}
 				},
 				{
 					"name": "function-default-parameters-scope-own",
 					"result": {
 						"status": "invalid",
-						"reason": "dependency-is-invalid",
-						"detail": "function-default-parameters"
+						"reason": "returned",
+						"detail": false
 					}
 				},
 				{
 					"name": "function-default-parameters-new-function",
 					"result": {
 						"status": "invalid",
-						"reason": "dependency-is-invalid",
-						"detail": "function-default-parameters"
+						"reason": "throwed",
+						"detail": {}
 					}
 				},
 				{
 					"name": "function-rest-parameters",
 					"result": {
-						"status": "invalid",
-						"reason": "unexpected-compilation-throw"
+						"status": "valid",
+						"reason": "returned",
+						"detail": true
 					}
 				},
 				{
 					"name": "function-rest-parameters-throw-setter",
 					"result": {
-						"status": "invalid",
-						"reason": "dependency-is-invalid",
-						"detail": "function-rest-parameters"
+						"status": "valid",
+						"reason": "returned",
+						"detail": true
 					}
 				},
 				{
 					"name": "function-rest-parameters-length",
 					"result": {
-						"status": "invalid",
-						"reason": "dependency-is-invalid",
-						"detail": "function-rest-parameters"
+						"status": "valid",
+						"reason": "returned",
+						"detail": true
 					}
 				},
 				{
 					"name": "function-rest-parameters-arguments",
 					"result": {
 						"status": "invalid",
-						"reason": "dependency-is-invalid",
-						"detail": "function-rest-parameters"
+						"reason": "returned",
+						"detail": false
 					}
 				},
 				{
 					"name": "function-rest-parameters-new-function",
 					"result": {
 						"status": "invalid",
-						"reason": "dependency-is-invalid",
-						"detail": "function-rest-parameters"
+						"reason": "unexpected-compilation-throw"
 					}
 				}
 			]

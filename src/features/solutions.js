@@ -1,4 +1,4 @@
-var rootFolder = require('path').resolve(__dirname, '../..');
+var rootFolder = require('path').resolve(__dirname, '../..').replace(/\\/g, '/');
 var jsenv = global.jsenv;
 var Iterable = jsenv.Iterable;
 

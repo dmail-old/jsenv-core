@@ -109,7 +109,7 @@ function ensureImplementation(createNextInstruction, meta) {
 
         var handlers = {
             'scan'(instruction, complete) {
-                eval(instruction.result.value); // eslint-disable-line no-eval
+                eval(instruction.input.features); // eslint-disable-line no-eval
 
                 jsenv.implementation.scan(
                     function(report) {
@@ -124,10 +124,11 @@ function ensureImplementation(createNextInstruction, meta) {
                 );
             },
             'fix'(instruction, complete) {
-                eval(instruction.value.fix); // eslint-disable-line no-eval
+                eval(instruction.input.fix); // eslint-disable-line no-eval
 
-                if ('features' in instruction.value) {
-                    eval(instruction.value.features); // eslint-disable-line no-eval
+                if ('features' in instruction.input) {
+                    jsenv.implementation.features = []; // reset features
+                    eval(instruction.input.features); // eslint-disable-line no-eval
                     jsenv.implementation.scan(
                         function(report) {
                             complete(report);
@@ -155,34 +156,34 @@ function ensureImplementation(createNextInstruction, meta) {
                 hook('complete');
             } else if (nextInstruction.name === 'fail') {
                 hook('fail', {
-                    value: nextInstruction.result.value
+                    value: nextInstruction.input
                 });
             } else if (nextInstruction.name === 'crash') {
                 hook('crash', {
-                    value: nextInstruction.result.value
+                    value: nextInstruction.input
                 });
             } else {
                 hook('progress', {
                     step: 'before-' + nextInstruction.name
                 });
-                var result = nextInstruction.result;
+                var output = nextInstruction.output;
                 var complete = function(value) {
-                    result.status = 'completed';
-                    result.value = value;
+                    output.status = 'completed';
+                    output.value = value;
                     getNextInstruction(nextInstruction);
                 };
                 var fail = function(value) {
-                    result.status = 'failed';
-                    result.value = value;
+                    output.status = 'failed';
+                    output.value = value;
                     getNextInstruction(nextInstruction);
                 };
                 var crash = function(value) {
-                    result.status = 'crashed';
-                    result.value = value;
+                    output.status = 'crashed';
+                    output.value = value;
                     getNextInstruction(nextInstruction);
                 };
 
-                if (result.status === 'pending') {
+                if (output.status === 'pending') {
                     var method = handlers[nextInstruction.name];
                     var args = [nextInstruction, complete, fail, crash];
 
@@ -204,8 +205,10 @@ function ensureImplementation(createNextInstruction, meta) {
         var instruction = {
             name: 'start',
             meta: meta,
-            result: {
-                status: 'completed'
+            input: {},
+            output: {
+                status: 'completed',
+                value: undefined
             }
         };
         return instruction;
@@ -232,7 +235,7 @@ ensureImplementation(ensure.getNextInstruction, {userAgent: userAgent}).run({
         ou d'une erreur interne
         */
 
-        console.log('implementation failed', failEvent);
+        console.log('implementation failed', failEvent.value[0]);
     },
     progress: function(progressEvent) {
         /*
@@ -242,8 +245,11 @@ ensureImplementation(ensure.getNextInstruction, {userAgent: userAgent}).run({
         */
 
         if (progressEvent.step === 'scan-progress') {
-            var event = progressEvent.event;
-            console.log('scanned', event.target.name, event.target.status, event.loaded, '/', event.total);
+            // var event = progressEvent.event;
+            // console.log('scanned', event.target.name, event.target.status, event.loaded, '/', event.total);
+        } else if (progressEvent.step === 'fixed-scan-progress') {
+            // var fevent = progressEvent.event;
+            // console.log('scanned', fevent.target.name, fevent.target.status, fevent.loaded, '/', fevent.total);
         } else {
             console.log('implementation progress', progressEvent.step);
         }

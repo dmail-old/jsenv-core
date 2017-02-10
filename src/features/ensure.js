@@ -12,7 +12,7 @@ et vérifier qu'on manipule correctement cette liste sans parler du revive repor
 
 */
 
-var rootFolder = require('path').resolve(__dirname, '../..');
+var rootFolder = require('path').resolve(__dirname, '../..').replace(/\\/g, '/');
 var cacheFolder = rootFolder + '/cache';
 var featuresPath = rootFolder + '/src/features/features.js';
 var solutionsPath = rootFolder + '/src/features/solutions.js';
@@ -25,10 +25,58 @@ var memoize = require('../memoize.js');
 var fsAsync = require('../fs-async.js');
 var store = require('../store.js');
 
+/*
+scan cache a un problème : toutes les entrée sont importantes et ne doivent pas être supprimées
+car sinon on perd l'info "quelles sont les features supportées par un user-agent"
+mais il peut potentiellement grandir à l'infini
+(suffit que quelqu'un de malveillant fasse de fausse requête)
+de base il y a ptet déjà des millier des user-agent string
+
+quelles solutions ?
+- avoir une liste donné de user-agent connus, ceux antérieur fail forcément, ceux postérieur se comporte
+au pire comme la version antérieure la plus proche connue
+-> c'est ce que fait babel-register en gros
+Inconvénient
+    - pars du principe d'une version ultérieur à ce qu'on connait contient pas de régréssion
+    - pars du principe qu'une version antérieur à ce qu'on connait ne pourras pas fonctionner
+    - en gros il faut faire ce que fait compat-table + babel-preset-env et maintenir tout ça
+Avantage
+    - on a effectivement un nombre fixe de scan en cache
+
+- utiliser quand même LRU avec un nombre maximum de branches
+Inconvénient
+    - à tout moment le serveur peut fail sur une requête parce que il perd le cache
+    concernant ce user-agent
+Avantage
+    - complètement dynamique
+
+- utiliser LRU + des stratégie évitant qu'un cache utile puisse être supprimé
+si quelqu'un fait de fausse requête avec des user-agent pour faire exploser le cache
+Inconvénient
+    - Ces stratégie auront toujours une faiblesse et il sera possible de les contourner
+Avantage
+    - Complètement dynamique + le serveur ne devrait pas fail
+
+Ce qu'on fera pour le moment : LRU sur 1000 branches max
+pour qu'il y ai un problème :
+un utilisateur A arrive sur le site
+1000 autres requête avec un user-agent différent sont faites
+-> on ne sait plus quelles features sont supportées par l'utilisateur A, on ne peut donc pas transpiler
+C'est possible naturellement sur un site de forte affluence s'il existe + de 1000 user-agent différent
+qui s'y connecte sur 24h
+c'est possible si c'est volontairement fait par un "hacker"
+
+*/
 var scanCache = store.fileSystemCache(scanFolder);
-var polyfillCache = store.fileSystemCache(polyfillFolder);
-var transpileCache = store.fileSystemCache(transpileFolder);
+// fixCache peut utiliser une stratégie LRU parce qu'au pire de cas on
+// ne sait juste pas d'avance si un user-agent échoue lorsqu'il est fixé
 var fixCache = store.fileSystemCache(fixFolder);
+// polyfillCache peut utiliser une stratégie LRU (least recently used)
+// pour limiter le nombre de branches puisque il suffira alors de rebuild le polyfill
+var polyfillCache = store.fileSystemCache(polyfillFolder);
+// transpileCache peut utiliser une stratégie LRU aussi
+// il suffira de re-transpilé le code aucune information n'est perdue
+var transpileCache = store.fileSystemCache(transpileFolder);
 
 var jsenv = global.jsenv;
 var Iterable = jsenv.Iterable;
@@ -56,12 +104,13 @@ var fixResultEntryProperties = {
     ]
 };
 
-function instruct(name, data) {
+function instruct(name, input) {
     return {
         name: name,
-        result: {
+        input: input,
+        output: {
             status: 'pending',
-            value: data
+            value: undefined
         }
     };
 }
@@ -91,11 +140,11 @@ handlers['start'] = function(instruction) {
             return getNextInstruction({
                 name: 'scan',
                 meta: meta,
-                result: scanResult
+                output: scanResult
             }, true);
         }
         return getTranspiledFeatures().then(function(features) {
-            return instruct('scan', features);
+            return instruct('scan', {features: features});
         });
     });
 };
@@ -106,7 +155,7 @@ function readScanResult(meta) {
 }
 function writeScanResult(meta, instruction) {
     return getScanResultEntry(meta).then(function(entry) {
-        return entry.write(instruction.result);
+        return entry.write(instruction.output);
     });
 }
 function getScanResultEntry(meta) {
@@ -138,15 +187,14 @@ function getTranspiledFeatures() {
 }
 
 handlers['scan'] = function(instruction) {
-    console.log('after scan instruction', instruction);
-    var implementation = createImplementation(instruction.result.value);
+    var implementation = createImplementation(instruction.output.value);
     var problematicFeatures = implementation.getProblematicFeatures();
     var problematicFeaturesWithoutSolution = filterFeatureWithoutSolution(problematicFeatures);
     if (problematicFeaturesWithoutSolution.length) {
         var problems = Iterable.map(problematicFeaturesWithoutSolution, function(feature) {
             return {
-                type: 'feature-has-no-solution',
-                meta: {
+                reason: 'feature-has-no-solution',
+                detail: {
                     feature: {
                         name: feature.name
                     }
@@ -172,8 +220,10 @@ handlers['scan'] = function(instruction) {
 
         return getTranspiler(pluginsAsOptions).then(function(transpiler) {
             var plugin = createTransformTemplateLiteralsTaggedWithPlugin(function(code) {
-                return transpiler.transpile(code, featuresPath, {
+                return transpiler.transpile(code, {
                     as: 'code',
+                    filename: false,
+                    sourceMaps: false,
                     cache: false // disable cache to prevent race condition with transpileFile() below
                 });
             }, 'transpile');
@@ -197,13 +247,13 @@ handlers['scan'] = function(instruction) {
         userAgent: instruction.meta.userAgent,
         problematicFeatures: problematicFeaturesNames
     }).then(function(data) {
-        var fixResult = data.value;
+        var fixOutput = data.value;
         if (data.valid) {
-            if (fixResult.status === 'failed') {
-                return instruct('fail', fixResult.value);
+            if (fixOutput.status === 'failed') {
+                return instruct('fail', fixOutput.value);
             }
-            if (fixResult.status === 'crashed') {
-                return instruct('crash', fixResult.value);
+            if (fixOutput.status === 'crashed') {
+                return instruct('crash', fixOutput.value);
             }
         }
 
@@ -215,7 +265,7 @@ handlers['scan'] = function(instruction) {
                 return getNextInstruction({
                     name: 'fix',
                     meta: instruction.meta,
-                    result: fixResult
+                    output: fixOutput
                 }).then(function(nextInstruction) {
                     if (nextInstruction.name !== 'complete') {
                         return nextInstruction;
@@ -241,7 +291,7 @@ function readFixResult(meta) {
 }
 function writeFixResult(meta, instruction) {
     return getFixResultEntry(meta).then(function(entry) {
-        return entry.write(instruction.result);
+        return entry.write(instruction.output);
     });
 }
 function getFixResultEntry(meta) {
@@ -403,7 +453,8 @@ function getTranspiler(pluginsAsOptions) {
         }
         return nodeFilePath;
     }
-    function getFileEntry(path, transpilationOptions) {
+    function getFileEntry(transpilationOptions) {
+        var path = transpilationOptions.filename;
         var nodeFilePath = getNodeFilePath(path);
 
         if (nodeFilePath.indexOf(rootFolder) === 0) {
@@ -437,7 +488,7 @@ function getTranspiler(pluginsAsOptions) {
         return Promise.resolve(null);
     }
 
-    var transpile = function(code, filename, transpilationOptions) {
+    var transpile = function(code, transpilationOptions) {
         transpilationOptions = transpilationOptions || {};
 
         var transpileCode = function(sourceURL) {
@@ -467,46 +518,75 @@ function getTranspiler(pluginsAsOptions) {
             var babel = require('babel-core');
             var result = babel.transform(code, babelOptions);
             var transpiledCode = result.code;
-            transpiledCode += '\n//# sourceURL=' + sourceURL;
+
+            if (sourceURL) {
+                transpiledCode += '\n//# sourceURL=' + sourceURL;
+            }
             return transpiledCode;
         };
 
-        if (options.cache && transpilationOptions.cache !== false) {
-            var entry = getFileEntry(filename);
-            if (entry) {
-                return memoize.async(
-                    transpileCode,
-                    entry
-                )(entry.path);
+        var sourceURL;
+        if ('filename' in transpilationOptions) {
+            var filename = transpilationOptions.filename;
+            if (filename !== false) {
+                sourceURL = filename;
             }
+        } else {
+            sourceURL = 'anonymous';
         }
-        return transpileCode(filename + '!transpiled');
+
+        if (
+            options.cache &&
+            transpilationOptions.cache !== false &&
+            sourceURL !== 'anonymous' &&
+            sourceURL
+        ) {
+            return getFileEntry(transpilationOptions).then(function(entry) {
+                if (entry) {
+                    sourceURL = entry.path;
+                    return memoize.async(
+                        transpileCode,
+                        entry
+                    )(sourceURL);
+                }
+                if (sourceURL) {
+                    sourceURL += '!transpiled';
+                }
+                return transpileCode(sourceURL);
+            });
+        }
+        if (sourceURL) {
+            sourceURL += '!transpiled';
+        }
+        return transpileCode(sourceURL);
     };
 
     var transpiler = {
         plugins: pluginsAsOptions,
         transpile: transpile,
-        transpileFile: function(filePath, transpilationOptions) {
-            function createTranspiledCode(transpilationOptions) {
-                return fsAsync.getFileContent(filePath).then(function(code) {
-                    return transpiler.tranpile(code, transpilationOptions);
+        transpileFile: function(filePath, transpileFileOptions) {
+            function createTranspiledCode(transpileCodeOptions) {
+                return fsAsync.getFileContent(transpileCodeOptions.filename).then(function(code) {
+                    return transpiler.transpile(code, transpileCodeOptions);
                 });
             }
 
-            return getFileEntry(filePath, transpilationOptions).then(function(entry) {
+            // désactive le cache lorsque entry ne matche pas
+            // puisqu'on a déjà tester s'il existait un cache valide
+            var transpileCodeOptions = {};
+            jsenv.assign(transpileCodeOptions, transpileFileOptions);
+            transpileCodeOptions.filename = filePath;
+
+            return getFileEntry(transpileCodeOptions).then(function(entry) {
                 if (entry) {
-                    // désactive le cache lorsque entry ne matche pas
-                    // puisqu'on a déjà tester s'il existait un cache valide
-                    var unmemoizedOptions = {};
-                    jsenv.assign(unmemoizedOptions, transpilationOptions);
-                    unmemoizedOptions.cache = false;
+                    transpileCodeOptions.cache = false;
 
                     return memoize.async(
                         createTranspiledCode,
                         entry
-                    )(unmemoizedOptions);
+                    )(transpileCodeOptions);
                 }
-                return createTranspiledCode(transpilationOptions);
+                return createTranspiledCode(transpileCodeOptions);
             });
         }
     };
@@ -595,7 +675,7 @@ function createTransformTemplateLiteralsTaggedWithPlugin(transpile, TAG_NAME) {
 }
 
 handlers['fix'] = function(instruction) {
-    var implementation = createImplementation(instruction.result.value);
+    var implementation = createImplementation(instruction.output.value);
     var problematicFeatures = implementation.getProblematicFeatures();
 
     if (problematicFeatures.length) {
@@ -603,8 +683,8 @@ handlers['fix'] = function(instruction) {
             var solution = findFeatureSolution(feature);
 
             return {
-                type: 'feature-solution-is-invalid',
-                meta: {
+                reason: 'feature-solution-is-invalid',
+                detail: {
                     feature: {
                         name: feature.name
                     },
@@ -626,21 +706,22 @@ function getNextInstruction(instruction, fromCache) {
         // on est obligé de s'assurer que result est bien écrit en cache
         // sinon l'instruction suivante pourrait ne pas trouver l'info dont elle a besoin
 
-        if (instruction.result.status === 'failed') {
-            return instruct('fail', instruction.result.value);
+        var output = instruction.output;
+        if (output.status === 'failed') {
+            return instruct('fail', output.value);
         }
-        if (instruction.result.status === 'crashed') {
-            return instruct('crash', instruction.result.value);
+        if (output.status === 'crashed') {
+            return instruct('crash', output.value);
         }
 
         if (instruction.name === 'start') {
             return readScanResult(instruction.meta).then(function(data) {
                 if (data.valid) {
-                    var nextInstructionResult = data.value;
+                    var nextInstructionOutput = data.value;
                     return getNextInstruction({
                         name: 'scan',
                         meta: instruction.meta,
-                        result: nextInstructionResult
+                        output: nextInstructionOutput
                     }, true);
                 }
                 return handlers['start'](instruction); // eslint-disable-line new-cap
@@ -650,14 +731,15 @@ function getNextInstruction(instruction, fromCache) {
             if (fromCache) {
                 scanPromise = Promise.resolve();
             } else {
-                console.log('writing', instruction);
                 scanPromise = writeScanResult(instruction.meta, instruction);
             }
 
             return Promise.all([
                 scanPromise,
                 handlers['scan'](instruction) // eslint-disable-line new-cap
-            ]);
+            ]).then(function(data) {
+                return data[1];
+            });
         } else if (instruction.name === 'fix') {
             var fixPromise;
             if (fromCache) {
@@ -677,6 +759,7 @@ function getNextInstruction(instruction, fromCache) {
                             problematicFeatures: scanProblematicFeaturesNames
                         }, instruction);
                     }
+                    console.error('wtf scan output est invalide!!', data);
                     // on ne peut pas écrire dans le cache on ne connait pas les features problématiques
                     // ce n'est SURTOUT pas censé arriver
                     // la cache est instable et rien ne fonctionnera
@@ -686,7 +769,9 @@ function getNextInstruction(instruction, fromCache) {
             return Promise.all([
                 fixPromise,
                 handlers['fix'](instruction) // eslint-disable-line new-cap
-            ]);
+            ]).then(function(data) {
+                return data[1];
+            });
         }
     }).catch(function(value) {
         return instruct(
