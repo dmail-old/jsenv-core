@@ -6,9 +6,9 @@ ensure implementation has a list of features we want to use
 
 /*
 
-refaire fonctionner le report après un scan
-ce doit être une liste de features avec le résultat associé (valid/invalid) et pourquoi
-et vérifier qu'on manipule correctement cette liste sans parler du revive report etc
+y'a un souci mineur avec le polyfill : par exemple pour Promise en fait core-js
+ne polyfill pas promise puisqu'elle existe et "semble" valide alors que unhandled-rejection ne marche pas
+solution temporaire delete global.Promise pour ce cas particulier
 
 */
 
@@ -25,57 +25,9 @@ var memoize = require('../memoize.js');
 var fsAsync = require('../fs-async.js');
 var store = require('../store.js');
 
-/*
-scan cache a un problème : toutes les entrée sont importantes et ne doivent pas être supprimées
-car sinon on perd l'info "quelles sont les features supportées par un user-agent"
-mais il peut potentiellement grandir à l'infini
-(suffit que quelqu'un de malveillant fasse de fausse requête)
-de base il y a ptet déjà des millier des user-agent string
-
-quelles solutions ?
-- avoir une liste donné de user-agent connus, ceux antérieur fail forcément, ceux postérieur se comporte
-au pire comme la version antérieure la plus proche connue
--> c'est ce que fait babel-register en gros
-Inconvénient
-    - pars du principe d'une version ultérieur à ce qu'on connait contient pas de régréssion
-    - pars du principe qu'une version antérieur à ce qu'on connait ne pourras pas fonctionner
-    - en gros il faut faire ce que fait compat-table + babel-preset-env et maintenir tout ça
-Avantage
-    - on a effectivement un nombre fixe de scan en cache
-
-- utiliser quand même LRU avec un nombre maximum de branches
-Inconvénient
-    - à tout moment le serveur peut fail sur une requête parce que il perd le cache
-    concernant ce user-agent
-Avantage
-    - complètement dynamique
-
-- utiliser LRU + des stratégie évitant qu'un cache utile puisse être supprimé
-si quelqu'un fait de fausse requête avec des user-agent pour faire exploser le cache
-Inconvénient
-    - Ces stratégie auront toujours une faiblesse et il sera possible de les contourner
-Avantage
-    - Complètement dynamique + le serveur ne devrait pas fail
-
-Ce qu'on fera pour le moment : LRU sur 1000 branches max
-pour qu'il y ai un problème :
-un utilisateur A arrive sur le site
-1000 autres requête avec un user-agent différent sont faites
--> on ne sait plus quelles features sont supportées par l'utilisateur A, on ne peut donc pas transpiler
-C'est possible naturellement sur un site de forte affluence s'il existe + de 1000 user-agent différent
-qui s'y connecte sur 24h
-c'est possible si c'est volontairement fait par un "hacker"
-
-*/
 var scanCache = store.fileSystemCache(scanFolder);
-// fixCache peut utiliser une stratégie LRU parce qu'au pire de cas on
-// ne sait juste pas d'avance si un user-agent échoue lorsqu'il est fixé
 var fixCache = store.fileSystemCache(fixFolder);
-// polyfillCache peut utiliser une stratégie LRU (least recently used)
-// pour limiter le nombre de branches puisque il suffira alors de rebuild le polyfill
 var polyfillCache = store.fileSystemCache(polyfillFolder);
-// transpileCache peut utiliser une stratégie LRU aussi
-// il suffira de re-transpilé le code aucune information n'est perdue
 var transpileCache = store.fileSystemCache(transpileFolder);
 
 var jsenv = global.jsenv;
@@ -98,6 +50,7 @@ var scanResultProperties = {
 };
 var fixResultEntryProperties = {
     name: 'fix-result.json',
+    mode: 'write-only',
     sources: [
         {path: featuresPath, strategy: 'eTag'},
         {path: solutionsPath, strategy: 'eTag'}
@@ -369,17 +322,31 @@ function getPolyfiller(requiredSolutions) {
 
     var createPolyfill = function() {
         function createCoreJSPolyfill() {
+            var source = '';
+            Iterable.forEach(requiredModules, function(module) {
+                if (module.prefixCode) {
+                    source += module.prefixCode;
+                }
+            });
+            var sourcePromise = Promise.resolve(source);
             var requiredModulesAsOption = requiredModuleNames;
             console.log('concat corejs modules', requiredModuleNames);
 
-            return new Promise(function(resolve) {
+            return sourcePromise.then(function(source) {
                 var buildCoreJS = require('core-js-builder');
                 var promise = buildCoreJS({
                     modules: requiredModulesAsOption,
                     librabry: false,
                     umd: true
                 });
-                resolve(promise);
+                return promise.then(function(polyfill) {
+                    if (source) {
+                        source += '\n';
+                    }
+                    source += polyfill;
+
+                    return source;
+                });
             });
         }
         function createOwnFilePolyfill() {
@@ -683,20 +650,21 @@ handlers['fix'] = function(instruction) {
             var solution = findFeatureSolution(feature);
 
             return {
-                reason: 'feature-solution-is-invalid',
-                detail: {
-                    feature: {
-                        name: feature.name
-                    },
-                    solution: {
-                        name: solution.name,
-                        type: solution.type,
-                        author: solution.author
-                    }
+                feature: {
+                    name: feature.name
+                },
+                solution: {
+                    name: solution.name,
+                    type: solution.type,
+                    author: solution.author
                 }
             };
         });
-        return instruct('fail', problems);
+
+        return instruct('fail', {
+            reason: 'some-solution-is-invalid',
+            detail: problems
+        });
     }
     return instruct('complete');
 };

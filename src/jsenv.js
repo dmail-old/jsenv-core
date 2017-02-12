@@ -849,7 +849,7 @@ Cette seconde partie concerne les features et l'implementation de celle-ci
 On s'en sert pour tester comment se comporte l'environnement et pouvoir réagir
 en fonction du résultat de ces tests
 */
-(function(jsenv) {
+(function() {
     var Iterable = jsenv.Iterable;
     // var Predicate = jsenv.Predicate;
 
@@ -1033,107 +1033,8 @@ en fonction du résultat de ces tests
             disable: function(featureName, reason) {
                 this.get(featureName).disable(reason);
                 return this;
-            },
-
-            scan: function(doneCallback, progressCallback) {
-                if (this.preventScanReason) {
-                    throw new Error('cannot scan, reason :' + this.preventScanReason);
-                }
-                this.preventScanReason = 'there is already a pending scan';
-
-                var self = this;
-                var features = this.features;
-                var readyCount = 0;
-                var groups = groupNodesByDependencyDepth(features);
-                var groupIndex = -1;
-                var groupCount = groups.length;
-                var done = function() {
-                    self.preventScanReason = undefined;
-                    var featureResults = Iterable.map(self.features, function(feature) {
-                        return feature.toJSON();
-                    });
-                    doneCallback({
-                        features: featureResults
-                    });
-                };
-
-                function nextGroup() {
-                    groupIndex++;
-                    if (groupIndex === groupCount) {
-                        // il faut faire setTimeout sur done
-                        // je ne sais pas trop pourquoi sinon nodejs cache les erreurs qui pourraient
-                        // être throw par done ou le callback
-                        setTimeout(done);
-                    } else {
-                        var group = groups[groupIndex];
-                        var i = 0;
-                        var j = group.length;
-                        var groupReadyCount = 0;
-
-                        while (i < j) {
-                            var feature = group[i];
-
-                            feature.updateStatus(function(feature) { // eslint-disable-line
-                                readyCount++;
-                                if (progressCallback) {
-                                    var progressEvent = {
-                                        type: 'progress',
-                                        target: feature,
-                                        lengthComputable: true,
-                                        total: features.length,
-                                        loaded: readyCount
-                                    };
-                                    progressCallback(progressEvent);
-                                }
-
-                                groupReadyCount++;
-                                if (groupReadyCount === j) {
-                                    nextGroup();
-                                }
-                            });
-                            i++;
-                        }
-                    }
-                }
-                nextGroup();
             }
         };
-
-        function groupNodesByDependencyDepth(nodes) {
-            var unresolvedNodes = nodes.slice();
-            var i = 0;
-            var j = unresolvedNodes.length;
-            var resolvedNodes = [];
-            var groups = [];
-            var group;
-
-            while (true) { // eslint-disable-line
-                group = [];
-                i = 0;
-                while (i < j) {
-                    var unresolvedNode = unresolvedNodes[i];
-                    var everyDependencyIsResolved = Iterable.every(unresolvedNode.dependencies, function(dependency) {
-                        return Iterable.includes(resolvedNodes, dependency);
-                    });
-                    if (everyDependencyIsResolved) {
-                        group.push(unresolvedNode);
-                        unresolvedNodes.splice(i, 1);
-                        j--;
-                    } else {
-                        i++;
-                    }
-                }
-
-                if (group.length) {
-                    groups.push(group);
-                    resolvedNodes.push.apply(resolvedNodes, group);
-                } else {
-                    break;
-                }
-            }
-
-            return groups;
-        }
 
         return {
             implementation: new Implementation()
@@ -1298,7 +1199,7 @@ en fonction du résultat de ces tests
                                 testArgs
                             );
 
-                            var maxDuration = 100;
+                            var maxDuration = feature.maxTestDuration;
                             timeout = setTimeout(function() {
                                 settle(false, 'timeout', maxDuration);
                             }, maxDuration);
@@ -1313,6 +1214,7 @@ en fonction du résultat de ces tests
 
             return this;
         };
+        featurePrototype.maxTestDuration = 100;
         featurePrototype.compileResult = function() {
             var result;
 
@@ -1419,6 +1321,9 @@ en fonction du résultat de ces tests
                 if ('fail' in properties) {
                     feature.fail = properties.fail;
                 }
+                if ('maxTestDuration' in properties) {
+                    feature.maxTestDuration = properties.maxTestDuration;
+                }
 
                 return feature;
             }
@@ -1447,4 +1352,239 @@ en fonction du résultat de ces tests
             registerFeatures: registerFeatures
         };
     });
-})(jsenv);
+})();
+
+(function() {
+    var Iterable = jsenv.Iterable;
+    var implementation = jsenv.implementation;
+
+    function adaptImplementation(how) {
+        function run(hooks) {
+            hooks = hooks || {};
+            var defaultHooks = {
+                crash: function(event) {
+                    throw event.value;
+                }
+            };
+            function hook(name, event) {
+                if (name in hooks) {
+                    hooks[name](event);
+                } else if (name in defaultHooks) {
+                    defaultHooks[name](event);
+                }
+            }
+
+            function getNextInstruction(instruction) {
+                how.writeInstructionOutput(
+                    instruction,
+                    function(nextInstruction) {
+                        return handleNextInstruction(nextInstruction, instruction);
+                    }
+                );
+            }
+
+            var handlers = {
+                'scan'(instruction, complete) {
+                    eval(instruction.input.features); // eslint-disable-line no-eval
+
+                    scan(
+                        function(report) {
+                            complete(report);
+                        },
+                        function(event) {
+                            hook('progress', {
+                                step: 'scan-progress',
+                                event: event
+                            });
+                        }
+                    );
+                },
+                'fix'(instruction, complete) {
+                    eval(instruction.input.fix); // eslint-disable-line no-eval
+
+                    if ('features' in instruction.input) {
+                        jsenv.implementation.features = []; // reset features
+                        eval(instruction.input.features); // eslint-disable-line no-eval
+                        scan(
+                            function(report) {
+                                complete(report);
+                            },
+                            function(event) {
+                                hook('progress', {
+                                    step: 'fixed-scan-progress',
+                                    event: event
+                                });
+                            }
+                        );
+                    } else {
+                        complete();
+                    }
+                }
+            };
+
+            function scan(doneCallback) {
+                if (implementation.preventScanReason) {
+                    throw new Error('cannot scan, reason :' + implementation.preventScanReason);
+                }
+                implementation.preventScanReason = 'there is already a pending scan';
+
+                var features = implementation.features;
+                var readyCount = 0;
+                var groups = groupNodesByDependencyDepth(features);
+                var groupIndex = -1;
+                var groupCount = groups.length;
+                var done = function() {
+                    implementation.preventScanReason = undefined;
+                    var featureResults = Iterable.map(implementation.features, function(feature) {
+                        return feature.toJSON();
+                    });
+                    doneCallback({
+                        features: featureResults
+                    });
+                };
+
+                function nextGroup() {
+                    groupIndex++;
+                    if (groupIndex === groupCount) {
+                        // il faut faire setTimeout sur done
+                        // je ne sais pas trop pourquoi sinon nodejs cache les erreurs qui pourraient
+                        // être throw par done ou le callback
+                        setTimeout(done);
+                    } else {
+                        var group = groups[groupIndex];
+                        var i = 0;
+                        var j = group.length;
+                        var groupReadyCount = 0;
+
+                        while (i < j) {
+                            var feature = group[i];
+
+                            feature.updateStatus(function(feature) { // eslint-disable-line
+                                readyCount++;
+                                var progressEvent = {
+                                    type: 'progress',
+                                    target: feature,
+                                    lengthComputable: true,
+                                    total: features.length,
+                                    loaded: readyCount
+                                };
+                                hook('progress', progressEvent);
+
+                                groupReadyCount++;
+                                if (groupReadyCount === j) {
+                                    nextGroup();
+                                }
+                            });
+                            i++;
+                        }
+                    }
+                }
+                nextGroup();
+            }
+
+            function handleNextInstruction(nextInstruction, instruction) {
+                nextInstruction.meta = instruction.meta;
+
+                hook('progress', {
+                    step: 'after-' + instruction.name
+                });
+                if (nextInstruction.name === 'complete') {
+                    hook('complete');
+                } else if (nextInstruction.name === 'fail') {
+                    hook('fail', nextInstruction.input);
+                } else if (nextInstruction.name === 'crash') {
+                    hook('crash', {
+                        value: nextInstruction.input
+                    });
+                } else {
+                    hook('progress', {
+                        step: 'before-' + nextInstruction.name
+                    });
+                    var output = nextInstruction.output;
+                    var complete = function(value) {
+                        output.status = 'completed';
+                        output.value = value;
+                        getNextInstruction(nextInstruction);
+                    };
+                    var fail = function(value) {
+                        output.status = 'failed';
+                        output.value = value;
+                        getNextInstruction(nextInstruction);
+                    };
+                    var crash = function(value) {
+                        output.status = 'crashed';
+                        output.value = value;
+                        getNextInstruction(nextInstruction);
+                    };
+
+                    if (output.status === 'pending') {
+                        var method = handlers[nextInstruction.name];
+                        var args = [nextInstruction, complete, fail, crash];
+
+                        try {
+                            method.apply(handlers, args);
+                        } catch (e) {
+                            crash(e);
+                        }
+                    } else {
+                        getNextInstruction(nextInstruction);
+                    }
+                }
+            }
+
+            var instruction = {
+                name: 'start',
+                meta: how.meta,
+                input: {},
+                output: {
+                    status: 'completed',
+                    value: undefined
+                }
+            };
+
+            getNextInstruction(instruction);
+        }
+
+        return {
+            run: run
+        };
+    }
+
+    function groupNodesByDependencyDepth(nodes) {
+        var unresolvedNodes = nodes.slice();
+        var i = 0;
+        var j = unresolvedNodes.length;
+        var resolvedNodes = [];
+        var groups = [];
+        var group;
+
+        while (true) { // eslint-disable-line
+            group = [];
+            i = 0;
+            while (i < j) {
+                var unresolvedNode = unresolvedNodes[i];
+                var everyDependencyIsResolved = Iterable.every(unresolvedNode.dependencies, function(dependency) {
+                    return Iterable.includes(resolvedNodes, dependency);
+                });
+                if (everyDependencyIsResolved) {
+                    group.push(unresolvedNode);
+                    unresolvedNodes.splice(i, 1);
+                    j--;
+                } else {
+                    i++;
+                }
+            }
+
+            if (group.length) {
+                groups.push(group);
+                resolvedNodes.push.apply(resolvedNodes, group);
+            } else {
+                break;
+            }
+        }
+
+        return groups;
+    }
+
+    implementation.adapt = adaptImplementation;
+})();

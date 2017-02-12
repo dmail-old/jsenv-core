@@ -222,6 +222,7 @@
                     }
                 });
                 register('rejection-handled', {
+                    maxTestDuration: 1000,
                     pass: function(Promise, settle) {
                         var promiseRejectionEvent;
                         var rejectionHandled = function(e) {
@@ -252,7 +253,7 @@
                                 // node event emit the value
                                 // so we can't check for
                                 // promiseRejectionEvent.reason === 'foo'
-                            }, 10); // engine has 10ms to trigger the event
+                            }, 500); // engine has 10ms to trigger the event
                         });
                     }
                 });

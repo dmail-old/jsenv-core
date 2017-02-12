@@ -2,7 +2,7 @@
 	"sources": [
 		{
 			"path": "C:/Users/Damien/Documents/GitHub/core/src/features/features.js",
-			"eTag": "\"ec5e-Bcn5eSHnE3WqeiyHG68R2tSLqus\""
+			"eTag": "\"ec33-JW01qRBePkU3TuJM75WSeZMFfFw\""
 		},
 		{
 			"path": "C:/Users/Damien/Documents/GitHub/core/src/features/solutions.js",
@@ -43,9 +43,7 @@
 				{
 					"name": "promise-rejection-handled",
 					"result": {
-						"status": "invalid",
-						"reason": "timeout",
-						"detail": 100
+						"status": "valid"
 					}
 				},
 				{

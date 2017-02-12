@@ -1,11 +1,10 @@
 [
 	{
-		"name": "ciyzpwg760000nw4madrbq5e9",
+		"name": "ciz36jbfu0000ko4mti5uymc0",
 		"meta": {
 			"userAgent": "node/4.7.2 (windows 10.0.14393)",
 			"problematicFeatures": [
 				"system",
-				"promise-rejection-handled",
 				"symbol-to-primitive",
 				"date-prototype-symbol-to-primitive",
 				"function-prototype-name-var",
@@ -75,8 +74,8 @@
 				"function-rest-parameters-length"
 			]
 		},
-		"matchCount": 31,
-		"lastMatch": 1486740635986,
-		"path": "C:/Users/Damien/Documents/GitHub/core/cache/fix/ciyzpwg760000nw4madrbq5e9"
+		"matchCount": 8,
+		"lastMatch": 1486934959612,
+		"path": "C:/Users/Damien/Documents/GitHub/core/cache/fix/ciz36jbfu0000ko4mti5uymc0"
 	}
 ]

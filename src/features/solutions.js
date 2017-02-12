@@ -61,6 +61,7 @@ function locate(path) {
 var coreJSSolutions = [
     {
         name: 'es6.promise',
+        prefixCode: 'delete Promise;',
         features: [
             'promise',
             'promise-unhandled-rejection',
