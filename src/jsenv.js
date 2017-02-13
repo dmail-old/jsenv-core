@@ -862,7 +862,7 @@ en fonction du résultat de ces tests
         }
         VersionnedFeature.prototype = {
             constructor: VersionnedFeature,
-            enabled: true,
+            enabled: false,
 
             getPath: function() {
                 var path = [];
