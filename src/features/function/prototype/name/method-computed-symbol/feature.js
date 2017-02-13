@@ -1,4 +1,4 @@
-this.dependencies.push('symbol', 'computed-properties');
+this.dependsOn('symbol', 'computed-properties');
 this.code = transpile`(function() {
     var first = Symbol('foo');
     var second = Symbol();

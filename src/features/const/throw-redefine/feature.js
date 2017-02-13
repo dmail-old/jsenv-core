@@ -4,5 +4,5 @@ this.code = transpile`(function() {
 })`;
 this.pass = jsenv.Predicate.fails(function(fn) {
     fn();
-};
+});
 this.solution = 'none';

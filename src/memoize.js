@@ -39,6 +39,8 @@ function memoizeAsync(fn, store) {
                 // and we don't wait before returning the value
                 Promise.resolve(store.write(value, bind, args)).catch(function(e) {
                     console.warn('error while storing value', e);
+                }).then(function() {
+                    return value;
                 });
                 return value;
             });

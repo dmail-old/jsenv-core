@@ -1,6 +1,3 @@
-/* eslint-env browser, node */
-/* globals jsenv */
-
 (function() {
     // var Predicate = jsenv.Predicate;
 
@@ -112,71 +109,4 @@
 
     jsenv.collectKeys = collectKeys;
     jsenv.createIterableObject = createIterableObject;
-
-    /*
-    this is all about mapping
-    https://github.com/babel/babel-preset-env/blob/master/data/plugin-features.js
-    with
-    https://github.com/kangax/compat-table/blob/gh-pages/data-es5.js
-    https://github.com/kangax/compat-table/blob/gh-pages/data-es6.js
-    */
-    jsenv.registerFeatures(function() {
-        /*
-        if (jsenv.isBrowser() === false) {
-            implementation.exclude('node-list');
-            // etc
-            // en gros on exclu certains features quand on est pas dans le browser
-        }
-        */
-
-        // register('spread-function-call-generator', {
-        //     // dependencies: ['yield'],
-        //     args: '\
-        //         return {\
-        //             value: (function*() {\
-        //                 yield 1;\
-        //                 yield 2;\
-        //                 yield 3;\
-        //             }())\
-        //         };\
-        //     ',
-        //     pass: function(result) {
-        //         return result === 3;
-        //     }
-        // });
-        // register('spread-literal-array-generator', {
-        //     args: '\
-        //         return {\
-        //             value: (function*() {\
-        //                 yield 1;\
-        //                 yield 2;\
-        //                 yield 3;\
-        //             }())\
-        //         };\
-        //     ',
-        //     pass: function(result) {
-        //         return sameValues(result, [1, 2, 3]);
-        //     }
-        // });
-        // register('for-of-generator', {
-        //     // dependencies: ['yield'],
-        //     body: '\
-        //         var result = "";\
-        //         var iterable = (function*() {\
-        //             yield 1;\
-        //             yield 2;\
-        //             yield 3;\
-        //         }());\
-        //         for (var item of iterable) {\
-        //             result += item;\
-        //         }\
-        //         return result;\
-        //     ',
-        //     pass: function(result) {
-        //         return result === '123';
-        //     }
-        // });
-        // register('destructuring-assignement-generator')
-        // https://github.com/kangax/compat-table/blob/gh-pages/data-es6.js#L10247
-    });
 })();

@@ -884,11 +884,13 @@ en fonction du résultat de ces tests
             },
 
             addDependency: function(dependency, options) {
-                if (dependency instanceof VersionnedFeature === false) {
-                    throw new Error('addDependency first arg must be a feature');
+                if (typeof dependency === 'string') {
+                    dependency = createFeature(dependency, true);
                 }
-                if (Iterable.includes(this.dependents, dependency)) {
-                    // faudrais aussi faire récusrivement un check sur this.dependents
+                if (dependency instanceof VersionnedFeature === false) {
+                    throw new Error('addDependency first arg must be a feature (not ' + dependency + ')');
+                }
+                if (this.isDependentOf(dependency)) {
                     throw new Error('cyclic dependency between ' + dependency.name + ' and ' + this.name);
                 }
 
@@ -910,13 +912,28 @@ en fonction du résultat de ces tests
                 dependency.dependents.push(this);
             },
 
-            relyOn: function() {
+            isDependentOf: function(feature) {
+                var dependents = this.dependents;
+                var i = dependents.length;
+                while (i--) {
+                    var dependent = dependents[i];
+                    if (dependent.match(feature)) {
+                        return true;
+                    }
+                    if (dependent.isDependentOf(feature)) {
+                        return true;
+                    }
+                }
+                return false;
+            },
+
+            dependsOn: function() {
                 Iterable.forEach(arguments, function(arg) {
                     this.addDependency(arg);
                 }, this);
             },
 
-            parameterizedBy: function() {
+            influencedBy: function() {
                 Iterable.forEach(arguments, function(arg) {
                     this.addDependency(arg, {as: 'parameter'});
                 }, this);
@@ -964,17 +981,34 @@ en fonction du résultat de ces tests
         };
         jsenv.makeVersionnable(VersionnedFeature);
 
+        jsenv.features = [];
+        function createFeature(name, preventConflict) {
+            var feature;
+            var features = jsenv.features;
+            var existingFeature = jsenv.Iterable.find(features, function(feature) {
+                return feature.match(name);
+            });
+            if (existingFeature) {
+                if (preventConflict) {
+                    feature = existingFeature;
+                } else if (existingFeature.preventConflict) {
+                    existingFeature.preventConflict = false;
+                    feature = existingFeature;
+                } else {
+                    throw new Error('feature named ' + name + ' already exists');
+                }
+            } else {
+                feature = new VersionnedFeature(name);
+                feature.preventConflict = Boolean(preventConflict);
+                features.push(feature);
+            }
+
+            return feature;
+        }
+
         return {
-            createFeature: function() {
-                var arity = arguments.length;
-                if (arity === 0) {
-                    return new VersionnedFeature();
-                }
-                if (arity === 1) {
-                    return new VersionnedFeature(arguments[0]);
-                }
-                return new VersionnedFeature(arguments[0], arguments[1]);
-            },
+            createFeature: createFeature,
+            VersionnedFeature: VersionnedFeature,
 
             isFeature: function(value) {
                 return value instanceof VersionnedFeature;
@@ -1088,6 +1122,21 @@ en fonction du résultat de ces tests
 
             isSourceCode: function(value) {
                 return value instanceof SourceCode;
+            },
+
+            transpile: function transpile(strings) {
+                var result;
+                var raw = strings.raw;
+                var i = 0;
+                var j = raw.length;
+                result = raw[i];
+                i++;
+                while (i < j) {
+                    result += arguments[i];
+                    result += raw[i];
+                    i++;
+                }
+                return jsenv.createSourceCode(result);
             }
         };
     });
@@ -1109,7 +1158,7 @@ en fonction du résultat de ces tests
             };
         }
 
-        var featurePrototype = Object.getPrototypeOf(jsenv.createFeature());
+        var featurePrototype = jsenv.VersionnedFeature;
         featurePrototype.updateStatus = function(callback) {
             var feature = this;
             // var parent = this.parent;
@@ -1248,30 +1297,8 @@ en fonction du résultat de ces tests
                 }
             };
         };
-        var implementation = jsenv.implementation;
-        var features;
-        function getFeature(name, throwWhenFound) {
-            var feature;
-            var existingFeature = Iterable.find(features, function(feature) {
-                return feature.match(name);
-            });
-            if (existingFeature) {
-                if (throwWhenFound) {
-                    if (existingFeature.preventConflict) {
-                        existingFeature.preventConflict = false;
-                        feature = existingFeature;
-                    } else {
-                        throw new Error('feature named ' + name + ' already exists');
-                    }
-                } else {
-                    feature = existingFeature;
-                }
-            } else {
-                feature = jsenv.createFeature(name);
-                feature.preventConflict = Boolean(throwWhenFound) === false;
-                features.push(feature);
-            }
-            return feature;
+        function getFeature() {
+
         }
         featurePrototype.ensure = function(fn) {
             var self = this;
@@ -1339,7 +1366,6 @@ en fonction du résultat de ces tests
         };
 
         function registerFeatures(fn) {
-            features = implementation.features;
             var rootFeature = jsenv.createFeature('');
             rootFeature.code = produceFromPath;
             rootFeature.pass = presence;
@@ -1410,6 +1436,100 @@ en fonction du résultat de ces tests
             }
         }
         jsenv.produceFromComposedPath = produceFromComposedPath;
+
+        featurePrototype.createIterableObject = function(arr, methods) {
+            var j = arr.length;
+            var iterable = {};
+            iterable[Symbol.iterator] = function() {
+                var i = -1;
+                var iterator = {
+                    next: function() {
+                        i++;
+                        return {
+                            value: i === j ? undefined : arr[i],
+                            done: i === j
+                        };
+                    }
+                };
+                jsenv.assign(iterator, methods || {});
+                iterator.iterable = iterable;
+
+                return iterator;
+            };
+            return iterable;
+        };
+        featurePrototype.collectKeys = function(value) {
+            var keys = [];
+            for (var key in value) {
+                if (value.hasOwnProperty(key)) {
+                    if (isNaN(key) === false && value instanceof Array) {
+                        // key = Number(key);
+                        keys.push(key);
+                    } else {
+                        keys.push(key);
+                    }
+                }
+            }
+            return keys;
+        };
+
+        featurePrototype.sameValues = function sameValues(a, b) {
+            if (typeof a === 'string') {
+                a = convertStringToArray(a);
+            } else if (typeof a === 'object' && typeof a.next === 'function') {
+                a = consumeIterator(a);
+            }
+            if (typeof b === 'string') {
+                b = convertStringToArray(b);
+            } else if (typeof b === 'object' && typeof b.next === 'function') {
+                b = consumeIterator(b);
+            }
+
+            if (a.length !== b.length) {
+                return false;
+            }
+            var i = a.length;
+            while (i--) {
+                if (a[i] !== b[i]) {
+                    return false;
+                }
+            }
+            return true;
+        };
+
+        function convertStringToArray(string) {
+            var result = [];
+            var i = 0;
+            var j = string.length;
+            while (i < j) {
+                var char = string[i];
+
+                if (i < j - 1) {
+                    var charCode = string.charCodeAt(i);
+
+                    // fix astral plain strings
+                    if (charCode >= 55296 && charCode <= 56319) {
+                        i++;
+                        result.push(char + string[i]);
+                    } else {
+                        result.push(char);
+                    }
+                } else {
+                    result.push(char);
+                }
+                i++;
+            }
+            return result;
+        }
+        function consumeIterator(iterator) {
+            var values = [];
+            var next = iterator.next();
+            while (next.done === false) {
+                values.push(next.value);
+                next = iterator.next();
+            }
+            return values;
+        }
 
         return {
             registerFeatures: registerFeatures
