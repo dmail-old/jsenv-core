@@ -4,14 +4,6 @@ ensure implementation has a list of features we want to use
 
 /* eslint-disable dot-notation */
 
-/*
-
-y'a un souci mineur avec le polyfill : par exemple pour Promise en fait core-js
-ne polyfill pas promise puisqu'elle existe et "semble" valide alors que unhandled-rejection ne marche pas
-solution temporaire delete global.Promise pour ce cas particulier
-
-*/
-
 var rootFolder = require('path').resolve(__dirname, '../..').replace(/\\/g, '/');
 var cacheFolder = rootFolder + '/cache';
 var featuresPath = rootFolder + '/src/features/features.js';

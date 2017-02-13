@@ -1112,19 +1112,19 @@ en fonction du résultat de ces tests
         var featurePrototype = Object.getPrototypeOf(jsenv.createFeature());
         featurePrototype.updateStatus = function(callback) {
             var feature = this;
-            var parent = this.parent;
+            // var parent = this.parent;
             // inherit some properties from parent
-            if (parent) {
-                Iterable.forEach(
-                    ['code', 'pass', 'fail'],
-                    function(name) {
-                        if (this.hasOwnProperty(name) === false && parent.hasOwnProperty(name)) {
-                            this[name] = parent[name];
-                        }
-                    },
-                    this
-                );
-            }
+            // if (parent) {
+            //     Iterable.forEach(
+            //         ['code', 'pass', 'fail'],
+            //         function(name) {
+            //             if (this.hasOwnProperty(name) === false && parent.hasOwnProperty(name)) {
+            //                 this[name] = parent[name];
+            //             }
+            //         },
+            //         this
+            //     );
+            // }
 
             if (feature.statusIsFrozen) {
                 callback(feature);
@@ -1314,12 +1314,18 @@ en fonction du résultat de ces tests
                 }
                 if ('code' in properties) {
                     feature.code = properties.code;
+                } else {
+                    feature.code = self.code;
                 }
                 if ('pass' in properties) {
                     feature.pass = properties.pass;
+                } else {
+                    feature.pass = self.pass;
                 }
                 if ('fail' in properties) {
                     feature.fail = properties.fail;
+                } else {
+                    feature.fail = self.fail;
                 }
                 if ('maxTestDuration' in properties) {
                     feature.maxTestDuration = properties.maxTestDuration;
@@ -1335,18 +1341,75 @@ en fonction du résultat de ces tests
         function registerFeatures(fn) {
             features = implementation.features;
             var rootFeature = jsenv.createFeature('');
-            rootFeature.code = function() {
-                return undefined;
-            };
-            rootFeature.pass = function() {
-                return true;
-            };
+            rootFeature.code = produceFromPath;
+            rootFeature.pass = presence;
             rootFeature.ensure(fn);
             rootFeature.dependents.forEach(function(feature) {
                 Iterable.remove(feature.dependencies, rootFeature);
                 delete feature.parent;
             });
         }
+
+        var noValue = {novalue: true};
+
+        function produceFromComposedPath() {
+            var result;
+            var i = 0;
+            var composedFeatures = this.dependencies;
+            var j = composedFeatures.length;
+            while (i < j) {
+                var composedFeatureValue = composedFeatures[i].result;
+                if (i === 0) {
+                    result = composedFeatureValue;
+                } else if (composedFeatureValue in result) {
+                    result = result[composedFeatureValue];
+                } else {
+                    result = noValue;
+                    break;
+                }
+                i++;
+            }
+            return result;
+        }
+        function produceFromPath() {
+            var feature = this;
+            var result;
+            var parent = feature.parent;
+
+            if (parent) {
+                var parentResult = parent.result;
+                result = parentResult;
+
+                if (feature.hasOwnProperty('path')) {
+                    var path = feature.path;
+                    var parts = path.split('.');
+                    var i = 0;
+                    var j = parts.length;
+                    while (i < j) {
+                        var part = parts[i];
+                        if (part in result) {
+                            result = result[part];
+                        } else {
+                            result = noValue;
+                            break;
+                        }
+                        i++;
+                    }
+                }
+            } else {
+                result = jsenv.global;
+                // throw new Error('feature without parent must have a result property');
+            }
+            return result;
+        }
+        function presence(value, settle) {
+            if (value === noValue) {
+                settle(false, 'missing');
+            } else {
+                settle(true, 'present');
+            }
+        }
+        jsenv.produceFromComposedPath = produceFromComposedPath;
 
         return {
             registerFeatures: registerFeatures

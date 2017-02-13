@@ -58,126 +58,8 @@ function locate(path) {
     return path;
 }
 
-var coreJSSolutions = [
-    {
-        name: 'es6.promise',
-        prefixCode: 'delete Promise;',
-        features: [
-            'promise',
-            'promise-unhandled-rejection',
-            'promise-rejection-handled'
-        ]
-    },
-    {
-        name: 'es6.symbol',
-        features: [
-            'symbol',
-            'symbol-to-primitive'
-        ]
-    },
-    {
-        name: 'es6.object.get-own-property-descriptor',
-        features: [
-            'object-get-own-property-descriptor'
-        ]
-    },
-    {
-        name: 'es6.date.now',
-        features: [
-            'date-now'
-        ]
-    },
-    {
-        name: 'es6.date.to-iso-string',
-        features: [
-            'date-prototype-to-iso-string',
-            'date-prototype-to-iso-string-negative-5e13',
-            'date-prototype-to-iso-string-nan-throw'
-        ]
-    },
-    {
-        name: 'es6.date.to-json',
-        features: [
-            'date-prototype-to-json',
-            'date-prototype-to-json-nan-return-null',
-            'date-prototype-to-json-use-to-iso-string'
-        ]
-    },
-    {
-        name: 'es6.date.to-primitive',
-        features: [
-            'date-prototype-symbol-to-primitive'
-        ]
-    },
-    {
-        name: 'es6.date-to-string',
-        features: [
-            'date-prototype-to-string-nan-return-invalid-date'
-        ]
-    },
-    {
-        name: 'es6.function.name',
-        features: [
-            'function-prototype-name'
-        ]
-    },
-    // {
-    //     name: 'es6.function.bind',
-    //     features: [
-    //         'function-prototype-bind',
-    //     ]
-    // }
-    {
-        name: 'es6.object.assign',
-        features: [
-            'object-assign'
-        ]
-    },
-    {
-        name: 'es6.array.iterator',
-        features: [
-            'array-prototype-symbol-iterator',
-            'array-prototype-symbol-iterator-sparse'
-        ]
-    },
-    {
-        name: 'es6.array.from',
-        features: [
-            'array-from'
-        ]
-    },
-    {
-        name: 'es6.string.iterator',
-        features: [
-            'string-prototype-symbol-iterator',
-            'string-prototype-symbol-iterator-basic',
-            'string-prototype-symbol-iterator-astral'
-        ]
-    }
-];
+var coreJSSolutions = [];
 var fileSolutions = [
-    {
-        name: 'system-js',
-        path: locate('./node_modules/systemjs/dist/system.src.js'),
-        required: true,
-        features: [
-            'system'
-        ]
-    },
-    {
-        name: 'url',
-        path: locate('./src/polyfill/url/index.js'),
-        features: [
-            'url'
-        ]
-    },
-    {
-        name: 'url-search-params',
-        path: locate('./src/polyfill/url-search-params/index.js'),
-        features: [
-            'url-search-params'
-        ]
-    },
     {
         name: 'regenerator',
         path: locate('./node_modules/regenerator/dist/regenerator.js'),
@@ -196,16 +78,6 @@ var fileSolutions = [
     }
 ];
 var babelSolutions = [
-    {
-        name: 'transform-es2015-function-name',
-        features: [
-            'function-prototype-name-statement',
-            'function-prototype-name-expression',
-            'function-prototype-name-var',
-            'function-prototype-name-method-shorthand',
-            'function-prototype-name-method-shorthand-lexical-binding'
-        ]
-    },
     {
         name: 'transform-regenerator',
         required: false, // on désactive pour le moment, j'ai pas fait les feature correspondantes
@@ -237,12 +109,6 @@ var babelSolutions = [
     {
         name: 'transform-es2015-block-scoping',
         features: [
-            'const',
-            'const-temporal-dead-zone',
-            'const-scoped',
-            'const-scoped-for-statement',
-            'const-scoped-for-body',
-            'const-scoped-for-of-body',
             'let',
             'let-throw-statement',
             'let-temporal-dead-zone',
@@ -255,16 +121,6 @@ var babelSolutions = [
         name: 'transform-es2015-computed-properties',
         features: [
             'computed-properties'
-        ]
-    },
-    {
-        name: 'transform-es2015-for-of',
-        features: [
-            'for-of',
-            'for-of-iterable',
-            'for-of-iterable-instance',
-            'for-of-iterable-return-called-on-break',
-            'for-of-iterable-return-called-on-throw'
         ]
     },
     {

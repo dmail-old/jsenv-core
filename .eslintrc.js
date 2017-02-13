@@ -1,5 +1,11 @@
 module.exports = {
     "extends": "./eslint.js",
+    "env": {
+        "browser": true
+    },
+    "globals": {
+        "jsenv": true
+    },
     "rules": {
         /*
         because it seems like a good idea at first (to force specific quote style) but then
