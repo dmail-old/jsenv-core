@@ -1,4 +1,4 @@
-this.dependencies.push(
+this.dependsOn(
     'destructuring-declaration-array-notation',
     'destructuring-declaration-object-notation'
 );

@@ -1,4 +1,4 @@
-this.dependencies.push('symbol-to-primitive');
+this.dependsOn('symbol-to-primitive');
 this.code = this.produceFromComposedPath;
 this.pass = 'inherit';
 this.solution = {

@@ -91,6 +91,14 @@ readAllFeatures().then(function(features) {
 
 module.exports = readAllFeatures;
 
+// ok super, une fois que j'ai les features, je pourrais les tester si je voulais
+// donc l'idée maintenant c'est d'être capable de les tester?
+// je dirais que l'étape d'après c'est d'avoir une fonction qui dit "je souhaite ces features"
+// on les trouve
+// on regarde ce qu'on sait dessus
+// pour toutes celles qu'on sait pas comment ça se passe on génére un fichier
+// avec toute les features qu'on a besoin de tester
+
 // var createAgent = (function() {
 //     var Agent = function(name) {
 //         this.name = name;

@@ -1,4 +1,4 @@
-this.dependencies.push('symbol-iterator');
+this.dependsOn('symbol-iterator');
 this.code = 'inherit';
 this.pass = jsenv.Predicate.fails(function(fn) {
     fn(Math.max, true);

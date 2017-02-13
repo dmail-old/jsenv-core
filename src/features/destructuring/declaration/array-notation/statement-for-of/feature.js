@@ -1,4 +1,4 @@
-this.dependencies.push('for-of');
+this.dependsOn('for-of');
 this.code = transpile`(function(iterable) {
     for(var [a, b] of iterable);
     return [a, b];

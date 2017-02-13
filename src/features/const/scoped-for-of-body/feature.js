@@ -1,4 +1,4 @@
-this.dependencies.push('for-of');
+this.dependsOn('for-of');
 this.code = transpile`(function(value) {
     var scopes = [];
     for(const i of value) {
@@ -11,7 +11,7 @@ this.code = transpile`(function(value) {
 this.pass = function(fn) {
     var value = ['a', 'b'];
     var scopes = fn(value);
-    var scopeValues = Iterable.map(scopes, function(scope) {
+    var scopeValues = jsenv.Iterable.map(scopes, function(scope) {
         return scope();
     });
     return this.sameValues(scopeValues, value);

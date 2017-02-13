@@ -1,4 +1,4 @@
-this.dependencies.push('symbol-iterator');
+this.dependsOn('symbol-iterator');
 this.code = transpile`(function(value) {
     var [a, b, c] = value;
     return [a, b, c];

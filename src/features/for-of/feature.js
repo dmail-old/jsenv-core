@@ -1,4 +1,4 @@
-this.dependencies.push('array-prototype-symbol-iterator');
+this.dependsOn('array-prototype-symbol-iterator');
 this.code = transpile`(function(value) {
     var result = [];
     for (var entry of value) {

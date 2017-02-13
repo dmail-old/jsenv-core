@@ -1,4 +1,4 @@
-this.dependencies.push('symbol-iterator');
+this.dependsOn('symbol-iterator');
 this.code = 'inherit';
 this.pass = function(fn) {
     var data = [1, 2, 3];

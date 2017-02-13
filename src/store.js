@@ -71,6 +71,7 @@ var createFileSystemCache = (function() {
                 name: cuid(),
                 meta: branchMeta,
                 matchCount: 1,
+                firstMatch: Number(Date.now()),
                 lastMatch: Number(Date.now())
             });
             branches.push(branch);

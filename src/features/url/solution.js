@@ -1,4 +1,4 @@
-var URL = (function() {
+(function() {
     function mustAppendSlashesForProtocol(protocol) {
         return protocol === 'http' || protocol === 'https' || protocol === 'file';
     }
@@ -170,5 +170,3 @@ var URL = (function() {
     URL = URL.constructor;
     return URL;
 })();
-
-jsenv.global.URL = URL;

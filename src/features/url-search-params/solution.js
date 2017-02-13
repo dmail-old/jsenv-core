@@ -2,7 +2,7 @@
 
 // https://github.com/WebReflection/url-search-params/tree/master/src
 
-jsenv.global.URLSearchParams = (function() {
+(function() {
     var replace = {
         '!': '%21',
         "'": '%27',

@@ -149,7 +149,7 @@ function createTranspiler(options) {
             }
 
             // désactive le cache lorsque entry ne matche pas
-            // puisqu'on a déjà tester s'il existait un cache valide
+            // puisqu'on a déjà testé s'il existait un cache valide
             var transpileCodeOptions = {};
             jsenv.assign(transpileCodeOptions, transpileFileOptions);
             transpileCodeOptions.filename = filePath;

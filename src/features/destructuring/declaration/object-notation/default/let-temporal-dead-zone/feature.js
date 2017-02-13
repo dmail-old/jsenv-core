@@ -1,4 +1,4 @@
-this.dependencies.push('let');
+this.dependsOn('let');
 this.code = transpile`(function() {
     let {c = c} = {};
     let {c = d, d} = {d: 1};

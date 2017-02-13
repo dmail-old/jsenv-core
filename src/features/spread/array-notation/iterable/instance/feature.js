@@ -1,4 +1,4 @@
-this.dependencies.push('object-create');
+this.dependsOn('object-create');
 this.code = 'inherit';
 this.pass = function(fn) {
     var data = [1, 2, 3];
