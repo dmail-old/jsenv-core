@@ -1,15 +1,15 @@
 this.code = transpile`(function(outsideValue, insideValue) {
-    const result = outsideValue;
+    const a = outsideValue;
     {
-        const result = insideValue;
+        const a = insideValue;
     }
-    return result;
+    return a;
 })`;
 this.pass = function(fn) {
     var outsideValue = 0;
     var insideValue = 1;
-    var result = fn(outsideValue, insideValue);
-    return result === outsideValue;
+    var returnValue = fn(outsideValue, insideValue);
+    return returnValue === outsideValue;
 };
 this.solution = {
     type: 'transpile',

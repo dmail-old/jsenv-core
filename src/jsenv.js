@@ -892,6 +892,9 @@ en fonction du résultat de ces tests
                 if (dependency instanceof VersionnedFeature === false) {
                     throw new Error('addDependency first arg must be a feature (not ' + dependency + ')');
                 }
+                if (Iterable.includes(this.dependencies, dependency)) {
+                    throw new Error(this.name + ' already dependent of ' + dependency.name);
+                }
                 if (this.isDependentOf(dependency)) {
                     throw new Error('cyclic dependency between ' + dependency.name + ' and ' + this.name);
                 }
@@ -1004,59 +1007,53 @@ en fonction du résultat de ces tests
                     }
                 };
 
-                var dependencies = feature.dependencies;
-                var invalidDependency = Iterable.find(dependencies, function(dependency) {
-                    return dependency.isInvalid() && dependency.isParameterOf(this) === false;
-                }, this);
-                if (invalidDependency) {
-                    settle(false, 'dependency-is-invalid', invalidDependency.name);
-                } else {
-                    var output;
-                    var outputOrigin;
+                var output;
+                var outputOrigin;
+                try {
+                    output = this.compile();
+                    outputOrigin = 'return';
+                } catch (e) {
+                    output = e;
+                    outputOrigin = 'throw';
+                }
+
+                var settler;
+                var settlerPropertyName = outputOrigin === 'throw' ? 'fail' : 'pass';
+                if (this.hasOwnProperty(settlerPropertyName)) {
+                    settler = this[settlerPropertyName];
+                    var type = typeof settler;
+                    if (type !== 'function') {
+                        throw new TypeError(
+                            'feature.' + settlerPropertyName +
+                            ' must be a function (not ' + type + ')'
+                        );
+                    }
+                    // ce throw au dessus fait que settle n'est jamais appelé
+                    // et bizarrement l'erreur n'est jamais log...
+
+                    var settlerArgs = [];
+                    settlerArgs.push(output);
+                    Iterable.forEach(this.parameters, function(parameter) {
+                        settlerArgs.push(parameter);
+                    });
+                    settlerArgs.push(settle);
+                    settler = convertToSettler(settler);
+
                     try {
-                        output = this.compile();
-                        outputOrigin = 'return';
+                        settler.apply(
+                            this,
+                            settlerArgs
+                        );
+
+                        var maxDuration = feature.maxTestDuration;
+                        timeout = setTimeout(function() {
+                            settle(false, 'timeout', maxDuration);
+                        }, maxDuration);
                     } catch (e) {
-                        output = e;
-                        outputOrigin = 'throw';
+                        settle(false, 'throwed', e);
                     }
-
-                    var test;
-                    var testPropertyName = outputOrigin === 'throw' ? 'fail' : 'pass';
-
-                    if (this.hasOwnProperty(testPropertyName)) {
-                        test = this[testPropertyName];
-                        var type = typeof test;
-                        if (type !== 'function') {
-                            throw new TypeError('feature test must be a function (not ' + type + ')');
-                        }
-                        // ce throw au dessus fait que settle n'est jamais appelé
-                        // et bizarrement l'erreur n'est jamais log...
-
-                        var testArgs = [];
-                        testArgs.push(output);
-                        Iterable.forEach(this.parameters, function(parameter) {
-                            testArgs.push(parameter);
-                        });
-                        testArgs.push(settle);
-                        var testSettler = convertToSettler(test);
-
-                        try {
-                            testSettler.apply(
-                                this,
-                                testArgs
-                            );
-
-                            var maxDuration = feature.maxTestDuration;
-                            timeout = setTimeout(function() {
-                                settle(false, 'timeout', maxDuration);
-                            }, maxDuration);
-                        } catch (e) {
-                            settle(false, 'throwed', e);
-                        }
-                    } else {
-                        settle(false, 'unexpected-compilation-' + outputOrigin);
-                    }
+                } else {
+                    settle(false, 'unexpected-compilation-' + outputOrigin);
                 }
 
                 return this;
@@ -1507,27 +1504,170 @@ en fonction du résultat de ces tests
             registerFeatures: registerFeatures
         };
     });
+
+    jsenv.provide(function testFeatures() {
+        var Iterable = jsenv.Iterable;
+
+        function testFeatures(features, hooks) {
+            var results = [];
+            var readyCount = 0;
+            var groups = groupNodesByDependencyDepth(features);
+            var groupIndex = -1;
+            var groupCount = groups.length;
+            var done = function() {
+                hook('complete', results);
+            };
+            var hook = jsenv.createHooks({
+                hooks: hooks
+            });
+
+            function nextGroup() {
+                groupIndex++;
+                if (groupIndex === groupCount) {
+                    // il faut faire setTimeout sur done
+                    // je ne sais pas trop pourquoi sinon nodejs cache les erreurs qui pourraient
+                    // être throw par done ou le callback
+                    setTimeout(done);
+                } else {
+                    var group = groups[groupIndex];
+                    var i = 0;
+                    var j = group.length;
+                    var groupReadyCount = 0;
+                    var handleResult = function(result) {
+                        var feature = this; // callback is async, this is the right feature object we want
+                        var featureIndex = features.indexOf(feature);
+                        results[featureIndex] = result;
+                        readyCount++;
+
+                        var progressEvent = {
+                            type: 'progress',
+                            target: feature,
+                            detail: result,
+                            lengthComputable: true,
+                            total: features.length,
+                            loaded: readyCount
+                        };
+                        hook('progress', progressEvent);
+
+                        groupReadyCount++;
+                        if (groupReadyCount === j) {
+                            nextGroup();
+                        }
+                    };
+                    var isInvalid = function(feature) {
+                        var featureIndex = features.indexOf(feature);
+                        if (featureIndex in results === false) {
+                            return false;
+                        }
+                        var result = results[featureIndex];
+                        return result.status === 'invalid';
+                    };
+                    var dependencyIsInvalid = function(dependency) {
+                        return (
+                            dependency.isParameterOf(this) === false &&
+                            isInvalid(dependency)
+                        );
+                    };
+
+                    while (i < j) {
+                        var feature = group[i];
+
+                        var dependencies = feature.dependencies;
+                        var invalidDependency = Iterable.find(dependencies, dependencyIsInvalid, feature);
+                        if (invalidDependency) {
+                            handleResult.call(feature, {
+                                status: 'invalid',
+                                reason: 'dependency-is-invalid',
+                                detail: invalidDependency.name
+                            });
+                        } else {
+                            try {
+                                feature.test(handleResult);
+                            } catch (e) {
+                                hook('crash', e);
+                                return;
+                            }
+                        }
+                        i++;
+                    }
+                }
+            }
+            nextGroup();
+        }
+
+        function groupNodesByDependencyDepth(nodes) {
+            var unresolvedNodes = nodes.slice();
+            var i = 0;
+            var j = unresolvedNodes.length;
+            var resolvedNodes = [];
+            var groups = [];
+            var group;
+
+            while (true) { // eslint-disable-line
+                group = [];
+                i = 0;
+                while (i < j) {
+                    var unresolvedNode = unresolvedNodes[i];
+                    var everyDependencyIsResolved = Iterable.every(unresolvedNode.dependencies, function(dependency) {
+                        return Iterable.includes(resolvedNodes, dependency);
+                    });
+                    if (everyDependencyIsResolved) {
+                        group.push(unresolvedNode);
+                        unresolvedNodes.splice(i, 1);
+                        j--;
+                    } else {
+                        i++;
+                    }
+                }
+
+                if (group.length) {
+                    groups.push(group);
+                    resolvedNodes.push.apply(resolvedNodes, group);
+                } else {
+                    break;
+                }
+            }
+
+            return groups;
+        }
+
+        return {
+            testFeatures: testFeatures
+        };
+    });
+
+    jsenv.provide(function createHooks() {
+        return {
+            createHooks: function(options) {
+                var hooks = options.hooks || {};
+                var fallbackHooks = options.default || {};
+                function hook(name, event) {
+                    if (name in hooks) {
+                        hooks[name](event);
+                    } else if (name in fallbackHooks) {
+                        fallbackHooks[name](event);
+                    }
+                }
+
+                return hook;
+            }
+        };
+    });
 })();
 
 (function() {
-    var Iterable = jsenv.Iterable;
     var implementation = jsenv.implementation;
 
     function adaptImplementation(how) {
         function run(hooks) {
-            hooks = hooks || {};
-            var defaultHooks = {
-                crash: function(event) {
-                    throw event.value;
+            var hook = jsenv.createHooks({
+                hooks: hooks,
+                fallback: {
+                    crash: function(event) {
+                        throw event.value;
+                    }
                 }
-            };
-            function hook(name, event) {
-                if (name in hooks) {
-                    hooks[name](event);
-                } else if (name in defaultHooks) {
-                    defaultHooks[name](event);
-                }
-            }
+            });
 
             function getNextInstruction(instruction) {
                 how.writeInstructionOutput(
@@ -1542,7 +1682,7 @@ en fonction du résultat de ces tests
                 'scan'(instruction, complete) {
                     var features = eval(instruction.input.features); // eslint-disable-line no-eval
 
-                    scan(
+                    jsenv.testFeatures(
                         features,
                         function(results) {
                             complete(results);
@@ -1560,7 +1700,7 @@ en fonction du résultat de ces tests
 
                     if ('features' in instruction.input) {
                         var features = eval(instruction.input.features); // eslint-disable-line no-eval
-                        scan(
+                        jsenv.testFeatures(
                             features,
                             function(report) {
                                 complete(report);
@@ -1577,59 +1717,6 @@ en fonction du résultat de ces tests
                     }
                 }
             };
-
-            function scan(features, doneCallback) {
-                var results = [];
-                var readyCount = 0;
-                var groups = groupNodesByDependencyDepth(features);
-                var groupIndex = -1;
-                var groupCount = groups.length;
-                var done = function() {
-                    doneCallback(results);
-                };
-
-                function nextGroup() {
-                    groupIndex++;
-                    if (groupIndex === groupCount) {
-                        // il faut faire setTimeout sur done
-                        // je ne sais pas trop pourquoi sinon nodejs cache les erreurs qui pourraient
-                        // être throw par done ou le callback
-                        setTimeout(done);
-                    } else {
-                        var group = groups[groupIndex];
-                        var i = 0;
-                        var j = group.length;
-                        var groupReadyCount = 0;
-
-                        while (i < j) {
-                            var feature = group[i];
-
-                            feature.test(function(result) { // eslint-disable-line
-                                var feature = this; // callback is async, this is the right fature
-                                var featureIndex = features.indexOf(feature);
-                                results[featureIndex] = result;
-                                readyCount++;
-                                var progressEvent = {
-                                    type: 'progress',
-                                    target: feature,
-                                    detail: result,
-                                    lengthComputable: true,
-                                    total: features.length,
-                                    loaded: readyCount
-                                };
-                                hook('progress', progressEvent);
-
-                                groupReadyCount++;
-                                if (groupReadyCount === j) {
-                                    nextGroup();
-                                }
-                            });
-                            i++;
-                        }
-                    }
-                }
-                nextGroup();
-            }
 
             function handleNextInstruction(nextInstruction, instruction) {
                 nextInstruction.meta = instruction.meta;
@@ -1697,42 +1784,6 @@ en fonction du résultat de ces tests
         return {
             run: run
         };
-    }
-
-    function groupNodesByDependencyDepth(nodes) {
-        var unresolvedNodes = nodes.slice();
-        var i = 0;
-        var j = unresolvedNodes.length;
-        var resolvedNodes = [];
-        var groups = [];
-        var group;
-
-        while (true) { // eslint-disable-line
-            group = [];
-            i = 0;
-            while (i < j) {
-                var unresolvedNode = unresolvedNodes[i];
-                var everyDependencyIsResolved = Iterable.every(unresolvedNode.dependencies, function(dependency) {
-                    return Iterable.includes(resolvedNodes, dependency);
-                });
-                if (everyDependencyIsResolved) {
-                    group.push(unresolvedNode);
-                    unresolvedNodes.splice(i, 1);
-                    j--;
-                } else {
-                    i++;
-                }
-            }
-
-            if (group.length) {
-                groups.push(group);
-                resolvedNodes.push.apply(resolvedNodes, group);
-            } else {
-                break;
-            }
-        }
-
-        return groups;
     }
 
     implementation.adapt = adaptImplementation;

@@ -66,16 +66,24 @@ function getFeaturesTests(options) {
             var missingTestResultFeatures = features.filter(function(feature, index) {
                 return testResults[index] === null;
             });
-            // pour toutes ces features je dois passer des tests
-            // l'idée c'est donc d'avoir une fonction genre buildFeatureTests
-            // idéalement lorsque j'eval ça je devrait récup une liste des features
-            // que je n'ai plus qu'à tester en utilisant l'api de jsenv
-            // sauf que pour ça j'ai besoin du code dans array/feature.js
-            // ici je n'y ai plus accès mais je peux retrouve où le fichier est censé être
-            // lire son contenu, et générer à nouveau du js capable d'enregistrer une liste de features
-            // nan mais c'est bon maintenant je n'aurais qu'à faire
-            // createFeatureSourcesFromFolder(missingTestResultFeatures) en gros
-            console.log(missingTestResultFeatures.length, 'test to run');
+
+            var featureNamesToTest = missingTestResultFeatures.map(function(feature) {
+                return feature.name;
+            });
+
+            return createFeatureSourcesFromFolder(featureNamesToTest, featuresFolderPath).then(
+                createFeaturesFromSource
+            ).then(function(features) {
+                return new Promise(function(resolve, reject) {
+                    jsenv.testFeatures(features, {
+                        complete: resolve,
+                        fail: reject,
+                        crash: reject
+                    });
+                }).then(function(results) {
+                    console.log('test result', results);
+                });
+            });
         });
     });
 }
@@ -110,9 +118,12 @@ function getFeatures() {
     return getFileSystemFeatures();
 }
 function getFileSystemFeatures() {
-    return getFeatureSourcesFromFileSystem().then(function(featuresSource) {
-        return eval(featuresSource); // eslint-disable-line no-eval
-    });
+    return getFeatureSourcesFromFileSystem().then(
+        createFeaturesFromSource
+    );
+}
+function createFeaturesFromSource(featuresSource) {
+    return eval(featuresSource); // eslint-disable-line no-eval
 }
 var featuresStore = store.memoryEntry();
 var getFeatureSourcesFromFileSystem = memoize.async(createFeatureSourcesFromFileSystem, featuresStore);
