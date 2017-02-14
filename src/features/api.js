@@ -13,87 +13,82 @@ var fsAsync = require('../fs-async.js');
 var store = require('../store.js');
 var memoize = require('../memoize.js');
 var featuresFolderPath = require('path').resolve(__dirname, './').replace(/\\/g, '/');
-var featureTranspiler = require('./transpiler.js')({
+var createTranspiler = require('./transpiler.js');
+var featureTranspiler = createTranspiler({
     cache: true,
+    filename: false,
+    sourceMaps: false,
     plugins: [
         'transform-es2015-template-literals'
     ]
 });
 
-function getFeaturesTests(options) {
+function getEnsureImplementationInstruction(options) {
     var featureNames = options.features;
     var agent = options.agent || 'Firefox/50.0';
 
     return getRequiredFeatures(featureNames).then(function(features) {
-        // pour chaque feature regarde si on connait
-        // son résultat pour cet agent
-
-        function getFeatureAgentCache(feature) {
-            var featurePath = featuresFolderPath + '/' + feature.name;
-            var featureCache = store.fileSystemCache(featurePath);
-            return featureCache.match({
-                agent: agent
-            });
-        }
-
-        return Promise.all(features.map(function(feature) {
-            return getFeatureAgentCache(feature).then(function(featureAgentCache) {
-                return featureAgentCache.entry({
-                    name: 'test-result.json',
-                    sources: [
-                        {
-                            path: featuresFolderPath + '/' + feature.name + '/feature.js',
-                            strategy: 'eTag'
+        return getTestState(agent, features).then(function(testState) {
+            if (testState.name === 'partial') {
+                var untestedFeatureNames = testState.value;
+                return createFeatureSourcesFromFolder(
+                    untestedFeatureNames,
+                    featuresFolderPath,
+                    featureTranspiler
+                ).then(function(featuresSource) {
+                    return {
+                        name: 'scan',
+                        input: {
+                            featuresSource: featuresSource
                         }
-                    ]
+                    };
                 });
-            }).then(function(entry) {
-                return entry.read();
-            }).then(function(data) {
-                if (data.valid) {
-                    return data.value;
-                }
-                return null;
-            });
-        })).then(function(testResults) {
-            var hasTestResultOfAllFeatures = testResults.every(function(result) {
-                return Boolean(result);
-            });
-            if (hasTestResultOfAllFeatures) {
-                // j'ai le résultat de TOUS les test, je peux donc passer en mode fix dès maintenant
-                console.log('got to fix step');
+            } else if (testState.name === 'completed') {
+                var testResults = testState.value;
+                return Promise.all([
+                    getFixSource(testResults, features),
+                    getIntegrationState(agent, features)
+                ]).then(function(data) {
+                    var fixSource = data[0];
+                    var integrationState = data[1];
+
+                    if (integrationState.name === 'partial') {
+                        var untestedFeatureNames = integrationState.value;
+                        var fixedFeatureTranspiler = createTranspiler({
+                            // faut check les solutions et récupérer
+                            // le config des plugins
+                            // en plus il faut aussi utiliser le plugin spécial
+                        });
+
+                        return createFeatureSourcesFromFolder(
+                            untestedFeatureNames,
+                            featuresFolderPath,
+                            fixedFeatureTranspiler
+                        ).then(function(fixedFeaturesSource) {
+                            return {
+                                name: 'fix+test',
+                                input: {
+                                    fixSource: fixSource,
+                                    fixedFeaturesSource: fixedFeaturesSource
+                                }
+                            };
+                        });
+                    }
+                    return {
+                        name: 'fix',
+                        input: {
+                            fixSource: fixSource
+                        }
+                    };
+                });
             }
-            var missingTestResultFeatures = features.filter(function(feature, index) {
-                return testResults[index] === null;
-            });
-
-            var featureNamesToTest = missingTestResultFeatures.map(function(feature) {
-                return feature.name;
-            });
-
-            return createFeatureSourcesFromFolder(featureNamesToTest, featuresFolderPath).then(
-                createFeaturesFromSource
-            ).then(function(features) {
-                return new Promise(function(resolve, reject) {
-                    jsenv.testFeatures(features, {
-                        complete: resolve,
-                        fail: reject,
-                        crash: reject
-                    });
-                }).then(function(results) {
-                    console.log('test result', results);
-                });
-            });
         });
     });
 }
 function getRequiredFeatures(names) {
-    return getFeatures().then(function(features) {
-        var isRequired = function(feature) {
-            return jsenv.Iterable.some(names, function(name) {
-                return feature.match(name);
-            });
-        };
+    return getFeatures().then(filterRequiredFeatures);
+
+    function filterRequiredFeatures(features) {
         var featureHalf = jsenv.Iterable.bisect(features, function(feature) {
             var required = isRequired(feature);
             return required;
@@ -112,73 +107,79 @@ function getRequiredFeatures(names) {
             return feature.isEnabled();
         });
         return enabledFeatures;
-    });
+    }
+    function isRequired(feature) {
+        return jsenv.Iterable.some(names, function(name) {
+            return feature.match(name);
+        });
+    }
 }
 function getFeatures() {
     return getFileSystemFeatures();
-}
-function getFileSystemFeatures() {
-    return getFeatureSourcesFromFileSystem().then(
-        createFeaturesFromSource
-    );
-}
-function createFeaturesFromSource(featuresSource) {
-    return eval(featuresSource); // eslint-disable-line no-eval
+
+    function getFileSystemFeatures() {
+        return getFeatureSourcesFromFileSystem().then(
+            createFeaturesFromSource
+        );
+
+        function createFeaturesFromSource(featuresSource) {
+            return eval(featuresSource); // eslint-disable-line no-eval
+        }
+    }
 }
 var featuresStore = store.memoryEntry();
 var getFeatureSourcesFromFileSystem = memoize.async(createFeatureSourcesFromFileSystem, featuresStore);
 function createFeatureSourcesFromFileSystem() {
     return recursivelyReadFolderFeatureNames(featuresFolderPath).then(function(featureNames) {
-        return createFeatureSourcesFromFolder(featureNames, featuresFolderPath);
+        return createFeatureSourcesFromFolder(featureNames, featuresFolderPath, featureTranspiler);
     });
-}
-function recursivelyReadFolderFeatureNames(path) {
-    var featureNames = [];
 
-    function readFolder(path) {
-        return fsAsync('readdir', path);
-    }
-
-    function readFolderFeatureNames(parentFeatureName) {
-        var featureFolderPath;
-        if (parentFeatureName) {
-            featureFolderPath = path + '/' + parentFeatureName;
-        } else {
-            featureFolderPath = path;
-        }
-
-        return readFolder(featureFolderPath).then(function(ressourceNames) {
-            var ressourcePaths = ressourceNames.map(function(name) {
-                return featureFolderPath + '/' + name;
-            });
-            var ressourcesPromise = ressourcePaths.map(function(ressourcePath, index) {
-                return fsAsync('stat', ressourcePath).then(function(stat) {
-                    var ressourceName = ressourceNames[index];
-                    if (stat.isDirectory()) {
-                        if (ressourceName[0].match(/[a-z]/)) {
-                            var featureName;
-                            if (parentFeatureName) {
-                                featureName = parentFeatureName + '/' + ressourceName;
-                            } else {
-                                featureName = ressourceName;
-                            }
-
-                            featureNames.push(featureName);
-                            return readFolderFeatureNames(featureName);
-                        }
-                    }
-                    return Promise.resolve();
-                });
-            });
-            return Promise.all(ressourcesPromise);
+    function recursivelyReadFolderFeatureNames(path) {
+        var featureNames = [];
+        return readFolderFeatureNames(null).then(function() {
+            return featureNames;
         });
-    }
 
-    return readFolderFeatureNames(null).then(function() {
-        return featureNames;
-    });
+        function readFolderFeatureNames(parentFeatureName) {
+            var featureFolderPath;
+            if (parentFeatureName) {
+                featureFolderPath = path + '/' + parentFeatureName;
+            } else {
+                featureFolderPath = path;
+            }
+
+            return readFolder(featureFolderPath).then(function(ressourceNames) {
+                var ressourcePaths = ressourceNames.map(function(name) {
+                    return featureFolderPath + '/' + name;
+                });
+                var ressourcesPromise = ressourcePaths.map(function(ressourcePath, index) {
+                    return fsAsync('stat', ressourcePath).then(function(stat) {
+                        var ressourceName = ressourceNames[index];
+                        if (stat.isDirectory()) {
+                            if (ressourceName[0].match(/[a-z]/)) {
+                                var featureName;
+                                if (parentFeatureName) {
+                                    featureName = parentFeatureName + '/' + ressourceName;
+                                } else {
+                                    featureName = ressourceName;
+                                }
+
+                                featureNames.push(featureName);
+                                return readFolderFeatureNames(featureName);
+                            }
+                        }
+                        return Promise.resolve();
+                    });
+                });
+                return Promise.all(ressourcesPromise);
+            });
+        }
+        function readFolder(path) {
+            return fsAsync('readdir', path);
+        }
+    }
 }
-function createFeatureSourcesFromFolder(featureNames, folderPath) {
+function createFeatureSourcesFromFolder(featureNames, folderPath, transpiler) {
     var paths = featureNames.map(function(featureName) {
         return folderPath + '/' + featureName + '/feature.js';
     });
@@ -190,13 +191,7 @@ function createFeatureSourcesFromFolder(featureNames, folderPath) {
             return fsAsync('stat', path).then(
                 function(stat) {
                     if (stat.isFile()) {
-                        return featureTranspiler.transpileFile(path, {
-                            sourceMaps: false,
-                            filename: false,
-                            transform: function(code) {
-                                return code;
-                            }
-                        });
+                        return transpiler.transpileFile(path);
                     }
                 },
                 function(e) {
@@ -239,29 +234,166 @@ function createFeatureSourcesFromFolder(featureNames, folderPath) {
         return 'registerFeature(' + featureNameSource + ', ' + featurePropertiesSource + ');';
     }
 }
+function getTestState(agent, features) {
+    return getFeaturesTestResults(agent, features).then(function(testResults) {
+        var hasTestResultOfAllFeatures = testResults.every(function(result) {
+            return Boolean(result);
+        });
+        if (hasTestResultOfAllFeatures) {
+            return {
+                name: 'complete',
+                value: testResults
+            };
+        }
+        var untestedFeatures = features.filter(function(feature, index) {
+            return testResults[index] === null;
+        });
+        var untestedFeatureNames = untestedFeatures.map(function(feature) {
+            return feature.name;
+        });
+        return {
+            name: 'partial',
+            value: untestedFeatureNames
+        };
+    });
 
-getFeaturesTests({
+    function getFeaturesTestResults(agent, features) {
+        var resultsPromises = features.map(function(feature) {
+            return createResultPromise(feature);
+        });
+        return Promise.all(resultsPromises);
+
+        function createResultPromise(feature) {
+            return getFeatureAgentCache(feature, agent).then(function(featureAgentCache) {
+                return featureAgentCache.entry({
+                    name: 'test-result.json',
+                    sources: [
+                        {
+                            path: featuresFolderPath + '/' + feature.name + '/feature.js',
+                            strategy: 'eTag'
+                        }
+                    ]
+                });
+            }).then(function(entry) {
+                return entry.read();
+            }).then(function(data) {
+                if (data.valid) {
+                    return data.value;
+                }
+                return null;
+            });
+        }
+    }
+}
+function getFeatureAgentCache(feature, agent) {
+    var featurePath = featuresFolderPath + '/' + feature.name;
+    var featureCache = store.fileSystemCache(featurePath);
+    return featureCache.match({
+        agent: agent
+    });
+}
+function getIntegrationState(agent, features) {
+    return getFeaturesIntegrationResults(agent, features).then(function(integrationResults) {
+        var hasResultOfAllFeatures = integrationResults.every(function(result) {
+            return Boolean(result);
+        });
+        if (hasResultOfAllFeatures) {
+            return {
+                valid: true,
+                value: integrationResults
+            };
+        }
+        var untestedFeatures = features.filter(function(feature, index) {
+            return integrationResults[index] === null;
+        });
+        var untestedFeatureNames = untestedFeatures.map(function(feature) {
+            return feature.name;
+        });
+        return {
+            valid: false,
+            value: untestedFeatureNames
+        };
+    });
+
+    function getFeaturesIntegrationResults(agent, features) {
+        var resultsPromises = features.map(function(feature) {
+            return createIntegrationResultPromise(feature);
+        });
+        return Promise.all(resultsPromises);
+
+        function createIntegrationResultPromise(feature) {
+            return getFeatureAgentCache(feature, agent).then(function(featureAgentCache) {
+                var featureFilePath = featuresFolderPath + '/' + feature.name + '/feature.js';
+                var sources = [
+                    {
+                        path: featureFilePath,
+                        strategy: 'eTag'
+                    }
+                ];
+                var solution = feature.solution;
+                if (
+                    solution.type === 'polyfill' &&
+                    solution.location.indexOf('://') === -1
+                ) {
+                    var solutionPath = require('path').resolve(featureFilePath, solution.location);
+                    sources.push({
+                        path: solutionPath,
+                        strategy: 'etag'
+                    });
+                }
+
+                return featureAgentCache.entry({
+                    name: 'integration-result.json',
+                    sources: sources
+                });
+            }).then(function(entry) {
+                return entry.read();
+            }).then(function(data) {
+                if (data.valid) {
+                    return data.value;
+                }
+                return null;
+            });
+        }
+    }
+}
+function getFixSource() {
+    // j'ai le résultat de TOUS les test, je peux donc passer en mode fix dès maintenant
+    // le mode fix consistera à récup les solutions
+    // et à les condenser en un polyfill et des options de transpilations
+    // en parallèle il s'agit aussi de produire une version
+    // fixé des tests (on transpile le code)
+    return '';
+}
+
+// function getFixState(agent, featureNames)
+// on on utilisera un fix-result.json qu'on met avec test-result.json et integration-result.json
+
+// function storeTestResults(agent, featureNames, testResults)
+// sauvegarde tout ces résultat en cache
+// et récupère ce qu'on doit faire ensuite
+// donc en gros comme on a tout les résultat on peut repartir "direct"" du bout de code
+// qui récupère ce qui a besoin d'être fixé vu qu'on a les résultats
+// en fait c'est pas si simple puisque on peut avoir des résultats partiel
+// autant repartir du départ tant pis
+
+// function storeFixAndIntegrationResult(agent, fixResult, integrationResult)
+
+getEnsureImplementationInstruction({
     features: [
         'const/scoped'
     ]
+}).then(function(instruction) {
+    console.log('instruction', instruction);
 }).catch(function(e) {
     setTimeout(function() {
         throw e;
     });
 });
 
-// readAllFeatures().then(function(features) {
-//     console.log('feture 0', features[0]);
-// }).catch(function(e) {
-//     setTimeout(function() {
-//         throw e;
-//     });
-// });
-
 module.exports = {
-    getFeatures: getFeatures,
     getRequiredFeatures: getRequiredFeatures,
-    getFeaturesTests: getFeaturesTests
+    getFeatures: getFeatures
 };
 
 // var createAgent = (function() {

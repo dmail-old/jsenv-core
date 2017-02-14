@@ -7,7 +7,15 @@ var cacheFolder = rootFolder + '/cache';
 var transpileFolder = cacheFolder + '/transpile';
 var transpileCache = store.fileSystemCache(transpileFolder);
 
-function createTranspiler(options) {
+function assign(destination, source) {
+    for (var key in source) { // eslint-disable-line guard-for-in
+        destination[key] = source[key];
+    }
+    return destination;
+}
+
+function createTranspiler(transpilerOptions) {
+    transpilerOptions = transpilerOptions || {};
     // console.log('required babel plugins', pluginsAsOptions.map(function(plugin) {
     //     return plugin[0];
     // }));
@@ -21,8 +29,8 @@ function createTranspiler(options) {
         }
         return nodeFilePath;
     }
-    function getFileEntry(transpilationOptions) {
-        var path = transpilationOptions.filename;
+    function getFileEntry(options) {
+        var path = options.filename;
         var nodeFilePath = getNodeFilePath(path);
 
         if (nodeFilePath.indexOf(rootFolder) === 0) {
@@ -35,15 +43,15 @@ function createTranspiler(options) {
                 plugins: options.plugins
             }).then(function(cacheBranch) {
                 var entryName;
-                if (transpilationOptions.as === 'module') {
+                if (options.as === 'module') {
                     entryName = 'modules/' + relativeFilePath;
                 } else {
                     entryName = relativeFilePath;
                 }
 
                 var entrySources;
-                if (transpilationOptions.sources) {
-                    entrySources = transpilationOptions.sources.slice();
+                if (options.sources) {
+                    entrySources = options.sources.slice();
                 } else {
                     entrySources = [];
                 }
@@ -59,14 +67,16 @@ function createTranspiler(options) {
         return Promise.resolve(null);
     }
 
-    var transpile = function(code, transpilationOptions) {
-        transpilationOptions = transpilationOptions || {};
+    var transpile = function(code, transpileCodeOptions) {
+        var options = {};
+        assign(options, transpilerOptions);
+        assign(options, transpileCodeOptions || {});
 
-        var transpileCode = function(sourceURL) {
+        var transpileSource = function(sourceURL) {
             var plugins;
-            if (transpilationOptions.plugins) {
-                plugins = transpilationOptions.plugins;
-            } else if (transpilationOptions.as === 'module') {
+            if (options.plugins) {
+                plugins = options.plugins;
+            } else if (options.as === 'module') {
                 plugins = options.plugins.slice();
                 plugins.unshift('transform-es2015-modules-systemjs');
             } else {
@@ -80,8 +90,8 @@ function createTranspiler(options) {
             var babelOptions = {};
             babelOptions.plugins = plugins;
             babelOptions.ast = false;
-            if ('sourceMaps' in transpilationOptions) {
-                babelOptions.sourceMaps = transpilationOptions.sourceMaps;
+            if ('sourceMaps' in options) {
+                babelOptions.sourceMaps = options.sourceMaps;
             } else {
                 babelOptions.sourceMaps = 'inline';
             }
@@ -93,15 +103,15 @@ function createTranspiler(options) {
             if (sourceURL) {
                 transpiledCode += '\n//# sourceURL=' + sourceURL;
             }
-            if (transpilationOptions.transform) {
-                transpiledCode = transpilationOptions.transform(transpiledCode);
+            if (options.transform) {
+                transpiledCode = options.transform(transpiledCode);
             }
             return transpiledCode;
         };
 
         var sourceURL;
-        if ('filename' in transpilationOptions) {
-            var filename = transpilationOptions.filename;
+        if ('filename' in options) {
+            var filename = options.filename;
             if (filename !== false) {
                 sourceURL = filename;
             }
@@ -111,31 +121,30 @@ function createTranspiler(options) {
 
         if (
             options.cache &&
-            transpilationOptions.cache !== false &&
             sourceURL !== 'anonymous' &&
             sourceURL
         ) {
-            return getFileEntry(transpilationOptions).then(function(entry) {
+            return getFileEntry(options).then(function(entry) {
                 if (entry) {
                     sourceURL = entry.path;
                     return memoize.async(
-                        transpileCode,
+                        transpileSource,
                         entry
                     )(sourceURL);
                 }
                 if (sourceURL) {
                     sourceURL += '!transpiled';
                 }
-                return transpileCode(sourceURL);
+                return transpileSource(sourceURL);
             });
         }
 
-        if ('sourceURL' in transpilationOptions) {
-            sourceURL = transpilationOptions.sourceURL;
+        if ('sourceURL' in options) {
+            sourceURL = options.sourceURL;
         } else if (sourceURL) {
             sourceURL += '!transpiled';
         }
-        return transpileCode(sourceURL);
+        return transpileSource(sourceURL);
     };
 
     var transpiler = {
