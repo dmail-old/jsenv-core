@@ -1,4 +1,4 @@
-this.dependsOn('symbol-iterator');
+this.dependencies = ['symbol-iterator'];
 this.pass = function(fn) {
     var method = Math.max;
     var data = [1, 2, 3];

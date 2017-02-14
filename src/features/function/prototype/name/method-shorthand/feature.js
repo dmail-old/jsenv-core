@@ -1,4 +1,4 @@
-this.dependsOn('shorthand-methods');
+this.dependencies = ['shorthand-methods'];
 this.code = transpile`(function() {
     return {
         foo() {}

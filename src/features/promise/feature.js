@@ -1,6 +1,6 @@
 this.path = 'Promise';
-this.code = 'inherit';
-this.pass = 'inherit';
+this.code = feature.runPath;
+this.pass = feature.passPresence;
 this.solution = {
     type: 'polyfill',
     location: 'corejs://es6.promise'

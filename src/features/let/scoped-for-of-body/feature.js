@@ -1,4 +1,4 @@
-this.dependsOn('for-of');
+this.dependencies = ['for-of'];
 this.code = transpile`(function(value) {
     var scopes = [];
     for(const i of value) {

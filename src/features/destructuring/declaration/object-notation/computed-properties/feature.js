@@ -1,4 +1,4 @@
-this.dependsOn('computed-properties');
+this.dependencies = ['computed-properties'];
 this.code = transpile`(function(name, value) {
     var {[name]: a} = value;
     return a;

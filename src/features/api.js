@@ -34,80 +34,110 @@ var featureTranspiler = require('./transpiler.js')({
 // sinon on retourne les tests qu'on doit faire
 
 var featuresStore = store.memoryEntry();
-var readAllFeatures = (function() {
-    function readFileSystemFolder(feature) {
-        var path = featuresFolderPath;
-        if (feature.name) {
-            path += '/' + feature.name;
+var getFeaturesSource = (function() {
+    function createFeaturesSource() {
+        var featureEntries = [];
+
+        function readFileSystemFolder(featureName) {
+            var path = featuresFolderPath;
+            if (featureName) {
+                path += '/' + featureName;
+            }
+
+            var featureEntry = {
+                name: featureName,
+                code: ''
+            };
+            if (featureName) {
+                featureEntries.push(featureEntry);
+            }
+
+            return fsAsync('readdir', path).then(function(ressourceNames) {
+                var ressourcePaths = ressourceNames.map(function(name) {
+                    return path + '/' + name;
+                });
+                var ressourcesPromise = ressourcePaths.map(function(ressourcePath, index) {
+                    return fsAsync('stat', ressourcePath).then(function(stat) {
+                        var ressourceName = ressourceNames[index];
+                        if (stat.isFile()) {
+                            if (ressourceName === 'feature.js') {
+                                return featureTranspiler.transpileFile(ressourcePath, {
+                                    sourceMaps: false,
+                                    filename: false,
+                                    transform: function(code) {
+                                        return code;
+                                    }
+                                }).then(function(code) {
+                                    featureEntry.code = code;
+                                });
+                            }
+                        } else if (stat.isDirectory()) {
+                            if (ressourceName[0].match(/[a-z]/)) {
+                                var dependentFeatureName;
+                                if (featureName) {
+                                    dependentFeatureName = featureName + '/' + ressourceName;
+                                } else {
+                                    dependentFeatureName = ressourceName;
+                                }
+
+                                return readFileSystemFolder(dependentFeatureName);
+                            }
+                        }
+                        return Promise.resolve();
+                    });
+                });
+                return Promise.all(ressourcesPromise);
+            });
         }
 
-        return fsAsync('readdir', path).then(function(ressourceNames) {
-            var ressourcePaths = ressourceNames.map(function(name) {
-                return path + '/' + name;
+        function convertEntries() {
+            var registerFeaturesHead = 'jsenv.registerFeatures(function(registerFeature, transpile) {';
+            var registerFeaturesBody = featureEntries.map(function(featureEntry) {
+                var featureNameSource = "'" + featureEntry.name + "'";
+                var featurePropertiesSource = '';
+                if (featureEntry.code) {
+                    featurePropertiesSource += 'function(feature) {\n\t';
+                    featurePropertiesSource += featureEntry.code;
+                    featurePropertiesSource += '\n}';
+                } else {
+                    featurePropertiesSource = 'function() {}';
+                }
+
+                return 'registerFeature(' + featureNameSource + ', ' + featurePropertiesSource + ');';
             });
-            var ressourcesPromise = ressourcePaths.map(function(ressourcePath, index) {
-                return fsAsync('stat', ressourcePath).then(function(stat) {
-                    var ressourceName = ressourceNames[index];
-                    if (stat.isFile()) {
-                        if (ressourceName === 'feature.js') {
-                            return featureTranspiler.transpileFile(ressourcePath, {
-                                sourceMaps: false,
-                                transform: function(code) {
-                                    return '(function (transpile) {\n' + code + '\n})';
-                                }
-                            }).then(function(code) {
-                                var featureConstructor = eval(code); // eslint-disable-line no-eval
-                                featureConstructor.call(feature, jsenv.transpile);
-                            });
-                        }
-                    } else if (stat.isDirectory()) {
-                        if (ressourceName[0].match(/[a-z]/)) {
-                            var dependentFeatureName;
-                            if (feature.name) {
-                                dependentFeatureName = feature.name + '/' + ressourceName;
-                            } else {
-                                dependentFeatureName = ressourceName;
-                            }
-                            var dependentFeature = jsenv.createFeature(dependentFeatureName);
-                            dependentFeature.addDependency(feature, {as: 'parent'});
-                            return readFileSystemFolder(dependentFeature);
-                        }
-                    }
-                    return Promise.resolve();
-                });
-            });
-            return Promise.all(ressourcesPromise);
-        });
+            var registerFeaturesFoot = '});';
+
+            return (
+                '\n' +
+                registerFeaturesHead +
+                '\n\t' +
+                registerFeaturesBody.join('\n\t\n\t') +
+                '\n' +
+                registerFeaturesFoot +
+                '\n'
+            );
+        }
+
+        return readFileSystemFolder().then(convertEntries);
     }
 
-    function createFeatures() {
-        jsenv.features = []; // ceci peut cause un problème
-        // de race condition
-        // il faut absolument éviter ça c'est nul nul nul
-        // on verra comment plus tard
-        var features = jsenv.features;
-        var rootFeature = jsenv.createFeature('');
-        jsenv.Iterable.remove(features, rootFeature);
-
-        return readFileSystemFolder(rootFeature).then(function() {
-            rootFeature.dependents.forEach(function(feature) {
-                jsenv.Iterable.remove(feature.dependencies, rootFeature);
-                delete feature.parent;
-            });
-
-            return features;
-        });
-    }
-
-    return memoize.async(createFeatures, featuresStore);
+    return memoize.async(createFeaturesSource, featuresStore);
 })();
-
-function getFilteredFeatures(names) {
-    return readAllFeatures().then(function(features) {
-        var featureHalf = jsenv.Iterable.bisect(features, function(feature) {
-            return names.some(function(name) {
+function getFeatures() {
+    return getFeaturesSource().then(function(featuresSource) {
+        return eval(featuresSource); // eslint-disable-line no-eval
+    });
+}
+function getRequiredFeatures(names) {
+    return getFeatures().then(function(features) {
+        var isRequired = function(feature) {
+            return jsenv.Iterable.some(names, function(name) {
                 return feature.match(name);
             });
+        };
+        var featureHalf = jsenv.Iterable.bisect(features, function(feature) {
+            var required = isRequired(feature);
+            return required;
         });
         var featureToEnable = featureHalf[0];
         var featureToDisable = featureHalf[1];
@@ -125,12 +155,11 @@ function getFilteredFeatures(names) {
         return enabledFeatures;
     });
 }
-
-function createFeaturesTests(options) {
+function getFeaturesTests(options) {
     var featureNames = options.features;
     var agent = options.agent || 'Firefox/50.0';
 
-    return getFilteredFeatures(featureNames).then(function(features) {
+    return getRequiredFeatures(featureNames).then(function(features) {
         // pour chaque feature regarde si on connait
         // son résultat pour cet agent
 
@@ -175,16 +204,16 @@ function createFeaturesTests(options) {
             // pour toutes ces features je dois passer des tests
             // l'idée c'est donc d'avoir une fonction genre buildFeatureTests
             // idéalement lorsque j'eval ça je devrait récup une liste des features
-            // que je n'ai pluas qu'à tester en utilisant l'api de jsenv
+            // que je n'ai plus qu'à tester en utilisant l'api de jsenv
+            // en gros je pense qu'il "suffit"
             console.log(missingTestResultFeatures.length, 'test to run');
         });
     });
 }
 
-createFeaturesTests({
+getFeaturesTests({
     features: [
-        'const',
-        'let'
+        'const/scoped'
     ]
 }).catch(function(e) {
     setTimeout(function() {
@@ -201,7 +230,10 @@ createFeaturesTests({
 // });
 
 module.exports = {
-    createFeaturesTests: createFeaturesTests
+    getFeaturesSource: getFeaturesSource,
+    getFeatures: getFeatures,
+    getRequiredFeatures: getRequiredFeatures,
+    getFeaturesTests: getFeaturesTests
 };
 
 // var createAgent = (function() {

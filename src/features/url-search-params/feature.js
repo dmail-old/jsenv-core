@@ -1,6 +1,6 @@
 this.path = 'URLSearchParams';
-this.code = 'inherit';
-this.pass = 'inherit';
+this.code = feature.runPath;
+this.pass = feature.passPresence;
 this.solution = {
     type: 'polyfill',
     location: './solution.js'

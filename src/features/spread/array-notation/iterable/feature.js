@@ -1,4 +1,4 @@
-this.dependsOn('symbol-iterator');
+this.dependencies = ['symbol-iterator'];
 this.pass = function(fn) {
     var data = [1, 2, 3];
     var iterable = this.createIterableObject(data);

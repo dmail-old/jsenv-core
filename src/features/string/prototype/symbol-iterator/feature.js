@@ -1,4 +1,4 @@
-this.dependsOn('symbol-iterator');
+this.dependencies = ['symbol-iterator'];
 this.code = this.produceFromComposedPath;
 this.pass = 'inherit';
 this.solution = {

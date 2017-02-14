@@ -1,7 +1,7 @@
-this.dependsOn(
+this.dependencies = [
     'destructuring-declaration-array-notation',
     'destructuring-declaration-object-notation'
-);
+];
 this.code = transpile`(function(value) {
     var [{a}] = value;
     return a;

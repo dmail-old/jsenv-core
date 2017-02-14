@@ -1,7 +1,8 @@
 module.exports = {
     "extends": "../../.eslintrc.js",
     "globals": {
-        "transpile": true
+        "transpile": true,
+        "feature": true
     },
     "rules": {
         "no-unused-expressions": [

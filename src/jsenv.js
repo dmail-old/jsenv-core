@@ -759,8 +759,9 @@ ainsi que quelques utilitaires comme assign, Iterable et Predicate
             var index = iterable.indexOf(item);
             if (index > -1) {
                 iterable.splice(index, 1);
+                return true;
             }
-            return iterable;
+            return false;
         };
         return Iterable;
     })();
@@ -853,6 +854,14 @@ en fonction du résultat de ces tests
     var Iterable = jsenv.Iterable;
     // var Predicate = jsenv.Predicate;
 
+    /*
+    plus tard on pourrais imaginer supporter les features avec des version par exemple
+    array/1.0.0/from/0.1.0 signifie array version 1.0.0, from version 0.1.0
+    il faudra alors changer le code qui parcoure le filesystem pour qu'il détecte
+    le dossiers commençant par [0-9] et considère que c'est une version de la feature
+    c'est bien entendu de l'ultra bonus et pas besoin de ça pour le moment
+    */
+
     jsenv.provide(function versionnedFeature() {
         function VersionnedFeature() {
             this.dependents = [];
@@ -874,19 +883,12 @@ en fonction du résultat de ces tests
                 return path.join('.');
             },
 
-            status: 'unspecified',
-            // isValid & isInvalid or not opposite because status may be 'unspecified'
-            isValid: function() {
-                return this.status === 'valid';
-            },
-            isInvalid: function() {
-                return this.status === 'invalid';
+            addDependent: function(dependentFeature, options) {
+                dependentFeature.addDependency(this, options);
+                return this;
             },
 
             addDependency: function(dependency, options) {
-                if (typeof dependency === 'string') {
-                    dependency = createFeature(dependency, true);
-                }
                 if (dependency instanceof VersionnedFeature === false) {
                     throw new Error('addDependency first arg must be a feature (not ' + dependency + ')');
                 }
@@ -975,103 +977,314 @@ en fonction du résultat de ces tests
             isDisabled: function() {
                 return this.enabled !== true;
             },
-            isProblematic: function() {
-                return this.isInvalid() && this.isEnabled();
+
+            test: function(callback) {
+                var feature = this;
+                var settled = false;
+                var result = {};
+                var timeout;
+                var settle = function(valid, reason, detail) {
+                    if (settled === false) {
+                        settled = true;
+                        if (timeout) {
+                            clearTimeout(timeout);
+                            timeout = null;
+                        }
+                        var arity = arguments.length;
+
+                        if (arity === 0) {
+                            result.status = 'unspecified';
+                        } else {
+                            result.status = valid ? 'valid' : 'invalid';
+                            result.reason = reason;
+                            result.detail = detail;
+                        }
+
+                        callback.call(feature, result, feature);
+                    }
+                };
+
+                var dependencies = feature.dependencies;
+                var invalidDependency = Iterable.find(dependencies, function(dependency) {
+                    return dependency.isInvalid() && dependency.isParameterOf(this) === false;
+                }, this);
+                if (invalidDependency) {
+                    settle(false, 'dependency-is-invalid', invalidDependency.name);
+                } else {
+                    var output;
+                    var outputOrigin;
+                    try {
+                        output = this.compile();
+                        outputOrigin = 'return';
+                    } catch (e) {
+                        output = e;
+                        outputOrigin = 'throw';
+                    }
+
+                    var test;
+                    var testPropertyName = outputOrigin === 'throw' ? 'fail' : 'pass';
+
+                    if (this.hasOwnProperty(testPropertyName)) {
+                        test = this[testPropertyName];
+                        var type = typeof test;
+                        if (type !== 'function') {
+                            throw new TypeError('feature test must be a function (not ' + type + ')');
+                        }
+                        // ce throw au dessus fait que settle n'est jamais appelé
+                        // et bizarrement l'erreur n'est jamais log...
+
+                        var testArgs = [];
+                        testArgs.push(output);
+                        Iterable.forEach(this.parameters, function(parameter) {
+                            testArgs.push(parameter);
+                        });
+                        testArgs.push(settle);
+                        var testSettler = convertToSettler(test);
+
+                        try {
+                            testSettler.apply(
+                                this,
+                                testArgs
+                            );
+
+                            var maxDuration = feature.maxTestDuration;
+                            timeout = setTimeout(function() {
+                                settle(false, 'timeout', maxDuration);
+                            }, maxDuration);
+                        } catch (e) {
+                            settle(false, 'throwed', e);
+                        }
+                    } else {
+                        settle(false, 'unexpected-compilation-' + outputOrigin);
+                    }
+                }
+
+                return this;
+            },
+            code: undefined,
+            pass: function() {
+                return true;
+            },
+            solution: 'none',
+            maxTestDuration: 100,
+            compile: function() {
+                var output;
+
+                if (this.hasOwnProperty('code')) {
+                    var code = this.code;
+
+                    if (jsenv.isSourceCode(code)) {
+                        output = code.compile();
+                    } else if (typeof code === 'function') {
+                        output = code.call(this);
+                    } else {
+                        output = code;
+                    }
+                } else {
+                    output = undefined;
+                }
+
+                return output;
+            },
+
+            toJSON: function() {
+                return {
+                    name: this.name,
+                    path: this.path,
+                    code: this.code,
+                    pass: this.pass,
+                    fail: this.fail,
+                    solution: this.solution,
+                    maxTestDuration: this.maxTestDuration
+                };
             }
         };
         jsenv.makeVersionnable(VersionnedFeature);
 
-        jsenv.features = [];
-        function createFeature(name, preventConflict) {
-            var feature;
-            var features = jsenv.features;
-            var existingFeature = jsenv.Iterable.find(features, function(feature) {
-                return feature.match(name);
-            });
-            if (existingFeature) {
-                if (preventConflict) {
-                    feature = existingFeature;
-                } else if (existingFeature.preventConflict) {
-                    existingFeature.preventConflict = false;
-                    feature = existingFeature;
+        function convertToSettler(fn) {
+            return function() {
+                var args = arguments;
+                var arity = args.length;
+                var fnArity = fn.length;
+
+                if (fnArity < arity) {
+                    var settle = args[arity - 1];
+                    var returnValue = fn.apply(this, args);
+                    settle(Boolean(returnValue), 'returned', returnValue);
                 } else {
-                    throw new Error('feature named ' + name + ' already exists');
+                    fn.apply(this, args);
                 }
+            };
+        }
+
+        // feature testing helpers
+        var noValue = {novalue: true};
+        VersionnedFeature.prototype.runPath = function() {
+            var feature = this;
+            var parent = feature.parent;
+            var startValue;
+            var output;
+
+            if (parent) {
+                startValue = parent.compile();
             } else {
-                feature = new VersionnedFeature(name);
-                feature.preventConflict = Boolean(preventConflict);
-                features.push(feature);
+                startValue = jsenv.global;
             }
 
-            return feature;
+            if (feature.hasOwnProperty('path')) {
+                var path = feature.path;
+                var parts = path.split('.');
+                var i = 0;
+                var j = parts.length;
+                while (i < j) {
+                    var part = parts[i];
+                    if (part in output) {
+                        output = output[part];
+                    } else {
+                        output = noValue;
+                        break;
+                    }
+                    i++;
+                }
+            } else {
+                output = startValue;
+            }
+
+            return output;
+        };
+        VersionnedFeature.prototype.runComposedPath = function() {
+            var output;
+            var i = 0;
+            var composedFeatures = this.dependencies;
+            var j = composedFeatures.length;
+            while (i < j) {
+                var composedFeatureOutput = composedFeatures[i].compile();
+                if (i === 0) {
+                    output = composedFeatureOutput;
+                } else if (composedFeatureOutput in output) {
+                    output = output[composedFeatureOutput];
+                } else {
+                    output = noValue;
+                    break;
+                }
+                i++;
+            }
+            return output;
+        };
+        VersionnedFeature.prototype.passPresence = function(output, settle) {
+            if (output === noValue) {
+                settle(false, 'missing');
+            } else {
+                settle(true, 'present');
+            }
+        };
+        VersionnedFeature.createIterableObject = function(arr, methods) {
+            var j = arr.length;
+            var iterable = {};
+            iterable[Symbol.iterator] = function() {
+                var i = -1;
+                var iterator = {
+                    next: function() {
+                        i++;
+                        return {
+                            value: i === j ? undefined : arr[i],
+                            done: i === j
+                        };
+                    }
+                };
+                jsenv.assign(iterator, methods || {});
+                iterator.iterable = iterable;
+
+                return iterator;
+            };
+            return iterable;
+        };
+        VersionnedFeature.collectKeys = function(value) {
+            var keys = [];
+            for (var key in value) {
+                if (value.hasOwnProperty(key)) {
+                    if (isNaN(key) === false && value instanceof Array) {
+                        // key = Number(key);
+                        keys.push(key);
+                    } else {
+                        keys.push(key);
+                    }
+                }
+            }
+            return keys;
+        };
+        VersionnedFeature.sameValues = function sameValues(a, b) {
+            if (typeof a === 'string') {
+                a = convertStringToArray(a);
+            } else if (typeof a === 'object' && typeof a.next === 'function') {
+                a = consumeIterator(a);
+            }
+            if (typeof b === 'string') {
+                b = convertStringToArray(b);
+            } else if (typeof b === 'object' && typeof b.next === 'function') {
+                b = consumeIterator(b);
+            }
+
+            if (a.length !== b.length) {
+                return false;
+            }
+            var i = a.length;
+            while (i--) {
+                if (a[i] !== b[i]) {
+                    return false;
+                }
+            }
+            return true;
+        };
+        function convertStringToArray(string) {
+            var result = [];
+            var i = 0;
+            var j = string.length;
+            while (i < j) {
+                var char = string[i];
+
+                if (i < j - 1) {
+                    var charCode = string.charCodeAt(i);
+
+                    // fix astral plain strings
+                    if (charCode >= 55296 && charCode <= 56319) {
+                        i++;
+                        result.push(char + string[i]);
+                    } else {
+                        result.push(char);
+                    }
+                } else {
+                    result.push(char);
+                }
+                i++;
+            }
+            return result;
+        }
+        function consumeIterator(iterator) {
+            var values = [];
+            var next = iterator.next();
+            while (next.done === false) {
+                values.push(next.value);
+                next = iterator.next();
+            }
+            return values;
         }
 
         return {
-            createFeature: createFeature,
-            VersionnedFeature: VersionnedFeature,
+            createFeature: function() {
+                var arity = arguments.length;
+                if (arity === 0) {
+                    return new VersionnedFeature();
+                }
+                if (arity === 1) {
+                    return new VersionnedFeature(arguments[0]);
+                }
+                return new VersionnedFeature(arguments[0], arguments[1]);
+            },
 
             isFeature: function(value) {
                 return value instanceof VersionnedFeature;
             }
-        };
-    });
-
-    jsenv.provide(function implementation() {
-        function Implementation() {
-            this.features = [];
-        }
-        Implementation.prototype = {
-            constructor: Implementation,
-
-            add: function(feature) {
-                if (feature.name === '') {
-                    throw new Error('cannot add a feature with empty name');
-                }
-
-                var existingFeature = this.find(feature);
-                if (existingFeature) {
-                    throw new Error('The feature ' + existingFeature + ' already exists');
-                }
-                this.features.push(feature);
-                return feature;
-            },
-
-            find: function(searchedFeature) {
-                return Iterable.find(this.features, function(feature) {
-                    return feature.match(searchedFeature);
-                });
-            },
-
-            get: function() {
-                var searchedFeature = jsenv.createFeature.apply(this, arguments);
-                var foundVersionnedFeature = this.find(searchedFeature);
-                if (!foundVersionnedFeature) {
-                    throw new Error('feature not found ' + searchedFeature);
-                }
-                return foundVersionnedFeature;
-            },
-
-            support: function() {
-                var versionnedFeature = this.get.apply(this, arguments);
-                if (versionnedFeature) {
-                    return versionnedFeature.isValid();
-                }
-                return false;
-            },
-
-            enable: function(featureName) {
-                this.get(featureName).enable();
-                return this;
-            },
-
-            disable: function(featureName, reason) {
-                this.get(featureName).disable(reason);
-                return this;
-            }
-        };
-
-        return {
-            implementation: new Implementation()
         };
     });
 
@@ -1141,394 +1354,153 @@ en fonction du résultat de ces tests
         };
     });
 
-    jsenv.provide(function registerFeature() {
-        function convertToSettler(fn) {
-            return function() {
-                var args = arguments;
-                var arity = args.length;
-                var fnArity = fn.length;
-
-                if (fnArity < arity) {
-                    var settle = args[arity - 1];
-                    var returnValue = fn.apply(this, args);
-                    settle(Boolean(returnValue), 'returned', returnValue);
-                } else {
-                    fn.apply(this, args);
-                }
-            };
+    jsenv.provide(function implementation() {
+        function Implementation() {
+            this.features = [];
         }
+        Implementation.prototype = {
+            constructor: Implementation,
 
-        var featurePrototype = jsenv.VersionnedFeature;
-        featurePrototype.updateStatus = function(callback) {
-            var feature = this;
-            // var parent = this.parent;
-            // inherit some properties from parent
-            // if (parent) {
-            //     Iterable.forEach(
-            //         ['code', 'pass', 'fail'],
-            //         function(name) {
-            //             if (this.hasOwnProperty(name) === false && parent.hasOwnProperty(name)) {
-            //                 this[name] = parent[name];
-            //             }
-            //         },
-            //         this
-            //     );
-            // }
-
-            if (feature.statusIsFrozen) {
-                callback(feature);
-            } else {
-                var settled = false;
-                var timeout;
-                var settle = function(valid, reason, detail) {
-                    if (settled === false) {
-                        if (timeout) {
-                            clearTimeout(timeout);
-                            timeout = null;
-                        }
-                        var arity = arguments.length;
-
-                        if (arity === 0) {
-                            feature.status = 'unspecified';
-                            feature.statusReason = undefined;
-                            feature.statusDetail = undefined;
-                        } else {
-                            feature.status = valid ? 'valid' : 'invalid';
-                            feature.statusReason = reason;
-                            feature.statusDetail = detail;
-                        }
-
-                        settled = true;
-                        callback(feature);
-                    }
-                };
-
-                var dependencies = feature.dependencies;
-                var invalidDependency = Iterable.find(dependencies, function(dependency) {
-                    return dependency.isInvalid() && dependency.isParameterOf(this) === false;
-                }, this);
-                if (invalidDependency) {
-                    settle(false, 'dependency-is-invalid', invalidDependency.name);
-                } else {
-                    var result;
-                    var resultOrigin;
-                    try {
-                        result = this.compileResult();
-                        resultOrigin = 'return';
-                    } catch (e) {
-                        result = e;
-                        resultOrigin = 'throw';
-                    }
-                    this.result = result;
-                    this.resultOrigin = resultOrigin;
-
-                    var test;
-                    var testPropertyName = resultOrigin === 'throw' ? 'fail' : 'pass';
-
-                    if (this.hasOwnProperty(testPropertyName)) {
-                        test = this[testPropertyName];
-                        var type = typeof test;
-                        if (type !== 'function') {
-                            throw new TypeError('feature test must be a function (not ' + type + ')');
-                        }
-                        // ce throw au dessus fait que settle n'est jamais appelé
-                        // et bizarrement l'erreur n'est jamais log...
-
-                        var testArgs = [];
-                        testArgs.push(result);
-                        Iterable.forEach(this.parameters, function(parameter) {
-                            testArgs.push(parameter);
-                        });
-                        testArgs.push(settle);
-                        var testSettler = convertToSettler(test);
-
-                        try {
-                            testSettler.apply(
-                                this,
-                                testArgs
-                            );
-
-                            var maxDuration = feature.maxTestDuration;
-                            timeout = setTimeout(function() {
-                                settle(false, 'timeout', maxDuration);
-                            }, maxDuration);
-                        } catch (e) {
-                            settle(false, 'throwed', e);
-                        }
-                    } else {
-                        settle(false, 'unexpected-compilation-' + resultOrigin);
-                    }
+            add: function(feature) {
+                if (feature.name === '') {
+                    throw new Error('cannot add a feature with empty name');
                 }
+
+                var existingFeature = this.find(feature);
+                if (existingFeature) {
+                    throw new Error('The feature ' + existingFeature + ' already exists');
+                }
+                this.features.push(feature);
+                return feature;
+            },
+
+            find: function(searchedFeature) {
+                return Iterable.find(this.features, function(feature) {
+                    return feature.match(searchedFeature);
+                });
+            },
+
+            get: function() {
+                var searchedFeature = jsenv.createFeature.apply(this, arguments);
+                var foundVersionnedFeature = this.find(searchedFeature);
+                if (!foundVersionnedFeature) {
+                    throw new Error('feature not found ' + searchedFeature);
+                }
+                return foundVersionnedFeature;
+            },
+
+            support: function() {
+                var versionnedFeature = this.get.apply(this, arguments);
+                if (versionnedFeature) {
+                    return versionnedFeature.isValid();
+                }
+                return false;
+            },
+
+            enable: function(featureName) {
+                this.get(featureName).enable();
+                return this;
+            },
+
+            disable: function(featureName, reason) {
+                this.get(featureName).disable(reason);
+                return this;
             }
-
-            return this;
         };
-        featurePrototype.maxTestDuration = 100;
-        featurePrototype.compileResult = function() {
-            var result;
 
-            if (this.hasOwnProperty('code')) {
-                var code = this.code;
+        return {
+            implementation: new Implementation()
+        };
+    });
 
-                if (jsenv.isSourceCode(code)) {
-                    result = code.compile();
-                } else if (typeof code === 'function') {
-                    result = code.call(this);
-                } else {
-                    result = code;
+    jsenv.provide(function registerFeatures() {
+        var Iterable = jsenv.Iterable;
+
+        // isProblematic: isInvalid & isEnabled
+
+        function registerFeatures(fn) {
+            var features = [];
+            var unconflictualFeatures = [];
+            fn(registerFeature, jsenv.transpile);
+
+            function registerFeature(name, propertiesConstructor) {
+                var feature = createFeature(name);
+                var properties = {};
+                if (propertiesConstructor) {
+                    propertiesConstructor.call(properties, feature);
                 }
-            } else {
-                result = undefined;
-            }
 
-            return result;
-        };
-        featurePrototype.addDependent = function(dependentFeature, options) {
-            dependentFeature.addDependency(this, options);
-            return this;
-        };
-        featurePrototype.toJSON = function() {
-            return {
-                name: this.name,
-                result: {
-                    status: this.status,
-                    reason: this.statusReason,
-                    detail: this.statusDetail
+                var lastSlashIndex = name.lastIndexOf('/');
+                if (lastSlashIndex > -1) {
+                    var parentName = name.slice(0, lastSlashIndex);
+                    feature.addDependency(createFeature(parentName, true), {as: 'parent'});
                 }
-            };
-        };
-        function getFeature() {
-
-        }
-        featurePrototype.ensure = function(fn) {
-            var self = this;
-
-            function register(name, properties) {
-                var ancestorNames = [name];
-                var ancestor = self;
-                while (ancestor) {
-                    var ancestorName = ancestor.name;
-                    if (ancestorName) {
-                        if (ancestorName !== 'global') {
-                            ancestorNames.unshift(ancestorName);
-                        }
-                    }
-                    ancestor = ancestor.ancestor;
-                }
-                var featureName = ancestorNames.join('-');
-                var feature = getFeature(featureName, true);
-
-                feature.addDependency(self, {as: 'parent'});
-
-                properties = properties || {};
                 if ('dependencies' in properties) {
                     Iterable.forEach(properties.dependencies, function(dependencyName) {
-                        var dependency = getFeature(dependencyName, false);
-                        feature.addDependency(dependency);
+                        feature.addDependency(createFeature(dependencyName, true));
                     });
                 }
                 if ('parameters' in properties) {
                     Iterable.forEach(properties.parameters, function(parameterName) {
-                        var parameter = getFeature(parameterName, false);
-                        feature.addDependency(parameter, {as: 'parameter'});
+                        feature.addDependency(createFeature(parameterName, true), {as: 'parameter'});
                     });
                 }
-                if ('result' in properties) {
-                    feature.result = properties.result;
-                }
-                if ('path' in properties) {
-                    feature.path = properties.path;
-                }
-                if ('code' in properties) {
-                    feature.code = properties.code;
+                checkProperty(feature, properties, 'code');
+                checkProperty(feature, properties, 'pass');
+                checkProperty(feature, properties, 'fail');
+                checkProperty(feature, properties, 'maxTestDuration');
+                checkProperty(feature, properties, 'solution');
+                checkProperty(feature, properties, 'path');
+
+                return feature;
+            }
+            function createFeature(name, preventConflict) {
+                var feature;
+                var existingFeature = jsenv.Iterable.find(features, function(feature) {
+                    return feature.match(name);
+                });
+                if (existingFeature) {
+                    if (preventConflict) {
+                        feature = existingFeature;
+                    } else if (jsenv.Iterable.remove(unconflictualFeatures, existingFeature)) {
+                        feature = existingFeature;
+                    } else {
+                        throw new Error('feature named ' + name + ' already exists');
+                    }
                 } else {
-                    feature.code = self.code;
-                }
-                if ('pass' in properties) {
-                    feature.pass = properties.pass;
-                } else {
-                    feature.pass = self.pass;
-                }
-                if ('fail' in properties) {
-                    feature.fail = properties.fail;
-                } else {
-                    feature.fail = self.fail;
-                }
-                if ('maxTestDuration' in properties) {
-                    feature.maxTestDuration = properties.maxTestDuration;
+                    feature = jsenv.createFeature(name);
+                    if (preventConflict) {
+                        unconflictualFeatures.push(feature);
+                    }
+                    features.push(feature);
                 }
 
                 return feature;
             }
-
-            fn(register);
-            return this;
-        };
-
-        function registerFeatures(fn) {
-            var rootFeature = jsenv.createFeature('');
-            rootFeature.code = produceFromPath;
-            rootFeature.pass = presence;
-            rootFeature.ensure(fn);
-            rootFeature.dependents.forEach(function(feature) {
-                Iterable.remove(feature.dependencies, rootFeature);
-                delete feature.parent;
-            });
-        }
-
-        var noValue = {novalue: true};
-
-        function produceFromComposedPath() {
-            var result;
-            var i = 0;
-            var composedFeatures = this.dependencies;
-            var j = composedFeatures.length;
-            while (i < j) {
-                var composedFeatureValue = composedFeatures[i].result;
-                if (i === 0) {
-                    result = composedFeatureValue;
-                } else if (composedFeatureValue in result) {
-                    result = result[composedFeatureValue];
+            function checkProperty(feature, properties, propertyName) {
+                if (propertyName in properties) {
+                    assignProperty(feature, properties[propertyName], propertyName);
+                }
+            }
+            function assignProperty(feature, propertyValue, propertyName) {
+                if (propertyValue === 'inherit') {
+                    propertyValue = inherit(feature, propertyName);
                 } else {
-                    result = noValue;
-                    break;
-                }
-                i++;
-            }
-            return result;
-        }
-        function produceFromPath() {
-            var feature = this;
-            var result;
-            var parent = feature.parent;
-
-            if (parent) {
-                var parentResult = parent.result;
-                result = parentResult;
-
-                if (feature.hasOwnProperty('path')) {
-                    var path = feature.path;
-                    var parts = path.split('.');
-                    var i = 0;
-                    var j = parts.length;
-                    while (i < j) {
-                        var part = parts[i];
-                        if (part in result) {
-                            result = result[part];
-                        } else {
-                            result = noValue;
-                            break;
-                        }
-                        i++;
-                    }
-                }
-            } else {
-                result = jsenv.global;
-                // throw new Error('feature without parent must have a result property');
-            }
-            return result;
-        }
-        function presence(value, settle) {
-            if (value === noValue) {
-                settle(false, 'missing');
-            } else {
-                settle(true, 'present');
-            }
-        }
-        jsenv.produceFromComposedPath = produceFromComposedPath;
-
-        featurePrototype.createIterableObject = function(arr, methods) {
-            var j = arr.length;
-            var iterable = {};
-            iterable[Symbol.iterator] = function() {
-                var i = -1;
-                var iterator = {
-                    next: function() {
-                        i++;
-                        return {
-                            value: i === j ? undefined : arr[i],
-                            done: i === j
-                        };
-                    }
-                };
-                jsenv.assign(iterator, methods || {});
-                iterator.iterable = iterable;
-
-                return iterator;
-            };
-            return iterable;
-        };
-        featurePrototype.collectKeys = function(value) {
-            var keys = [];
-            for (var key in value) {
-                if (value.hasOwnProperty(key)) {
-                    if (isNaN(key) === false && value instanceof Array) {
-                        // key = Number(key);
-                        keys.push(key);
-                    } else {
-                        keys.push(key);
-                    }
+                    feature[propertyName] = propertyValue;
                 }
             }
-            return keys;
-        };
-
-        featurePrototype.sameValues = function sameValues(a, b) {
-            if (typeof a === 'string') {
-                a = convertStringToArray(a);
-            } else if (typeof a === 'object' && typeof a.next === 'function') {
-                a = consumeIterator(a);
-            }
-            if (typeof b === 'string') {
-                b = convertStringToArray(b);
-            } else if (typeof b === 'object' && typeof b.next === 'function') {
-                b = consumeIterator(b);
-            }
-
-            if (a.length !== b.length) {
-                return false;
-            }
-            var i = a.length;
-            while (i--) {
-                if (a[i] !== b[i]) {
-                    return false;
-                }
-            }
-            return true;
-        };
-
-        function convertStringToArray(string) {
-            var result = [];
-            var i = 0;
-            var j = string.length;
-            while (i < j) {
-                var char = string[i];
-
-                if (i < j - 1) {
-                    var charCode = string.charCodeAt(i);
-
-                    // fix astral plain strings
-                    if (charCode >= 55296 && charCode <= 56319) {
-                        i++;
-                        result.push(char + string[i]);
-                    } else {
-                        result.push(char);
-                    }
+            function inherit(feature, propertyName) {
+                var value;
+                if ('parent' in feature) {
+                    value = feature.parent[propertyName];
                 } else {
-                    result.push(char);
+                    // read from feature prototype
+                    // throw new Error('cannot inherit ' + propertyName + ', feature ' + feature.name + ' has no parent');
                 }
-                i++;
+                return value;
             }
-            return result;
-        }
-        function consumeIterator(iterator) {
-            var values = [];
-            var next = iterator.next();
-            while (next.done === false) {
-                values.push(next.value);
-                next = iterator.next();
-            }
-            return values;
+
+            return features;
         }
 
         return {
@@ -1568,11 +1540,12 @@ en fonction du résultat de ces tests
 
             var handlers = {
                 'scan'(instruction, complete) {
-                    eval(instruction.input.features); // eslint-disable-line no-eval
+                    var features = eval(instruction.input.features); // eslint-disable-line no-eval
 
                     scan(
-                        function(report) {
-                            complete(report);
+                        features,
+                        function(results) {
+                            complete(results);
                         },
                         function(event) {
                             hook('progress', {
@@ -1586,9 +1559,9 @@ en fonction du résultat de ces tests
                     eval(instruction.input.fix); // eslint-disable-line no-eval
 
                     if ('features' in instruction.input) {
-                        jsenv.implementation.features = []; // reset features
-                        eval(instruction.input.features); // eslint-disable-line no-eval
+                        var features = eval(instruction.input.features); // eslint-disable-line no-eval
                         scan(
+                            features,
                             function(report) {
                                 complete(report);
                             },
@@ -1605,25 +1578,14 @@ en fonction du résultat de ces tests
                 }
             };
 
-            function scan(doneCallback) {
-                if (implementation.preventScanReason) {
-                    throw new Error('cannot scan, reason :' + implementation.preventScanReason);
-                }
-                implementation.preventScanReason = 'there is already a pending scan';
-
-                var features = implementation.features;
+            function scan(features, doneCallback) {
+                var results = [];
                 var readyCount = 0;
                 var groups = groupNodesByDependencyDepth(features);
                 var groupIndex = -1;
                 var groupCount = groups.length;
                 var done = function() {
-                    implementation.preventScanReason = undefined;
-                    var featureResults = Iterable.map(implementation.features, function(feature) {
-                        return feature.toJSON();
-                    });
-                    doneCallback({
-                        features: featureResults
-                    });
+                    doneCallback(results);
                 };
 
                 function nextGroup() {
@@ -1642,11 +1604,15 @@ en fonction du résultat de ces tests
                         while (i < j) {
                             var feature = group[i];
 
-                            feature.updateStatus(function(feature) { // eslint-disable-line
+                            feature.test(function(result) { // eslint-disable-line
+                                var feature = this; // callback is async, this is the right fature
+                                var featureIndex = features.indexOf(feature);
+                                results[featureIndex] = result;
                                 readyCount++;
                                 var progressEvent = {
                                     type: 'progress',
                                     target: feature,
+                                    detail: result,
                                     lengthComputable: true,
                                     total: features.length,
                                     loaded: readyCount

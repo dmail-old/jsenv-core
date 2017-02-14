@@ -1,4 +1,4 @@
-this.dependsOn('object-get-own-property-descriptor');
+this.dependencies = ['object-get-own-property-descriptor'];
 this.code = 'inherit';
 this.pass = function() {
     var descriptor = Object.getOwnPropertyDescriptor(

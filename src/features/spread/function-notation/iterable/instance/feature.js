@@ -1,4 +1,4 @@
-this.dependsOn('object-create');
+this.dependencies = ['object-create'];
 this.code = 'inherit';
 this.pass = function(fn) {
     var method = Math.max;
