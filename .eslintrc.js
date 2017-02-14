@@ -23,6 +23,23 @@ module.exports = {
         ],
         "no-warning-comments": [
             "off"
+        ],
+        /*
+        Variable hoisting is bad, I agree
+        Function hoisting is mega cool because it lets your structure you code so that surface methods
+        are at the top and implementation detail at the bottom.
+
+        Sometimes your variable contains a function, in that case this variable is used
+        as a function and becomes a sort of function hoisting but eslint can't
+        This can happen when you bind, curry, memoize your functions.
+        It happen very often and I don't want to write // eslint-disable-line no-use-before-define
+        All the time.
+        However I'll not use variable hoisting anywhere, I hate that anyway.
+
+        Considering all of this, I'm disabling "no-use-before-define".
+        */
+        "no-use-before-define": [
+            "off"
         ]
     }
 };
