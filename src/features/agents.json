@@ -1,14 +1,14 @@
 [
-    "blackberry",
-    "chrome",
-    "chrome-mobile-ios",
-    "firefox",
-    "firefox-mobile",
-    "ie",
-    "ie-mobile",
-    "safari",
-    "safari-ios",
-    "samsung-mobile",
-    "opera",
-    "opera-mobile"
+    {"name": "blackberry", "known": true},
+    {"name": "chrome", "known": true},
+    {"name": "chrome-mobile-ios", "known": true},
+    {"name": "firefox", "known": true},
+    {"name": "firefox-mobile", "known": true},
+    {"name": "ie", "known": true},
+    {"name": "ie-mobile", "known": true},
+    {"name": "safari", "known": true},
+    {"name": "safari-ios", "known": true},
+    {"name": "samsung-mobile", "known": true},
+    {"name": "opera", "known": true},
+    {"name": "opera-mobile", "known": true}
 ]
