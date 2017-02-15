@@ -338,6 +338,10 @@ var createFileSystemCacheBranchEntry = (function() {
     FileSystemCacheBranchEntry.prototype = {
         constructor: FileSystemCacheBranchEntry,
         mode: 'default', // 'write-only', // utile pour le debug
+        limit: { // todo, la seule strategy possible pour le moment est LRU
+            value: Infinity,
+            strategy: 'least-recently-used'
+        },
         prevalidate: function() {
             this.data.valid = true;
         },
@@ -459,6 +463,27 @@ store.memoryEntry = function(value) {
         write: function(value) {
             data.valid = true;
             data.value = value;
+            return Promise.resolve();
+        }
+    };
+};
+store.objectEntry = function(object, propertyName) {
+    var data = {
+        valid: propertyName in object,
+        value: object[propertyName]
+    };
+
+    return {
+        read: function() {
+            return Promise.resolve().then(function() {
+                return data;
+            });
+        },
+
+        write: function(value) {
+            data.valid = true;
+            data.value = value;
+            object[propertyName] = value;
             return Promise.resolve();
         }
     };
