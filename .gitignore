@@ -52,5 +52,5 @@ cache/features.js
 !cache/scan
 cache/polyfill/*
 !cache/polyfill/readme.md
-cache/transpile/*
-!cache/transpile/readme.md
+cache/transpiler/*
+!cache/transpiler/readme.md
