@@ -434,6 +434,8 @@ var createFileSystemCacheBranchEntry = (function() {
                 data.value = encodedValue;
             }).then(function() {
                 return fsAsync.setFileContent(path, data.value);
+            }).then(function() {
+                return data.value;
             });
         }
     };
@@ -463,7 +465,7 @@ store.memoryEntry = function(value) {
         write: function(value) {
             data.valid = true;
             data.value = value;
-            return Promise.resolve();
+            return Promise.resolve(value);
         }
     };
 };
@@ -484,7 +486,7 @@ store.objectEntry = function(object, propertyName) {
             data.valid = true;
             data.value = value;
             object[propertyName] = value;
-            return Promise.resolve();
+            return Promise.resolve(value);
         }
     };
 };
