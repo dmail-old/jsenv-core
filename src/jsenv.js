@@ -1351,65 +1351,6 @@ en fonction du résultat de ces tests
         };
     });
 
-    jsenv.provide(function implementation() {
-        function Implementation() {
-            this.features = [];
-        }
-        Implementation.prototype = {
-            constructor: Implementation,
-
-            add: function(feature) {
-                if (feature.name === '') {
-                    throw new Error('cannot add a feature with empty name');
-                }
-
-                var existingFeature = this.find(feature);
-                if (existingFeature) {
-                    throw new Error('The feature ' + existingFeature + ' already exists');
-                }
-                this.features.push(feature);
-                return feature;
-            },
-
-            find: function(searchedFeature) {
-                return Iterable.find(this.features, function(feature) {
-                    return feature.match(searchedFeature);
-                });
-            },
-
-            get: function() {
-                var searchedFeature = jsenv.createFeature.apply(this, arguments);
-                var foundVersionnedFeature = this.find(searchedFeature);
-                if (!foundVersionnedFeature) {
-                    throw new Error('feature not found ' + searchedFeature);
-                }
-                return foundVersionnedFeature;
-            },
-
-            support: function() {
-                var versionnedFeature = this.get.apply(this, arguments);
-                if (versionnedFeature) {
-                    return versionnedFeature.isValid();
-                }
-                return false;
-            },
-
-            enable: function(featureName) {
-                this.get(featureName).enable();
-                return this;
-            },
-
-            disable: function(featureName, reason) {
-                this.get(featureName).disable(reason);
-                return this;
-            }
-        };
-
-        return {
-            implementation: new Implementation()
-        };
-    });
-
     jsenv.provide(function registerFeatures() {
         var Iterable = jsenv.Iterable;
 
@@ -1653,138 +1594,146 @@ en fonction du résultat de ces tests
             }
         };
     });
-})();
 
-(function() {
-    var implementation = jsenv.implementation;
+    jsenv.provide(function adaptImplementation() {
+        var handlers = {
+            'scan'(instruction, hooks) {
+                var features = eval(instruction.input.featuresSource); // eslint-disable-line no-eval
 
-    function adaptImplementation(how) {
-        function run(hooks) {
-            var hook = jsenv.createHooks({
-                hooks: hooks,
-                fallback: {
-                    crash: function(event) {
-                        throw event.value;
-                    }
-                }
-            });
-
-            function getNextInstruction(instruction) {
-                how.writeInstructionOutput(
-                    instruction,
-                    function(nextInstruction) {
-                        return handleNextInstruction(nextInstruction, instruction);
+                jsenv.testFeatures(
+                    features,
+                    function(results) {
+                        hooks.complete(results);
+                    },
+                    function(event) {
+                        hooks.progress({
+                            step: 'scan-progress',
+                            event: event
+                        });
                     }
                 );
+            },
+            'fix+test'(instruction, hooks) {
+                eval(instruction.input.fixSource); // eslint-disable-line no-eval
+
+                var features = eval(instruction.input.featuresSource); // eslint-disable-line no-eval
+                jsenv.testFeatures(
+                    features,
+                    function(report) {
+                        hooks.complete(report);
+                    },
+                    function(event) {
+                        hooks.progress('progress', {
+                            step: 'fixed-scan-progress',
+                            event: event
+                        });
+                    }
+                );
+            },
+            'fix'(instruction, hooks) {
+                eval(instruction.input.fixSource); // eslint-disable-line no-eval
+                hooks.complete();
             }
+        };
 
-            var handlers = {
-                'scan'(instruction, complete) {
-                    var features = eval(instruction.input.features); // eslint-disable-line no-eval
+        function adaptImplementation(how) {
+            return {
+                run: run
+            };
 
-                    jsenv.testFeatures(
-                        features,
-                        function(results) {
-                            complete(results);
-                        },
-                        function(event) {
-                            hook('progress', {
-                                step: 'scan-progress',
-                                event: event
-                            });
+            function run(hooks) {
+                var hook = jsenv.createHooks({
+                    hooks: hooks,
+                    fallback: {
+                        crash: function(event) {
+                            throw event.value;
+                        }
+                    }
+                });
+                getNextInstruction(createFirstInstruction());
+
+                function getNextInstruction(instruction) {
+                    how.writeInstructionOutput(
+                        instruction,
+                        function(nextInstruction) {
+                            return handleNextInstruction(nextInstruction, instruction);
                         }
                     );
-                },
-                'fix'(instruction, complete) {
-                    eval(instruction.input.fix); // eslint-disable-line no-eval
+                }
+                function handleNextInstruction(nextInstruction, instruction) {
+                    nextInstruction.meta = instruction.meta;
 
-                    if ('features' in instruction.input) {
-                        var features = eval(instruction.input.features); // eslint-disable-line no-eval
-                        jsenv.testFeatures(
-                            features,
-                            function(report) {
-                                complete(report);
-                            },
-                            function(event) {
-                                hook('progress', {
-                                    step: 'fixed-scan-progress',
-                                    event: event
-                                });
-                            }
-                        );
+                    hook('progress', {
+                        step: 'after-' + instruction.name
+                    });
+                    if (nextInstruction.name === 'complete') {
+                        hook('complete');
+                    } else if (nextInstruction.name === 'fail') {
+                        hook('fail', nextInstruction.input);
+                    } else if (nextInstruction.name === 'crash') {
+                        hook('crash', {
+                            value: nextInstruction.input
+                        });
                     } else {
-                        complete();
+                        hook('progress', {
+                            step: 'before-' + nextInstruction.name
+                        });
+                        var output = nextInstruction.output;
+                        var complete = function(value) {
+                            output.status = 'completed';
+                            output.value = value;
+                            getNextInstruction(nextInstruction);
+                        };
+                        var fail = function(value) {
+                            output.status = 'failed';
+                            output.value = value;
+                            getNextInstruction(nextInstruction);
+                        };
+                        var crash = function(value) {
+                            output.status = 'crashed';
+                            output.value = value;
+                            getNextInstruction(nextInstruction);
+                        };
+                        var progress = function(value) {
+                            hook('progress', value);
+                        };
+
+                        if (output.status === 'pending') {
+                            var method = handlers[nextInstruction.name];
+                            var args = [nextInstruction, {
+                                complete: complete,
+                                fail: fail,
+                                crash: crash,
+                                progress: progress
+                            }];
+
+                            try {
+                                method.apply(handlers, args);
+                            } catch (e) {
+                                crash(e);
+                            }
+                        } else {
+                            getNextInstruction(nextInstruction);
+                        }
                     }
                 }
-            };
-
-            function handleNextInstruction(nextInstruction, instruction) {
-                nextInstruction.meta = instruction.meta;
-
-                hook('progress', {
-                    step: 'after-' + instruction.name
-                });
-                if (nextInstruction.name === 'complete') {
-                    hook('complete');
-                } else if (nextInstruction.name === 'fail') {
-                    hook('fail', nextInstruction.input);
-                } else if (nextInstruction.name === 'crash') {
-                    hook('crash', {
-                        value: nextInstruction.input
-                    });
-                } else {
-                    hook('progress', {
-                        step: 'before-' + nextInstruction.name
-                    });
-                    var output = nextInstruction.output;
-                    var complete = function(value) {
-                        output.status = 'completed';
-                        output.value = value;
-                        getNextInstruction(nextInstruction);
-                    };
-                    var fail = function(value) {
-                        output.status = 'failed';
-                        output.value = value;
-                        getNextInstruction(nextInstruction);
-                    };
-                    var crash = function(value) {
-                        output.status = 'crashed';
-                        output.value = value;
-                        getNextInstruction(nextInstruction);
-                    };
-
-                    if (output.status === 'pending') {
-                        var method = handlers[nextInstruction.name];
-                        var args = [nextInstruction, complete, fail, crash];
-
-                        try {
-                            method.apply(handlers, args);
-                        } catch (e) {
-                            crash(e);
+                function createFirstInstruction() {
+                    var instruction = {
+                        name: 'start',
+                        meta: how.meta,
+                        input: {},
+                        output: {
+                            status: 'completed',
+                            value: undefined
                         }
-                    } else {
-                        getNextInstruction(nextInstruction);
-                    }
+                    };
+                    return instruction;
                 }
             }
-
-            var instruction = {
-                name: 'start',
-                meta: how.meta,
-                input: {},
-                output: {
-                    status: 'completed',
-                    value: undefined
-                }
-            };
-
-            getNextInstruction(instruction);
         }
 
         return {
-            run: run
+            adaptImplementation: adaptImplementation
         };
-    }
-
-    implementation.adapt = adaptImplementation;
+    });
 })();
