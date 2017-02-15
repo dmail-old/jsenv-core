@@ -25,136 +25,259 @@ var featureTranspiler = createTranspiler({
     ]
 });
 
-function getEnsureImplementationInstruction(adaptOptions) {
+function getTestOutputEntryProperties(feature) {
+    var entryProperties = {
+        name: 'test-output.json',
+        sources: [
+            {
+                path: featuresFolderPath + '/' + feature.name + '/feature.js',
+                strategy: 'eTag'
+            }
+        ]
+    };
+    return entryProperties;
+}
+function getFixOutputEntryProperties(feature) {
+    var featureFilePath = featuresFolderPath + '/' + feature.name + '/feature.js';
+    var sources = [
+        {
+            path: featureFilePath,
+            strategy: 'eTag'
+        }
+    ];
+    var solution = feature.solution;
+    if (
+        solution.type === 'polyfill' &&
+        solution.location.indexOf('://') === -1
+    ) {
+        var solutionPath = require('path').resolve(featureFilePath, solution.location);
+        sources.push({
+            path: solutionPath,
+            strategy: 'etag'
+        });
+    }
+    var entryProperties = {
+        name: 'fix-output.json',
+        sources: sources
+    };
+    return entryProperties;
+}
+
+function getNextAdaptInstruction(instruction) {
     var options = {
         agent: 'Firefox/50.0'
     };
-    jsenv.assign(options, adaptOptions || {});
+    jsenv.assign(options, instruction.input);
 
-    function delegate(optionName, getter) {
-        return memoize.async(getter, store.objectEntry(options, optionName))();
-    }
-
-    return delegate('featureNames', function() {
-        return getRequiredFeatures(options.features).then(function(features) {
-            return features.map(function(feature) {
-                return feature.name;
+    return getRequiredFeatures(options.features).then(function(features) {
+        var testOutputsPromise;
+        if (instruction.name === 'start' || instruction.name === 'fix') {
+            testOutputsPromise = readOutputsFromFileSystem({
+                agent: options.agent,
+                features: features,
+                createEntryProperties: getTestOutputEntryProperties
             });
-        });
-    }).then(function(featureNames) {
-        var testOutputs = options.testOutputs || [];
-        return loadMissingOutputsFromFileSystem();
-
-        function loadMissingOutputsFromFileSystem() {
-            var outputsPromises = featureNames.map(function(featureName, index) {
-                if (index in testOutputs && testOutputs[index] !== null) {
-                    return testOutputs[index];
-                }
-                return loadFileSystemOutput(featureName);
-            });
-            return Promise.all(outputsPromises);
-
-            function loadFileSystemOutput(featureName) {
-                return getFeatureAgentCache(featureName, options.agent).then(function(featureAgentCache) {
-                    return featureAgentCache.entry({
-                        name: 'test-output.json',
-                        sources: [
-                            {
-                                path: featuresFolderPath + '/' + featureName + '/feature.js',
-                                strategy: 'eTag'
-                            }
-                        ]
-                    });
-                }).then(function(entry) {
-                    return entry.read();
-                }).then(function(data) {
-                    if (data.valid) {
-                        return data.value;
-                    }
-                    return null;
-                });
-            }
-        }
-    }).then(function(testOutputs) {
-        var featureNames = options.featureNames;
-        var featureNamesMissingOutput = featureNames.filter(function(featureName, index) {
-            return testOutputs[index] === null;
-        });
-
-        if (featureNamesMissingOutput.length) {
-            return createFeatureSourcesFromFolder(
-                featureNamesMissingOutput,
-                featuresFolderPath,
-                featureTranspiler
-            ).then(function(featuresSource) {
-                return {
-                    name: 'scan',
-                    input: {
-                        featuresSource: featuresSource
-                    }
-                };
+        } else if (instruction.name === 'test') {
+            testOutputsPromise = writeOutputsToFileSystem({
+                agent: options.agent,
+                features: features,
+                outputs: instruction.output,
+                createEntryProperties: getTestOutputEntryProperties
             });
         }
-        // on a tous les résultat
-        var crashedOutputIndex = Iterable.findIndex(testOutputs, function(testOutput) {
-            return testOutput.status === 'crashed';
-        });
-        if (crashedOutputIndex > -1) {
-            return {
-                status: 'crashed',
-                detail: {
-                    featureName: featureNames[crashedOutputIndex],
-                    crashed: testOutputs[crashedOutputIndex]
-                }
-            };
-        }
+        return testOutputsPromise.then(function(testOutputs) {
+            var featuresMissingTestOutput = features.filter(function(feature, index) {
+                return testOutputs[index] === null;
+            });
 
-        return Promise.all([
-            getFixSource(testOutputs),
-            getFixState(options)
-        ]).then(function(data) {
-            var fixSource = data[0];
-            var fixState = data[1];
-
-            if (fixState.status === 'crashed') {
-                return {
-                    name: 'crash',
-                    input: fixState.detail.crashed
-                };
-            }
-            if (fixState.status === 'completed') {
-                // var outputs = fixState.detail.outputs;
-                var missingFeatureNames = fixState.detail.missingFeatureNames;
-                if (missingFeatureNames.length) {
-                    var fixedFeatureTranspiler = createTranspiler({
-                        // faut check les solutions et récupérer
-                        // le config des plugins
-                        // en plus il faut aussi utiliser le plugin spécial
-                    });
-
+            if (featuresMissingTestOutput.length) {
+                if (instruction.name === 'start') {
                     return createFeatureSourcesFromFolder(
-                        missingFeatureNames,
+                        featuresMissingTestOutput,
                         featuresFolderPath,
-                        fixedFeatureTranspiler
-                    ).then(function(fixedFeaturesSource) {
+                        featureTranspiler
+                    ).then(function(featuresSource) {
                         return {
-                            name: 'fix+test',
-                            input: {
-                                fixSource: fixSource,
-                                fixedFeaturesSource: fixedFeaturesSource
+                            name: 'test',
+                            reason: 'missing-some-test-output',
+                            detail: {
+                                featuresSource: featuresSource
                             }
                         };
                     });
                 }
-
+                // it means that event if client just sent the tests or was just fixed
+                // we are still missing some tests, there is two possible scenarios for this
+                // -> client did not send all test output as he is supposed to during test instruction
+                // -> some server file has been deleted inbetween
+                // to prevent infinite recursion and because it not supposed to happen
+                // we tell client to fail
                 return {
-                    name: 'fix',
-                    input: {
-                        fixSource: fixSource
+                    name: 'fail',
+                    reason: 'unexpected-missing-some-test-output',
+                    detail: {
+                        features: featuresMissingTestOutput.map(function(feature) {
+                            return {name: feature.name};
+                        })
                     }
                 };
             }
+            var crashedTestOutputIndex = Iterable.findIndex(testOutputs, function(testOutput) {
+                return testOutput.status === 'crashed';
+            });
+            if (crashedTestOutputIndex > -1) {
+                return {
+                    name: 'fail',
+                    reason: 'test-crash',
+                    detail: {
+                        feature: {
+                            name: features[crashedTestOutputIndex].name
+                        },
+                        result: testOutputs[crashedTestOutputIndex]
+                    }
+                };
+            }
+
+            var fixSourcePromise = getFixSource(options);
+            var fixOutputsPromise;
+            if (instruction.name === 'test') {
+                fixOutputsPromise = readOutputsFromFileSystem({
+                    agent: options.agent,
+                    features: features,
+                    createEntryProperties: getFixOutputEntryProperties
+                });
+            } else if (instruction.name === 'fix') {
+                fixOutputsPromise = writeOutputsToFileSystem({
+                    agent: options.agent,
+                    features: features,
+                    outputs: instruction.output,
+                    createEntryProperties: getFixOutputEntryProperties
+                });
+            }
+
+            return Promise.all([
+                fixSourcePromise,
+                fixOutputsPromise
+            ]).then(function(data) {
+                var fixSource = data[0];
+                var fixOutputs = data[1];
+
+                var featuresMissingFixOutput = features.filter(function(feature, index) {
+                    return fixOutputs[index] === null;
+                });
+                if (featuresMissingFixOutput.length) {
+                    if (instruction.name === 'start' && instruction.name === 'test') {
+                        var fixedFeatureTranspiler = createTranspiler({
+                            // faut check les solutions et récupérer
+                            // la config des plugins
+                            // en plus il faut aussi utiliser le plugin spécial
+                        });
+
+                        return createFeatureSourcesFromFolder(
+                            featuresMissingFixOutput,
+                            featuresFolderPath,
+                            fixedFeatureTranspiler
+                        ).then(function(fixedFeaturesSource) {
+                            return {
+                                name: 'fix',
+                                reason: 'missing-some-fix-output',
+                                detail: {
+                                    fixSource: fixSource,
+                                    fixedFeaturesSource: fixedFeaturesSource
+                                }
+                            };
+                        });
+                    }
+                    // it means that event if client just sent the fix
+                    // we are still missing some fix result
+                    // -> client did not send all fix results as he is supposed to during fix instruction
+                    // -> some server file has been deleted inbetween
+                    // to prevent infinite recursion and because it not supposed to happen
+                    // we tell client to fail
+                    return {
+                        name: 'fail',
+                        reason: 'unexpected-missing-some-fix-output',
+                        detail: {
+                            features: featuresMissingFixOutput.map(function(feature) {
+                                return {name: feature.name};
+                            })
+                        }
+                    };
+                }
+                var crashedFixOutputIndex = Iterable.findIndex(fixOutputs, function(fixOutput) {
+                    return fixOutput.status === 'crashed';
+                });
+                if (crashedFixOutputIndex > -1) {
+                    return {
+                        name: 'fail',
+                        reason: 'fix-crash',
+                        detail: {
+                            feature: {
+                                name: features[crashedFixOutputIndex].name
+                            },
+                            output: fixOutputs[crashedFixOutputIndex]
+                        }
+                    };
+                }
+                return {
+                    name: 'fix',
+                    reason: 'missing-fix',
+                    detail: {
+                        fixSource: fixSource
+                    }
+                };
+            });
         });
+    });
+}
+function readOutputsFromFileSystem(how) {
+    var features = how.features;
+    var agent = how.agent;
+    var outputsPromises = features.map(function(feature) {
+        return readOutputFromFileSystem(feature);
+    });
+    return Promise.all(outputsPromises);
+
+    function readOutputFromFileSystem(feature) {
+        return getFeatureAgentCache(feature, agent).then(function(featureAgentCache) {
+            var entryProperties = how.createEntryProperties(feature);
+            return featureAgentCache.entry(entryProperties);
+        }).then(function(entry) {
+            return entry.read();
+        }).then(function(data) {
+            if (data.valid) {
+                return data.value;
+            }
+            return null;
+        });
+    }
+}
+function writeOutputsToFileSystem(how) {
+    var features = how.features;
+    var agent = how.agent;
+    var outputs = how.outputs;
+    var outputsPromises = outputs.map(function(output, index) {
+        if (output === null) {
+            return Promise.resolve(null);
+        }
+        return writeOutputToFileSystem(features[index], output);
+    });
+    return Promise.all(outputsPromises);
+
+    function writeOutputToFileSystem(feature, output) {
+        return getFeatureAgentCache(feature, agent).then(function(featureAgentCache) {
+            var entryProperties = how.createEntryProperties(feature);
+            return featureAgentCache.entry(entryProperties);
+        }).then(function(entry) {
+            return entry.write(output);
+        });
+    }
+}
+function getFeatureAgentCache(feature, agent) {
+    var featurePath = featuresFolderPath + '/' + feature.name;
+    var featureCache = store.fileSystemCache(featurePath);
+    return featureCache.match({
+        agent: agent
     });
 }
 function getRequiredFeatures(names) {
@@ -196,27 +319,34 @@ function getFeatures() {
 
         function createFeaturesFromSource(featuresSource) {
             // console.log('the source', featuresSource);
-            return eval(featuresSource); // eslint-disable-line no-eval
+            var features;
+            try {
+                features = eval(featuresSource); // eslint-disable-line no-eval
+                return features;
+            } catch (e) {
+                console.error('eval error in', featuresSource, e, e.stack);
+                throw e;
+            }
         }
     }
 }
 var featuresStore = store.memoryEntry();
 var getFeatureSourcesFromFileSystem = memoize.async(createFeatureSourcesFromFileSystem, featuresStore);
 function createFeatureSourcesFromFileSystem() {
-    return recursivelyReadFolderFeatureNames(featuresFolderPath).then(function(featureNames) {
-        return createFeatureSourcesFromFolder(featureNames, featuresFolderPath, featureTranspiler);
+    return recursivelyReadFolderFeatures(featuresFolderPath).then(function(features) {
+        return createFeatureSourcesFromFolder(features, featuresFolderPath, featureTranspiler);
     });
 
-    function recursivelyReadFolderFeatureNames(path) {
-        var featureNames = [];
-        return readFolderFeatureNames(null).then(function() {
-            return featureNames;
+    function recursivelyReadFolderFeatures(path) {
+        var features = [];
+        return readFolderFeatures(null).then(function() {
+            return features;
         });
 
-        function readFolderFeatureNames(parentFeatureName) {
+        function readFolderFeatures(parentFeature) {
             var featureFolderPath;
-            if (parentFeatureName) {
-                featureFolderPath = path + '/' + parentFeatureName;
+            if (parentFeature) {
+                featureFolderPath = path + '/' + parentFeature.name;
             } else {
                 featureFolderPath = path;
             }
@@ -231,14 +361,15 @@ function createFeatureSourcesFromFileSystem() {
                         if (stat.isDirectory()) {
                             if (ressourceName[0].match(/[a-z]/)) {
                                 var featureName;
-                                if (parentFeatureName) {
-                                    featureName = parentFeatureName + '/' + ressourceName;
+                                if (parentFeature) {
+                                    featureName = parentFeature.name + '/' + ressourceName;
                                 } else {
                                     featureName = ressourceName;
                                 }
+                                var feature = jsenv.createFeature(featureName);
 
-                                featureNames.push(featureName);
-                                return readFolderFeatureNames(featureName);
+                                features.push(feature);
+                                return readFolderFeatures(feature);
                             }
                         }
                         return Promise.resolve();
@@ -252,9 +383,9 @@ function createFeatureSourcesFromFileSystem() {
         }
     }
 }
-function createFeatureSourcesFromFolder(featureNames, folderPath, transpiler) {
-    var paths = featureNames.map(function(featureName) {
-        return folderPath + '/' + featureName + '/feature.js';
+function createFeatureSourcesFromFolder(features, folderPath, transpiler) {
+    var paths = features.map(function(feature) {
+        return folderPath + '/' + feature.name + '/feature.js';
     });
 
     return getSources(paths).then(createSources);
@@ -279,7 +410,7 @@ function createFeatureSourcesFromFolder(featureNames, folderPath, transpiler) {
     function createSources(sources) {
         var registerFeaturesHead = 'jsenv.registerFeatures(function(registerFeature, transpile) {';
         var registerFeaturesBody = sources.map(function(source, index) {
-            return createSource(featureNames[index], sources[index]);
+            return createSource(features[index], sources[index]);
         });
         var registerFeaturesFoot = '});';
 
@@ -293,8 +424,8 @@ function createFeatureSourcesFromFolder(featureNames, folderPath, transpiler) {
             '\n'
         );
     }
-    function createSource(featureName, featureCode) {
-        var featureNameSource = "'" + featureName + "'";
+    function createSource(feature, featureCode) {
+        var featureNameSource = "'" + feature.name + "'";
         var featurePropertiesSource = '';
         if (featureCode) {
             featurePropertiesSource += 'function(feature) {\n\t';
@@ -307,84 +438,6 @@ function createFeatureSourcesFromFolder(featureNames, folderPath, transpiler) {
         return 'registerFeature(' + featureNameSource + ', ' + featurePropertiesSource + ');';
     }
 }
-function getFeatureAgentCache(featureName, agent) {
-    var featurePath = featuresFolderPath + '/' + featureName;
-    var featureCache = store.fileSystemCache(featurePath);
-    return featureCache.match({
-        agent: agent
-    });
-}
-function getFixState(agent, features) {
-    return getFeaturesFixOutput(agent, features).then(function(outputs) {
-        var missingFeatureNames = features.filter(function(feature, index) {
-            return outputs[index] === null;
-        }).map(function(feature) {
-            return feature.name;
-        });
-        var crashedOutput = Iterable.find(outputs, function(output) {
-            return output && output.status === 'crashed';
-        });
-        if (crashedOutput) {
-            return {
-                status: 'crashed',
-                detail: {
-                    outputs: outputs,
-                    crashed: crashedOutput,
-                    missingFeatureNames: missingFeatureNames
-                }
-            };
-        }
-        return {
-            status: 'completed',
-            detail: {
-                outputs: outputs,
-                missingFeatureNames: missingFeatureNames
-            }
-        };
-    });
-
-    function getFeaturesFixOutput(agent, features) {
-        var outputsPromises = features.map(function(feature) {
-            return createFixOutputPromise(feature);
-        });
-        return Promise.all(outputsPromises);
-
-        function createFixOutputPromise(feature) {
-            return getFeatureAgentCache(feature, agent).then(function(featureAgentCache) {
-                var featureFilePath = featuresFolderPath + '/' + feature.name + '/feature.js';
-                var sources = [
-                    {
-                        path: featureFilePath,
-                        strategy: 'eTag'
-                    }
-                ];
-                var solution = feature.solution;
-                if (
-                    solution.type === 'polyfill' &&
-                    solution.location.indexOf('://') === -1
-                ) {
-                    var solutionPath = require('path').resolve(featureFilePath, solution.location);
-                    sources.push({
-                        path: solutionPath,
-                        strategy: 'etag'
-                    });
-                }
-
-                return featureAgentCache.entry({
-                    name: 'fix-output.json',
-                    sources: sources
-                });
-            }).then(function(entry) {
-                return entry.read();
-            }).then(function(data) {
-                if (data.valid) {
-                    return data.value;
-                }
-                return null;
-            });
-        }
-    }
-}
 function getFixSource(/* featureTestOutputs */) {
     // j'ai le résultat de TOUS les test, je peux donc passer en mode fix dès maintenant
     // le mode fix consistera à récup les solutions
@@ -393,21 +446,16 @@ function getFixSource(/* featureTestOutputs */) {
     // fixé des tests (on transpile le code)
     return '';
 }
-// function storeTestResults(agent, testResults) {
-    // sauvegarde tout ces résultat en cache
-    // et récupère ce qu'on doit faire ensuite
-    // donc en gros comme on a tout les résultat on peut repartir "direct"" du bout de code
-    // qui récupère ce qui a besoin d'être fixé vu qu'on a les résultats
-    // en fait c'est pas si simple puisque on peut avoir des résultats partiel
-    // autant repartir du départ tant pis
-// }
-// function storeFixResult(agent, fixResult)
 
-getEnsureImplementationInstruction({
-    features: [
-        'const/scoped'
-    ]
-}).then(function(instruction) {
+var firstInstruction = {
+    name: 'start',
+    input: {
+        features: [
+            'const/scoped'
+        ]
+    }
+};
+getNextAdaptInstruction(firstInstruction).then(function(instruction) {
     console.log('instruction', instruction);
 }).catch(function(e) {
     setTimeout(function() {
