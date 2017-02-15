@@ -4,8 +4,8 @@ var fsAsync = require('../fs-async.js');
 
 var rootFolder = require('path').resolve(__dirname, '../..').replace(/\\/g, '/');
 var cacheFolder = rootFolder + '/cache';
-var transpileFolder = cacheFolder + '/transpile';
-var transpileCache = store.fileSystemCache(transpileFolder);
+var transpilerCacheFolder = cacheFolder + '/transpiler';
+var transpilerCache = store.fileSystemCache(transpilerCacheFolder);
 
 function assign(destination, source) {
     for (var key in source) { // eslint-disable-line guard-for-in
@@ -39,7 +39,7 @@ function createTranspiler(transpilerOptions) {
                 relativeFilePath = relativeFilePath.slice(1);
             }
 
-            return transpileCache.match({
+            return transpilerCache.match({
                 plugins: options.plugins
             }).then(function(cacheBranch) {
                 var entryName;
@@ -59,6 +59,7 @@ function createTranspiler(transpilerOptions) {
 
                 var entry = cacheBranch.entry({
                     name: entryName,
+                    mode: options.cacheMode || 'default',
                     sources: entrySources
                 });
                 return entry;
@@ -66,29 +67,36 @@ function createTranspiler(transpilerOptions) {
         }
         return Promise.resolve(null);
     }
-
-    var transpile = function(code, transpileCodeOptions) {
+    function getOptions(transpilationOptions) {
+        transpilationOptions = transpilationOptions || {};
         var options = {};
         assign(options, transpilerOptions);
-        assign(options, transpileCodeOptions || {});
+        assign(options, transpilationOptions);
+
+        var plugins;
+        // transpilationOptions.plugins override transpilerOptions.plugins
+        if (transpilationOptions.plugins) {
+            plugins = transpilationOptions.plugins;
+        } else {
+            plugins = options.plugins ? options.plugins.slice() : [];
+            if (options.as === 'module') {
+                plugins.unshift('transform-es2015-modules-systemjs');
+            }
+        }
+        options.plugins = plugins;
+        return options;
+    }
+
+    var transpile = function(code, transpileCodeOptions) {
+        var options = getOptions(transpileCodeOptions);
 
         var transpileSource = function(sourceURL) {
-            var plugins;
-            if (options.plugins) {
-                plugins = options.plugins;
-            } else if (options.as === 'module') {
-                plugins = options.plugins.slice();
-                plugins.unshift('transform-es2015-modules-systemjs');
-            } else {
-                plugins = options.plugins;
-            }
-
             // https://babeljs.io/docs/core-packages/#options
             // inputSourceMap: null,
             // minified: false
 
             var babelOptions = {};
-            babelOptions.plugins = plugins;
+            babelOptions.plugins = options.plugins;
             babelOptions.ast = false;
             if ('sourceMaps' in options) {
                 babelOptions.sourceMaps = options.sourceMaps;
@@ -159,8 +167,7 @@ function createTranspiler(transpilerOptions) {
 
             // désactive le cache lorsque entry ne matche pas
             // puisqu'on a déjà testé s'il existait un cache valide
-            var transpileCodeOptions = {};
-            jsenv.assign(transpileCodeOptions, transpileFileOptions);
+            var transpileCodeOptions = getOptions(transpileFileOptions);
             transpileCodeOptions.filename = filePath;
 
             return getFileEntry(transpileCodeOptions).then(function(entry) {
