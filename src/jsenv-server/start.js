@@ -37,16 +37,17 @@ ce qui par défaut signife throw
 */
 
 require('../jsenv.js');
-var ensure = require('../features/ensure.js');
+var featureAPI = require('../features/api.js');
 var jsenv = global.jsenv;
 var userAgent = jsenv.userAgent;
 
 jsenv.implementation.adapt({
-    meta: {
-        userAgent: userAgent
+    input: {
+        agent: userAgent,
+        features: ['const']
     },
-    writeInstructionOutput: function(instruction, complete) {
-        ensure.getNextInstruction(instruction, complete);
+    getDistantInstruction: function(instruction, complete) {
+        featureAPI.getNextInstruction(instruction, complete);
     }
 }).run({
     complete: function(completeEvent) {
