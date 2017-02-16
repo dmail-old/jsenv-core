@@ -1,4 +1,5 @@
-this.path = 'Object';
-this.code = feature.runPath;
-this.pass = feature.passPresence;
-this.solution = 'none';
+expose({
+    code: feature.runStandard('Object'),
+    pass: feature.standardPresence,
+    solution: 'none'
+});

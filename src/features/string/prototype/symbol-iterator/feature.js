@@ -1,7 +1,8 @@
-this.dependencies = ['symbol-iterator'];
-this.code = this.produceFromComposedPath;
-this.pass = 'inherit';
-this.solution = {
-    type: 'polyfill',
-    location: 'corejs://es6.string.iterator'
-};
+expose({
+    code: feature.runStandard(parent, dependency('symbol/iterator')),
+    pass: parent.pass,
+    solution: {
+        type: 'corejs',
+        value: 'es6.string.iterator'
+    }
+});

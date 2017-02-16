@@ -1,7 +1,8 @@
-this.path = 'URL';
-this.code = feature.runPath;
-this.pass = feature.passPresence;
-this.solution = {
-    type: 'polyfill',
-    location: './solution.js'
-};
+expose({
+    code: feature.runStandard('URL'),
+    pass: feature.standardPresence,
+    solution: {
+        type: 'file',
+        value: './solution.js'
+    }
+});

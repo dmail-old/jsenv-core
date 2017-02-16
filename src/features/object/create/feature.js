@@ -1,7 +1,8 @@
-this.path = 'create';
-this.code = 'inherit';
-this.pass = 'inherit';
-this.solution = {
-    type: 'polyfill',
-    value: 'corejs://es6.object.create'
-};
+expose({
+    code: feature.runStandard(parent, 'create'),
+    pass: parent.pass,
+    solution: {
+        type: 'corejs',
+        name: 'es6.object.create'
+    }
+});

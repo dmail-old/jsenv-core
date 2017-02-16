@@ -6,17 +6,6 @@ with
 https://github.com/kangax/compat-table/blob/gh-pages/data-es5.js
 https://github.com/kangax/compat-table/blob/gh-pages/data-es6.js
 
-- getFixSource doit supprimer les doublons (dans le cas ou solution est inherit)
-ou dans le cas ou la solution est la même
-- getFixSource cache devrait se base sur la liste des solutions employées et pas la liste des features
-(nottement en cas de doublon)
-
-- il manque fail parce que some-feature-solution-are-missing
-
-- il manque fail parce que some-feature-solution-are-invalid
-
-- fixedFeatureTranspiler à faire (reprendre ce qu'on a fait dans ensure.js)
-
 */
 
 require('../jsenv.js');
@@ -39,6 +28,141 @@ var featureTranspiler = createTranspiler({
         'transform-es2015-template-literals'
     ]
 });
+var noSolution = {
+    match: function(feature) {
+        return feature.solution === 'none';
+    }
+};
+var polyfillSolution = {
+    match: function(feature) {
+        return (
+            feature.solution.type === 'corejs' ||
+            feature.solution.type === 'file'
+        );
+    },
+
+    solve: function(features) {
+        var featuresRequiringCoreJS = features.filter(function(feature) {
+            return feature.solution.type === 'corejs';
+        });
+        var requiredCoreJSModules = Iterable.uniq(featuresRequiringCoreJS.map(function(feature) {
+            return feature.solution.value;
+        }));
+        var featureRequiringFiles = features.filter(function(feature) {
+            return feature.solution.type === 'file';
+        });
+        var requiredFiles = Iterable.uniq(featureRequiringFiles.map(function(feature) {
+            return require('path').resolve(
+                featuresFolderPath + '/' + feature.name + '/feature.js',
+                feature.solution.value.replace('${rootFolder}', rootFolder)
+            );
+        }));
+
+        function createPolyfill() {
+            function createCoreJSPolyfill() {
+                var source = '';
+                // Iterable.forEach(requiredCoreJSModules, function(module) {
+                //     if (module.prefixCode) {
+                //         source += module.prefixCode;
+                //     }
+                // });
+                var sourcePromise = Promise.resolve(source);
+                console.log('concat corejs modules', requiredCoreJSModules);
+
+                return sourcePromise.then(function(source) {
+                    var buildCoreJS = require('core-js-builder');
+                    var promise = buildCoreJS({
+                        modules: requiredCoreJSModules,
+                        librabry: false,
+                        umd: true
+                    });
+                    return promise.then(function(polyfill) {
+                        if (source) {
+                            source += '\n';
+                        }
+                        source += polyfill;
+
+                        return source;
+                    });
+                });
+            }
+            function createOwnFilePolyfill() {
+                console.log('concat files', requiredFiles);
+
+                var sourcesPromises = Iterable.map(requiredFiles, function(filePath) {
+                    return fsAsync.getFileContent(filePath);
+                });
+                return Promise.all(sourcesPromises).then(function(sources) {
+                    return sources.join('\n\n');
+                });
+            }
+
+            return Promise.all([
+                createCoreJSPolyfill(),
+                createOwnFilePolyfill()
+            ]).then(function(sources) {
+                return sources.join('\n\n');
+            });
+        }
+
+        var polyfillCache = store.fileSystemCache(polyfillFolder);
+        return polyfillCache.match({
+            solutions: {
+                files: requiredFiles,
+                corejs: requiredCoreJSModules
+            }
+        }).then(function(cacheBranch) {
+            return memoize.async(
+                createPolyfill,
+                cacheBranch.entry({
+                    name: 'polyfill.js',
+                    sources: requiredFiles.map(function(filePath) {
+                        return {
+                            path: filePath,
+                            strategy: 'mtime'
+                        };
+                    })
+                })
+            )();
+        });
+    }
+};
+var transpileSolution = {
+    match: function(feature) {
+        return feature.solution.type === 'babel';
+    },
+
+    solve: function(features) {
+        var requiredPlugins = features.map(function(feature) {
+            var solution = feature.solution;
+            var createOptions = function() {
+                var options = {};
+                if ('config' in solution) {
+                    var config = solution.config;
+                    if (typeof config === 'object') {
+                        jsenv.assign(options, config);
+                    } else if (typeof config === 'function') {
+                        jsenv.assign(options, config(features));
+                    }
+                }
+                return options;
+            };
+
+            return {
+                name: solution.value,
+                options: createOptions()
+            };
+        });
+        var pluginsAsOptions = Iterable.map(requiredPlugins, function(plugin) {
+            return [plugin.name, plugin.options];
+        });
+        return createTranspiler({
+            cache: true,
+            cacheMode: 'default',
+            plugins: pluginsAsOptions
+        });
+    }
+};
 
 function getTestOutputEntryProperties(feature) {
     var entryProperties = {
@@ -121,9 +245,7 @@ function getNextInstruction(instruction) {
                             name: 'test',
                             reason: 'some-test-output-are-required',
                             detail: {
-                                features: features.map(function(feature) {
-                                    return {name: feature.name};
-                                }),
+                                features: toLocalFeatures(features),
                                 featuresSource: featuresSource
                             }
                         };
@@ -139,9 +261,7 @@ function getNextInstruction(instruction) {
                     name: 'fail',
                     reason: 'some-test-output-are-missing',
                     detail: {
-                        features: featuresMissingTestOutput.map(function(feature) {
-                            return {name: feature.name};
-                        })
+                        features: toLocalFeatures(featuresMissingTestOutput)
                     }
                 };
             }
@@ -154,11 +274,52 @@ function getNextInstruction(instruction) {
                     name: 'fail',
                     reason: 'some-test-have-crashed',
                     detail: {
-                        features: featuresWithCrashedTestOutput.map(function(feature) {
-                            return {name: feature.name};
-                        }),
+                        features: toLocalFeatures(featuresWithCrashedTestOutput),
                         outputs: testOutputs.filter(function(testOutput) {
                             return testOutput.status === 'crashed';
+                        })
+                    }
+                };
+            }
+
+            var testResults = testOutputs.filter(function(testOutput) {
+                return testOutput.detail;
+            });
+            var featuresToFix = features.filter(function(feature, index) {
+                return testResults[index].status === 'invalid';
+            });
+
+            var solutions = [noSolution, polyfillSolution, transpileSolution];
+            var solutionFeatures = solutions.map(function(solution) {
+                var half = Iterable.bisect(featuresToFix, function(feature) {
+                    return solution.match(feature);
+                });
+                featuresToFix = half[1];
+                return half[0];
+            });
+            var featuresToFixWithoutSolution = solutionFeatures[0];
+            if (featuresToFixWithoutSolution.length) {
+                return {
+                    name: 'fail',
+                    reason: 'some-feature-have-no-solution',
+                    detail: {
+                        features: toLocalFeatures(featuresToFixWithoutSolution),
+                        results: testResults.filter(function(testResult, index) {
+                            return Iterable.includes(featuresToFixWithoutSolution, features[index]);
+                        })
+                    }
+                };
+            }
+            if (featuresToFix.length) {
+                return {
+                    name: 'fail',
+                    reason: 'some-feature-solution-is-unknown',
+                    detail: {
+                        features: featuresToFix.map(function(feature) {
+                            return {
+                                name: feature.name,
+                                solution: feature.solution
+                            };
                         })
                     }
                 };
@@ -167,7 +328,7 @@ function getNextInstruction(instruction) {
             var isBeforeFixInstruction = instruction.name === 'start' || instruction.name === 'test';
             var fixSourcePromise;
             if (isBeforeFixInstruction) {
-                fixSourcePromise = getFixSource(features, testOutputs);
+                fixSourcePromise = polyfillSolution.solve(solutionFeatures[1]);
             } else if (instruction.name === 'fix') {
                 fixSourcePromise = Promise.resolve('');
             }
@@ -202,15 +363,33 @@ function getNextInstruction(instruction) {
                 var fixSource = data[0];
                 var fixOutputs = data[1];
 
-                var featuresMissingFixOutput = features.filter(function(feature, index) {
+                var featuresMissingFixOutput = featuresToFix.filter(function(feature, index) {
                     return fixOutputs[index] === null;
                 });
                 if (featuresMissingFixOutput.length) {
                     if (isBeforeFixInstruction) {
+                        /*
+                        it may be the most complex thing involved here so let me explain
+                        we create a transpiler adapted to required features
+                        then we create a babel plugin which transpile template literals using that transpiler
+                        finally we create a transpiler which uses that plugin
+                        */
+                        var transpiler = transpileSolution.solve(solutionFeatures[2]);
+                        var plugin = createTranspiler.transformTemplateLiteralsPlugin(function(code) {
+                            return transpiler.transpile(code, {
+                                as: 'code',
+                                filename: false,
+                                sourceMaps: false,
+                                // disable cache to prevent race condition with the transpiler
+                                // that will use this plugin (it's the parent transpiler which is reponsible to cache)
+                                cache: false
+                            });
+                        }, 'transpile');
                         var fixedFeatureTranspiler = createTranspiler({
-                            // faut check les solutions et récupérer
-                            // la config des plugins
-                            // en plus il faut aussi utiliser le plugin spécial
+                            as: 'code',
+                            plugins: [
+                                plugin
+                            ]
                         });
 
                         return createFeatureSourcesFromFolder(
@@ -243,7 +422,7 @@ function getNextInstruction(instruction) {
                         }
                     };
                 }
-                var featuresWithCrashedFixOutput = features.filter(function(feature, index) {
+                var featuresWithCrashedFixOutput = featuresToFix.filter(function(feature, index) {
                     return fixOutputs[index].status === 'crashed';
                 });
                 if (featuresWithCrashedFixOutput.length) {
@@ -251,15 +430,35 @@ function getNextInstruction(instruction) {
                         name: 'fail',
                         reason: 'some-fix-have-crashed',
                         detail: {
-                            features: featuresWithCrashedFixOutput.map(function(feature) {
-                                return {name: feature.name};
-                            }),
+                            features: toLocalFeatures(featuresWithCrashedFixOutput),
                             outputs: fixOutputs.filter(function(fixOutput) {
                                 return fixOutput.status === 'crashed';
                             })
                         }
                     };
                 }
+                var fixResults = fixOutputs.map(function(fixOutput) {
+                    return fixOutput.detail;
+                });
+                var featuresWithInvalidFixResult = featuresToFix.filter(function(feature, index) {
+                    return fixResults[index].status === 'invalid';
+                });
+                if (featuresWithInvalidFixResult) {
+                    return {
+                        name: 'fail',
+                        reason: 'some-feature-solution-are-invalid',
+                        detail: {
+                            features: toLocalFeatures(featuresWithInvalidFixResult),
+                            results: fixResults.filter(function(fixResult, index) {
+                                return Iterable.includes(
+                                    featuresWithInvalidFixResult,
+                                    featuresToFix[index]
+                                );
+                            })
+                        }
+                    };
+                }
+
                 if (isBeforeFixInstruction && fixSource) {
                     return {
                         name: 'fix',
@@ -376,7 +575,7 @@ function getFeatures() {
                 features = eval(featuresSource); // eslint-disable-line no-eval
                 return features;
             } catch (e) {
-                console.error('eval error in', featuresSource, e, e.stack);
+                console.error('eval error in', featuresSource);
                 throw e;
             }
         }
@@ -480,104 +679,19 @@ function createFeatureSourcesFromFolder(features, folderPath, transpiler) {
         var featureNameSource = "'" + feature.name + "'";
         var featurePropertiesSource = '';
         if (featureCode) {
-            featurePropertiesSource += 'function(feature) {\n\t';
+            featurePropertiesSource += 'function(feature, parent, dependency, expose) {\n\t';
             featurePropertiesSource += featureCode;
             featurePropertiesSource += '\n}';
         } else {
-            featurePropertiesSource = 'function() {}';
+            featurePropertiesSource = 'null';
         }
 
         return 'registerFeature(' + featureNameSource + ', ' + featurePropertiesSource + ');';
     }
 }
-function getFixSource(features, testOutputs) {
-    var featuresRequiringPolyfill = features.filter(function(feature, index) {
-        return (
-            feature.solution.type === 'polyfill' &&
-            testOutputs[index].detail.status === 'invalid'
-        );
-    });
-    var featuresRequiringCoreJS = featuresRequiringPolyfill.filter(function(feature) {
-        return feature.solution.url.indexOf('corejs://') === 0;
-    });
-    var requiredCoreJSModules = featuresRequiringCoreJS.map(function(feature) {
-        return feature.solution.url.slice('corejs://'.length);
-    });
-    var featureRequiringFiles = featuresRequiringPolyfill.filter(function(feature) {
-        return feature.solution.url.indexOf('corejs://') !== 0;
-    });
-    var requiredFiles = featureRequiringFiles.filter(function(feature) {
-        return require('path').resolve(
-            featuresFolderPath + '/' + feature.name + '/feature.js',
-            feature.solution.url
-        );
-    });
 
-    function createPolyfill() {
-        function createCoreJSPolyfill() {
-            var source = '';
-            // Iterable.forEach(requiredCoreJSModules, function(module) {
-            //     if (module.prefixCode) {
-            //         source += module.prefixCode;
-            //     }
-            // });
-            var sourcePromise = Promise.resolve(source);
-            var requiredModulesAsOption = requiredCoreJSModules;
-            console.log('concat corejs modules', requiredCoreJSModules);
-
-            return sourcePromise.then(function(source) {
-                var buildCoreJS = require('core-js-builder');
-                var promise = buildCoreJS({
-                    modules: requiredModulesAsOption,
-                    librabry: false,
-                    umd: true
-                });
-                return promise.then(function(polyfill) {
-                    if (source) {
-                        source += '\n';
-                    }
-                    source += polyfill;
-
-                    return source;
-                });
-            });
-        }
-        function createOwnFilePolyfill() {
-            console.log('concat files', requiredFiles);
-
-            var sourcesPromises = Iterable.map(requiredFiles, function(filePath) {
-                return fsAsync.getFileContent(filePath);
-            });
-            return Promise.all(sourcesPromises).then(function(sources) {
-                return sources.join('\n\n');
-            });
-        }
-
-        return Promise.all([
-            createCoreJSPolyfill(),
-            createOwnFilePolyfill()
-        ]).then(function(sources) {
-            return sources.join('\n\n');
-        });
-    }
-
-    var polyfillCache = store.fileSystemCache(polyfillFolder);
-    return polyfillCache.match({
-        features: toLocalFeatures(featuresRequiringPolyfill)
-    }).then(function(cacheBranch) {
-        return memoize.async(
-            createPolyfill,
-            cacheBranch.entry({
-                name: 'polyfill.js',
-                sources: requiredFiles.map(function(filePath) {
-                    return {
-                        path: filePath,
-                        strategy: 'mtime'
-                    };
-                })
-            })
-        )();
-    });
+function getDistantInstruction(instruction) {
+    return getNextInstruction(instruction);
 }
 
 var firstInstruction = {
@@ -588,7 +702,7 @@ var firstInstruction = {
         ]
     }
 };
-getNextInstruction(firstInstruction).then(function(instruction) {
+getDistantInstruction(firstInstruction).then(function(instruction) {
     console.log('instruction', instruction);
 }).catch(function(e) {
     setTimeout(function() {
@@ -597,7 +711,7 @@ getNextInstruction(firstInstruction).then(function(instruction) {
 });
 
 module.exports = {
-    getNextInstruction: getNextInstruction
+    getDistantInstruction: getDistantInstruction
 };
 
 // var createAgent = (function() {

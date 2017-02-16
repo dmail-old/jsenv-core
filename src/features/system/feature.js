@@ -1,7 +1,8 @@
-this.path = 'System';
-this.code = feature.runPath;
-this.pass = feature.passPresence;
-this.solution = {
-    type: 'polyfill',
-    location: '${rootFolder}/node_modules/systemjs/dist/system.src.js'
-};
+expose({
+    code: feature.runStandard('System'),
+    pass: feature.standardPresence,
+    solution: {
+        type: 'file',
+        value: '${rootFolder}/node_modules/systemjs/dist/system.src.js'
+    }
+});

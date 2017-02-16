@@ -1,7 +1,8 @@
-this.path = 'Symbol';
-this.code = feature.runPath;
-this.pass = feature.passPresence;
-this.solution = {
-    type: 'polyfill',
-    location: 'corejs://es6.symbol'
-};
+expose({
+    code: feature.runStandard('Symbol'),
+    pass: feature.standardPresence,
+    solution: {
+        type: 'corejs',
+        value: 'es6.symbol'
+    }
+});

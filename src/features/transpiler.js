@@ -13,6 +13,23 @@ function assign(destination, source) {
     }
     return destination;
 }
+function normalizePlugins(pluginsOption) {
+    return pluginsOption.map(function(pluginOption) {
+        var plugin;
+        if (typeof pluginOption === 'string') {
+            plugin = [pluginOption, {}];
+        }
+        var pluginFunction = plugin[0];
+        var pluginOptions = plugin[1];
+        if (typeof pluginFunction === 'string') {
+            return [pluginFunction, pluginOptions];
+        }
+        if (typeof pluginFunction === 'function') {
+            return [pluginFunction.name, pluginOptions];
+        }
+        return [pluginFunction, pluginOptions];
+    });
+}
 
 function createTranspiler(transpilerOptions) {
     transpilerOptions = transpilerOptions || {};
@@ -40,7 +57,7 @@ function createTranspiler(transpilerOptions) {
             }
 
             return transpilerCache.match({
-                plugins: options.plugins
+                plugins: normalizePlugins(options.plugins)
             }).then(function(cacheBranch) {
                 var entryName;
                 if (options.as === 'module') {
@@ -187,5 +204,87 @@ function createTranspiler(transpilerOptions) {
 
     return transpiler;
 }
+
+function createTransformTemplateLiteralsTaggedWithPlugin(transpile, TAG_NAME) {
+    TAG_NAME = TAG_NAME || 'transpile';
+
+    function transformTemplateLiteralsTaggedWithPlugin(babel) {
+        // inspired from babel-transform-template-literals
+        // https://github.com/babel/babel/blob/master/packages/babel-plugin-transform-es2015-template-literals/src/index.js#L36
+        var t = babel.types;
+
+        function transpileTemplate(strings) {
+            var result;
+            var raw = strings.raw;
+            var i = 0;
+            var j = raw.length;
+            result = raw[i];
+            i++;
+            while (i < j) {
+                result += arguments[i];
+                result += raw[i];
+                i++;
+            }
+
+            try {
+                return transpile(result);
+            } catch (e) {
+                // if there is an error
+                // let test a chance to eval untranspiled string
+                // and catch error it may be a test which is trying
+                // to ensure compilation error (syntax error for example)
+                return result;
+            }
+        }
+
+        function visitTaggedTemplateExpression(path, state) {
+            var node = path.node;
+            if (!t.isIdentifier(node.tag, {name: TAG_NAME})) {
+                return;
+            }
+            var quasi = node.quasi;
+            var quasis = quasi.quasis;
+            var expressions = quasi.expressions;
+
+            var values = expressions.map(function(expression) {
+                return expression.evaluate().value;
+            });
+            var strings = quasis.map(function(quasi) {
+                return quasi.value.cooked;
+            });
+            var raw = quasis.map(function(quasi) {
+                return quasi.value.raw;
+            });
+            strings.raw = raw;
+
+            var tanspileArgs = [];
+            tanspileArgs.push(strings);
+            tanspileArgs.push.apply(tanspileArgs, values);
+            var transpiled = transpileTemplate.apply(null, tanspileArgs);
+
+            var args = [];
+            var templateObject = state.file.addTemplateObject(
+                'taggedTemplateLiteral',
+                t.arrayExpression([
+                    t.stringLiteral(transpiled)
+                ]),
+                t.arrayExpression([
+                    t.stringLiteral(transpiled)
+                ])
+            );
+            args.push(templateObject);
+            path.replaceWith(t.callExpression(node.tag, args));
+        }
+
+        return {
+            visitor: {
+                TaggedTemplateExpression: visitTaggedTemplateExpression
+            }
+        };
+    }
+
+    return transformTemplateLiteralsTaggedWithPlugin;
+}
+createTranspiler.createTransformTemplateLiteralsTaggedWithPlugin = createTransformTemplateLiteralsTaggedWithPlugin;
 
 module.exports = createTranspiler;

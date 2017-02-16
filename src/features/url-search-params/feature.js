@@ -1,7 +1,8 @@
-this.path = 'URLSearchParams';
-this.code = feature.runPath;
-this.pass = feature.passPresence;
-this.solution = {
-    type: 'polyfill',
-    location: './solution.js'
-};
+expose({
+    code: feature.runStandard('URLSearchParams'),
+    pass: feature.standardPresence,
+    solution: {
+        type: 'file',
+        value: './solution.js'
+    }
+});

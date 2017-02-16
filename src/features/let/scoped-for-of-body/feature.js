@@ -1,22 +1,21 @@
-this.dependencies = ['for-of'];
-this.code = transpile`(function(value) {
-    var scopes = [];
-    for(const i of value) {
-        scopes.push(function() {
-            return i;
+expose({
+    dependencies: ['for-of'],
+    code: transpile`(function(value) {
+        var scopes = [];
+        for(const i of value) {
+            scopes.push(function() {
+                return i;
+            });
+        }
+        return scopes;
+    })`,
+    pass: function(fn) {
+        var value = ['a', 'b'];
+        var scopes = fn(value);
+        var scopeValues = jsenv.Iterable.map(scopes, function(scope) {
+            return scope();
         });
-    }
-    return scopes;
-})`;
-this.pass = function(fn) {
-    var value = ['a', 'b'];
-    var scopes = fn(value);
-    var scopeValues = jsenv.Iterable.map(scopes, function(scope) {
-        return scope();
-    });
-    return this.sameValues(scopeValues, value);
-};
-this.solution = {
-    type: 'transpile',
-    name: 'transform-es2015-for-of'
-};
+        return this.sameValues(scopeValues, value);
+    },
+    solution: parent.solution
+});

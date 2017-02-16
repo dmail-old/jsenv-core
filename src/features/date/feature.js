@@ -1,4 +1,5 @@
-this.path = 'Date';
-this.code = feature.runPath;
-this.pass = feature.passPresence;
-this.solution = 'none';
+expose({
+    code: feature.runStandard('Date'),
+    pass: feature.standardPresence,
+    solution: 'none'
+});

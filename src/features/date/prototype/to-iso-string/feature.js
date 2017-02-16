@@ -1,7 +1,8 @@
-this.path = 'toISOString';
-this.code = 'inherit';
-this.pass = 'inherit';
-this.solution = {
-    type: 'polyfill',
-    location: './solution.js'
-};
+expose({
+    code: feature.runStandard(parent, 'toISOString'),
+    pass: parent.pass,
+    solution: {
+        type: 'file',
+        value: './solution.js'
+    }
+});

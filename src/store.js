@@ -14,6 +14,7 @@ cache/before-fix/jkljkjkjkljkl/file.js#content
 var cuid = require('cuid');
 var fs = require('fs');
 var fsAsync = require('./fs-async.js');
+var path = require('path');
 
 var createFileSystemCache = (function() {
     function FileSystemCache(folderPath) {
@@ -137,6 +138,16 @@ var createFileSystemCacheBranch = (function() {
             return JSON.stringify(this.meta) === JSON.stringify(meta);
         },
 
+        toJSON: function() {
+            return {
+                name: this.name,
+                meta: this.meta,
+                matchCount: this.matchCount,
+                firstMatch: this.firstMatch,
+                lastMatch: this.lastMatch
+            };
+        },
+
         entry: function(properties) {
             properties.path = this.path + '/' + properties.name;
             var entry = createFileSystemCacheBranchEntry(properties);
@@ -215,6 +226,7 @@ var createFileSystemCacheBranchEntry = (function() {
         };
         if (sourcesUsingEtagStrategy.length) {
             this.wrap = function(value) {
+                var entry = this;
                 return Promise.all(
                     sourcesUsingEtagStrategy.map(function(source) {
                         return fsAsync.getFileContentEtag(source.path);
@@ -223,7 +235,7 @@ var createFileSystemCacheBranchEntry = (function() {
                     return {
                         sources: sources.map(function(source, index) {
                             return {
-                                path: source.path,
+                                path: path.relative(entry.path, source.path),
                                 eTag: eTags[index]
                             };
                         }),

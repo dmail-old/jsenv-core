@@ -1,4 +1,4 @@
-(function() {
+Date.prototype.toISOString = (function() { // eslint-disable-line no-extend-native
     function lz(num) {
         return num > 9 ? num : '0' + num;
     }

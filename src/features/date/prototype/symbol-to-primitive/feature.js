@@ -1,7 +1,8 @@
-this.dependencies = ['symbol-to-primitive'];
-this.code = this.produceFromComposedPath;
-this.pass = 'inherit';
-this.solution = {
-    type: 'polyfill',
-    location: 'corejs://es6.date.to-primitive'
-};
+expose({
+    code: feature.runStandard(parent, dependency('symbol/to-primitive')),
+    pass: parent.pass,
+    solution: {
+        type: 'corejs',
+        name: 'es6.date.to-primitive'
+    }
+});

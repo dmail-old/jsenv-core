@@ -763,6 +763,12 @@ ainsi que quelques utilitaires comme assign, Iterable et Predicate
             }
             return false;
         };
+        Iterable.uniq = function uniq(iterable) {
+            function onlyUnique(value, index, self) {
+                return self.indexOf(value) === index;
+            }
+            return Iterable.filter(iterable, onlyUnique);
+        };
         return Iterable;
     })();
     provide('Iterable', Iterable);
@@ -893,6 +899,9 @@ en fonction du résultat de ces tests
                     throw new Error('addDependency first arg must be a feature (not ' + dependency + ')');
                 }
                 if (Iterable.includes(this.dependencies, dependency)) {
+                    if (options.preventDuplicateError) {
+                        return this;
+                    }
                     throw new Error(this.name + ' already dependent of ' + dependency.name);
                 }
                 if (this.isDependentOf(dependency)) {
@@ -1115,157 +1124,170 @@ en fonction du résultat de ces tests
         }
 
         // feature testing helpers
-        var noValue = {novalue: true};
-        VersionnedFeature.prototype.runPath = function() {
-            var feature = this;
-            var parent = feature.parent;
-            var startValue;
-            var output;
+        var helpers = (function() {
+            var noValue = {novalue: true};
 
-            if (parent) {
-                startValue = parent.compile();
-            } else {
-                startValue = jsenv.global;
-            }
+            return {
+                runStandard: runStandard,
+                standardPresence: standardPresence,
+                createIterableObject: createIterableObject,
+                collectKeys: collectKeys,
+                sameValues: sameValues
+            };
 
-            if (feature.hasOwnProperty('path')) {
-                var path = feature.path;
-                var parts = path.split('.');
+            function runStandard() {
                 var i = 0;
-                var j = parts.length;
+                var j = arguments.length;
+                var args = [];
                 while (i < j) {
-                    var part = parts[i];
-                    if (part in output) {
-                        output = output[part];
-                    } else {
-                        output = noValue;
-                        break;
+                    var arg = arguments[i];
+                    if (jsenv.isFeature(arg)) {
+                        // feature.addDependency(arg, {preventDuplicateError: true});
+                        args.push(arg);
+                    } else if (typeof arg === 'string') {
+                        args.push({
+                            propertyName: arg,
+                            index: i,
+                            compile: function(previousOutput) {
+                                if (this.index === 0) {
+                                    previousOutput = jsenv.global;
+                                }
+                                if (this.propertyName in previousOutput) {
+                                    return previousOutput[this.propertyName];
+                                }
+                                return noValue;
+                            }
+                        });
                     }
                     i++;
                 }
-            } else {
-                output = startValue;
-            }
 
-            return output;
-        };
-        VersionnedFeature.prototype.runComposedPath = function() {
-            var output;
-            var i = 0;
-            var composedFeatures = this.dependencies;
-            var j = composedFeatures.length;
-            while (i < j) {
-                var composedFeatureOutput = composedFeatures[i].compile();
-                if (i === 0) {
-                    output = composedFeatureOutput;
-                } else if (composedFeatureOutput in output) {
-                    output = output[composedFeatureOutput];
-                } else {
-                    output = noValue;
-                    break;
-                }
-                i++;
-            }
-            return output;
-        };
-        VersionnedFeature.prototype.passPresence = function(output, settle) {
-            if (output === noValue) {
-                settle(false, 'missing');
-            } else {
-                settle(true, 'present');
-            }
-        };
-        VersionnedFeature.createIterableObject = function(arr, methods) {
-            var j = arr.length;
-            var iterable = {};
-            iterable[Symbol.iterator] = function() {
-                var i = -1;
-                var iterator = {
-                    next: function() {
+                return function() {
+                    var composedOutput = noValue;
+                    var previousOutput;
+                    var i = 0;
+
+                    while (i < j) {
+                        var arg = args[i];
+                        var output;
+
+                        if (i === 0) {
+                            output = arg.compile();
+                        } else {
+                            output = arg.compile(previousOutput);
+                        }
+
+                        if (output === noValue) {
+                            composedOutput = noValue;
+                            break;
+                        }
+                        previousOutput = output;
                         i++;
-                        return {
-                            value: i === j ? undefined : arr[i],
-                            done: i === j
-                        };
                     }
-                };
-                jsenv.assign(iterator, methods || {});
-                iterator.iterable = iterable;
 
-                return iterator;
-            };
-            return iterable;
-        };
-        VersionnedFeature.collectKeys = function(value) {
-            var keys = [];
-            for (var key in value) {
-                if (value.hasOwnProperty(key)) {
-                    if (isNaN(key) === false && value instanceof Array) {
-                        // key = Number(key);
-                        keys.push(key);
-                    } else {
-                        keys.push(key);
-                    }
+                    return composedOutput;
+                };
+            }
+            function standardPresence(output, settle) {
+                if (output === noValue) {
+                    settle(false, 'missing');
+                } else {
+                    settle(true, 'present');
                 }
             }
-            return keys;
-        };
-        VersionnedFeature.sameValues = function sameValues(a, b) {
-            if (typeof a === 'string') {
-                a = convertStringToArray(a);
-            } else if (typeof a === 'object' && typeof a.next === 'function') {
-                a = consumeIterator(a);
-            }
-            if (typeof b === 'string') {
-                b = convertStringToArray(b);
-            } else if (typeof b === 'object' && typeof b.next === 'function') {
-                b = consumeIterator(b);
-            }
+            function createIterableObject(arr, methods) {
+                var j = arr.length;
+                var iterable = {};
+                iterable[Symbol.iterator] = function() {
+                    var i = -1;
+                    var iterator = {
+                        next: function() {
+                            i++;
+                            return {
+                                value: i === j ? undefined : arr[i],
+                                done: i === j
+                            };
+                        }
+                    };
+                    jsenv.assign(iterator, methods || {});
+                    iterator.iterable = iterable;
 
-            if (a.length !== b.length) {
-                return false;
+                    return iterator;
+                };
+                return iterable;
             }
-            var i = a.length;
-            while (i--) {
-                if (a[i] !== b[i]) {
+            function collectKeys(value) {
+                var keys = [];
+                for (var key in value) {
+                    if (value.hasOwnProperty(key)) {
+                        if (isNaN(key) === false && value instanceof Array) {
+                            // key = Number(key);
+                            keys.push(key);
+                        } else {
+                            keys.push(key);
+                        }
+                    }
+                }
+                return keys;
+            }
+            function sameValues(a, b) {
+                if (typeof a === 'string') {
+                    a = convertStringToArray(a);
+                } else if (typeof a === 'object' && typeof a.next === 'function') {
+                    a = consumeIterator(a);
+                }
+                if (typeof b === 'string') {
+                    b = convertStringToArray(b);
+                } else if (typeof b === 'object' && typeof b.next === 'function') {
+                    b = consumeIterator(b);
+                }
+
+                if (a.length !== b.length) {
                     return false;
                 }
+                var i = a.length;
+                while (i--) {
+                    if (a[i] !== b[i]) {
+                        return false;
+                    }
+                }
+                return true;
             }
-            return true;
-        };
-        function convertStringToArray(string) {
-            var result = [];
-            var i = 0;
-            var j = string.length;
-            while (i < j) {
-                var char = string[i];
+            function convertStringToArray(string) {
+                var result = [];
+                var i = 0;
+                var j = string.length;
+                while (i < j) {
+                    var char = string[i];
 
-                if (i < j - 1) {
-                    var charCode = string.charCodeAt(i);
+                    if (i < j - 1) {
+                        var charCode = string.charCodeAt(i);
 
-                    // fix astral plain strings
-                    if (charCode >= 55296 && charCode <= 56319) {
-                        i++;
-                        result.push(char + string[i]);
+                        // fix astral plain strings
+                        if (charCode >= 55296 && charCode <= 56319) {
+                            i++;
+                            result.push(char + string[i]);
+                        } else {
+                            result.push(char);
+                        }
                     } else {
                         result.push(char);
                     }
-                } else {
-                    result.push(char);
+                    i++;
                 }
-                i++;
+                return result;
             }
-            return result;
-        }
-        function consumeIterator(iterator) {
-            var values = [];
-            var next = iterator.next();
-            while (next.done === false) {
-                values.push(next.value);
-                next = iterator.next();
+            function consumeIterator(iterator) {
+                var values = [];
+                var next = iterator.next();
+                while (next.done === false) {
+                    values.push(next.value);
+                    next = iterator.next();
+                }
+                return values;
             }
-            return values;
-        }
+        })();
+        jsenv.assign(VersionnedFeature.prototype, helpers);
 
         return {
             createFeature: function() {
@@ -1354,8 +1376,6 @@ en fonction du résultat de ces tests
     jsenv.provide(function registerFeatures() {
         var Iterable = jsenv.Iterable;
 
-        // isProblematic: isInvalid & isEnabled
-
         function registerFeatures(fn) {
             var features = [];
             var unconflictualFeatures = [];
@@ -1364,15 +1384,40 @@ en fonction du résultat de ces tests
             function registerFeature(name, propertiesConstructor) {
                 var feature = createFeature(name);
                 var properties = {};
-                if (propertiesConstructor) {
-                    propertiesConstructor.call(properties, feature);
-                }
-
                 var lastSlashIndex = name.lastIndexOf('/');
+                var parent;
                 if (lastSlashIndex > -1) {
                     var parentName = name.slice(0, lastSlashIndex);
-                    feature.addDependency(createFeature(parentName, true), {as: 'parent'});
+                    parent = createFeature(parentName, true);
+                    feature.addDependency(parent, {as: 'parent'});
                 }
+
+                if (propertiesConstructor) {
+                    // sort of module.exports
+                    feature.expose = function(pojo) {
+                        jsenv.assign(properties, pojo || {});
+                    };
+                    // sort of require()
+                    feature.dependency = function(featureName) {
+                        var featureDependency = createFeature(featureName, true);
+                        feature.addDependency(featureDependency);
+                        return featureDependency;
+                    };
+
+                    propertiesConstructor.call(properties,
+                        feature,
+                        feature.parent,
+                        feature.dependency,
+                        feature.expose
+                    );
+                } else {
+                    // un dossier vide a un code et un pass qui réussi par défaut
+                    properties.code = function() {};
+                    properties.pass = function() {
+                        return true;
+                    };
+                }
+
                 if ('dependencies' in properties) {
                     Iterable.forEach(properties.dependencies, function(dependencyName) {
                         feature.addDependency(createFeature(dependencyName, true));
@@ -1421,21 +1466,7 @@ en fonction du résultat de ces tests
                 }
             }
             function assignProperty(feature, propertyValue, propertyName) {
-                if (propertyValue === 'inherit') {
-                    propertyValue = inherit(feature, propertyName);
-                } else {
-                    feature[propertyName] = propertyValue;
-                }
-            }
-            function inherit(feature, propertyName) {
-                var value;
-                if ('parent' in feature) {
-                    value = feature.parent[propertyName];
-                } else {
-                    // read from feature prototype
-                    // throw new Error('cannot inherit ' + propertyName + ', feature ' + feature.name + ' has no parent');
-                }
-                return value;
+                feature[propertyName] = propertyValue;
             }
 
             return features;

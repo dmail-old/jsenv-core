@@ -2,6 +2,8 @@
 // https://github.com/Financial-Times/polyfill-service/blob/master/lib/UA.js
 // https://github.com/3rd-Eden/useragent
 
+// https://github.com/babel/babel-preset-env/blob/master/src/index.js#L97
+
 var normalizers = [
     {
         match: [

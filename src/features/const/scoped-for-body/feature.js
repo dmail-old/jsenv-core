@@ -1,21 +1,20 @@
-this.code = transpile`(function(value) {
-    var scopes = [];
-    for(const i in value) {
-        scopes.push(function() {
-            return i;
+expose({
+    code: transpile`(function(value) {
+        var scopes = [];
+        for(const i in value) {
+            scopes.push(function() {
+                return i;
+            });
+        }
+        return scopes;
+    })`,
+    pass: function(fn) {
+        var value = [0, 1];
+        var scopes = fn(value);
+        var scopeValues = jsenv.Iterable.map(scopes, function(scope) {
+            return scope();
         });
-    }
-    return scopes;
-})`;
-this.pass = function(fn) {
-    var value = [0, 1];
-    var scopes = fn(value);
-    var scopeValues = jsenv.Iterable.map(scopes, function(scope) {
-        return scope();
-    });
-    return this.sameValues(scopeValues, this.collectKeys(value));
-};
-this.solution = {
-    type: 'transpile',
-    name: 'transform-es2015-for-of'
-};
+        return this.sameValues(scopeValues, this.collectKeys(value));
+    },
+    solution: parent.solution
+});

@@ -1,7 +1,8 @@
-this.path = 'getOwnPropertyDescriptor';
-this.code = 'inherit';
-this.pass = 'inherit';
-this.solution = {
-    type: 'polyfill',
-    location: 'corejs://es6.object.get-own-property-descriptor'
-};
+expose({
+    code: feature.runStandard(parent, 'getOwnPropertyDescriptor'),
+    pass: parent.pass,
+    solution: {
+        type: 'corejs',
+        value: 'es6.object.get-own-property-descriptor'
+    }
+});

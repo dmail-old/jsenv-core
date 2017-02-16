@@ -1,4 +1,5 @@
-this.path = 'prototype';
-this.code = 'inherit';
-this.pass = 'inherit';
-this.solution = 'inherit';
+expose({
+    code: feature.runStandard(parent, 'prototype'),
+    pass: parent.pass,
+    solution: 'none'
+});

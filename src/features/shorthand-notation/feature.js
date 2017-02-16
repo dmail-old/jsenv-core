@@ -1,8 +1,8 @@
-this.code = 'inherit';
-this.pass = function() {
-    return true;
-};
-this.solution = {
-    type: 'transpile',
-    name: 'transform-es2015-shorthand-properties'
-};
+expose({
+    code: feature.code,
+    pass: feature.pass,
+    solution: {
+        type: 'babel',
+        value: 'transform-es2015-shorthand-properties'
+    }
+});

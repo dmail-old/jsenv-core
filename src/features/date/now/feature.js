@@ -1,7 +1,8 @@
-this.path = 'now';
-this.code = 'inherit';
-this.pass = 'inherit';
-this.solution = {
-    type: 'polyfill',
-    location: 'corejs://es6.date.now'
-};
+expose({
+    code: feature.runStandard(parent, 'now'),
+    pass: parent.pass,
+    solution: {
+        type: 'corejs',
+        value: 'es6.date.now'
+    }
+});
