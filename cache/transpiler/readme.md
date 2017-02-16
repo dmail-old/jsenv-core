@@ -1,3 +1,3 @@
 ## transpiler
 
-Contains a folder per set of plugins used by the transpiler.
+Will contain cache of source transpiled to be compatible with missing syntax features.
