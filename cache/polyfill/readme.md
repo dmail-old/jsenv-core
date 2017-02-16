@@ -1,3 +1,3 @@
 # polyfill
 
-Contains a folder per set of sources used as polyfill.
+Will contain cache of sources providing missing standard features.
