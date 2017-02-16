@@ -14,7 +14,7 @@ cache/before-fix/jkljkjkjkljkl/file.js#content
 var cuid = require('cuid');
 var fs = require('fs');
 var fsAsync = require('./fs-async.js');
-var path = require('path');
+var Path = require('path');
 
 var createFileSystemCache = (function() {
     function FileSystemCache(folderPath) {
@@ -190,6 +190,7 @@ var createFileSystemCacheBranchEntry = (function() {
                 return JSON.stringify(value, null, '\t');
             };
             this.decode = function(value) {
+                console.log('decoding', path);
                 return JSON.parse(value);
             };
         }
@@ -235,7 +236,7 @@ var createFileSystemCacheBranchEntry = (function() {
                     return {
                         sources: sources.map(function(source, index) {
                             return {
-                                path: path.relative(entry.path, source.path),
+                                path: Path.relative(entry.path, source.path).replace(/\\/g, '/'),
                                 eTag: eTags[index]
                             };
                         }),
@@ -284,13 +285,13 @@ var createFileSystemCacheBranchEntry = (function() {
         return function() {
             var entry = this;
             return fsAsync.getFileContentEtag(sourcePath).then(function(sourceEtag) {
+                var expectedEtag = entry.data.value.sources[index].eTag;
                 var detail = {
                     path: path,
                     expectedEtag: expectedEtag,
                     sourcePath: sourcePath,
                     sourceEtag: sourceEtag
                 };
-                var expectedEtag = entry.data.value.sources[index].eTag;
                 if (expectedEtag === sourceEtag) {
                     return {
                         status: 'valid',
@@ -401,16 +402,18 @@ var createFileSystemCacheBranchEntry = (function() {
             }).then(function(value) {
                 data.value = value;
             }).then(function() {
-                data.value = entry.decode(data.value);
-            }).then(function() {
+                return entry.decode(data.value);
+            }).then(function(decodedValue) {
+                data.value = decodedValue;
                 return entry.postvalidate();
             }).then(function() {
                 if (data.valid === false) {
                     return Promise.reject(INVALID);
                 }
             }).then(function() {
-                data.value = entry.unwrap(data.value);
-            }).then(function() {
+                return entry.unwrap(data.value);
+            }).then(function(unwrappedValue) {
+                data.value = unwrappedValue;
                 data.valid = true;
                 return data;
             }).catch(function(value) {
@@ -439,15 +442,11 @@ var createFileSystemCacheBranchEntry = (function() {
             return Promise.resolve().then(function() {
                 return entry.wrap(data.value);
             }).then(function(wrappedValue) {
-                data.value = wrappedValue;
-            }).then(function() {
-                return entry.encode(data.value);
+                return entry.encode(wrappedValue);
             }).then(function(encodedValue) {
-                data.value = encodedValue;
+                return fsAsync.setFileContent(path, encodedValue);
             }).then(function() {
-                return fsAsync.setFileContent(path, data.value);
-            }).then(function() {
-                return data.value;
+                return value;
             });
         }
     };

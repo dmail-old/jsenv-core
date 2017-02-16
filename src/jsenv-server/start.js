@@ -39,15 +39,16 @@ ce qui par défaut signife throw
 require('../jsenv.js');
 var featureAPI = require('../features/api.js');
 var jsenv = global.jsenv;
-var userAgent = jsenv.userAgent;
 
-jsenv.implementation.adapt({
-    input: {
-        agent: userAgent,
-        features: ['const']
+jsenv.adaptImplementation({
+    options: {
+        agent: String(jsenv.agent),
+        features: [
+            'const'
+        ]
     },
-    getDistantInstruction: function(instruction, complete) {
-        featureAPI.getNextInstruction(instruction, complete);
+    getDistantInstruction: function(instruction, complete, fail) {
+        featureAPI.getDistantInstruction(instruction, complete, fail);
     }
 }).run({
     complete: function(completeEvent) {
@@ -65,7 +66,13 @@ jsenv.implementation.adapt({
         ou d'une erreur interne
         */
 
-        console.log('implementation failed', failEvent.reason, failEvent.detail);
+        console.log('implementation failed', failEvent);
+    },
+    crash: function(crashEvent) {
+        console.log('implementation crashed', crashEvent);
+        setTimeout(function() {
+            throw crashEvent.detail;
+        });
     },
     progress: function(progressEvent) {
         /*
@@ -74,14 +81,6 @@ jsenv.implementation.adapt({
         surement pas grand chose, à voir
         */
 
-        if (progressEvent.step === 'scan-progress') {
-            // var event = progressEvent.event;
-            // console.log('scanned', event.target.name, event.target.status, event.loaded, '/', event.total);
-        } else if (progressEvent.step === 'fixed-scan-progress') {
-            // var fevent = progressEvent.event;
-            // console.log('scanned', fevent.target.name, fevent.target.status, fevent.loaded, '/', fevent.total);
-        } else {
-            // console.log('implementation progress'); // progressEvent);
-        }
+        console.log('implementation progress', progressEvent);
     }
 });

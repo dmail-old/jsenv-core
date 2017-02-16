@@ -289,16 +289,39 @@ ainsi que quelques utilitaires comme assign, Iterable et Predicate
             }
         };
 
-        var versionSeparator = '@';
+        var acceptableVersionChars = [
+            unspecifiedChar,
+            anyChar,
+            0, 1, 2, 3, 4, 5, 6, 7, 8, 9
+        ];
+        function couldBeVersionChar(char) {
+            var i = acceptableVersionChars.length;
+            while (i--) {
+                if (char === acceptableVersionChars[i]) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        var versionSeparator = '/';
         var VersionnableProperties = {
             setName: function(firstArg) {
-                var separatorIndex = firstArg.indexOf(versionSeparator);
+                var lowerFirstArg = firstArg.toLowerCase();
+                var separatorIndex = lowerFirstArg.indexOf(versionSeparator);
                 if (separatorIndex === -1) {
-                    this.name = firstArg.toLowerCase();
+                    this.name = lowerFirstArg;
                 } else {
-                    this.name = firstArg.slice(0, separatorIndex).toLowerCase();
-                    var version = firstArg.slice(separatorIndex + versionSeparator.length);
-                    this.setVersion(version);
+                    var beforeSeparator = lowerFirstArg.slice(0, separatorIndex).toLowerCase();
+                    var afterSeparator = lowerFirstArg.slice(separatorIndex + versionSeparator.length);
+                    // si c'est unknownChar, unspecifiedChar ou un nombre alors
+                    // on a surement un nom qui est en fait nom + version
+                    if (couldBeVersionChar(afterSeparator[0])) {
+                        this.name = beforeSeparator;
+                        this.setVersion(afterSeparator);
+                    } else {
+                        this.name = lowerFirstArg;
+                    }
                 }
             },
             setVersion: function(version) {
@@ -1615,7 +1638,7 @@ en fonction du résultat de ces tests
         return {
             createHooks: function(options) {
                 var hooks = options.hooks || {};
-                var fallbackHooks = options.default || {};
+                var fallbackHooks = options.fallback || {};
                 function hook(name, event) {
                     if (name in hooks) {
                         hooks[name](event);
@@ -1650,7 +1673,7 @@ en fonction du résultat de ces tests
         var handlers = {
             'test'(instruction, hooks) {
                 var evaluated = evalOrCrash(
-                    instruction.input.featuresSource,
+                    instruction.detail.featuresSource,
                     hooks,
                     'some-feature-source'
                 );
@@ -1670,14 +1693,14 @@ en fonction du résultat de ces tests
             },
             'fix'(instruction, hooks) {
                 var evaluatedFix = evalOrCrash(
-                    instruction.input.fixSource,
+                    instruction.detail.fixSource,
                     hooks,
                     'some-fix-source'
                 );
                 if (evaluatedFix.safe) {
                     if (instruction.reason === 'missing-some-fix-output') {
                         var evaluatedFeatures = evalOrCrash(
-                            instruction.input.fixedFeaturesSource,
+                            instruction.detail.fixedFeaturesSource,
                             hooks,
                             'some-fixed-feature-source'
                         );
@@ -1713,38 +1736,42 @@ en fonction du résultat de ces tests
                     hooks: hooks,
                     fallback: {
                         crash: function(event) {
-                            throw event.value;
+                            setTimeout(function() {
+                                throw event.detail;
+                            });
                         }
                     }
                 });
                 var localInstruction = {
                     name: 'start',
-                    input: how.input
+                    options: how.options
                 };
                 getDistantInstruction(localInstruction);
 
                 function getDistantInstruction(localInstruction) {
-                    hook.progress('before-' + localInstruction.name);
+                    hook('progress', 'before-' + localInstruction.name);
                     how.getDistantInstruction(
                         localInstruction,
                         function(distantInstruction) {
-                            hook.progress('after-' + localInstruction.name);
+                            hook('progress', 'after-' + localInstruction.name);
                             return handleDistantInstruction(distantInstruction, localInstruction);
                         }
                     );
                 }
                 function handleDistantInstruction(distantInstruction, localInstruction) {
+                    // console.log('dist', distantInstruction.name, distantInstruction.reason);
                     if (distantInstruction.name === 'complete') {
-                        hook('complete', distantInstruction.input);
+                        hook('complete', distantInstruction);
                     } else if (distantInstruction.name === 'fail') {
-                        hook('fail', distantInstruction.input);
+                        hook('fail', distantInstruction);
                     } else if (distantInstruction.name === 'crash') {
-                        hook('crash', distantInstruction.input);
+                        hook('crash', distantInstruction);
                     } else {
-                        var instructionFeatures = distantInstruction.input.features;
+                        var instructionFeatures = distantInstruction.detail.features;
                         var outputs = [];
 
                         localInstruction.name = distantInstruction.name;
+                        localInstruction.reason = distantInstruction.reason;
                         localInstruction.output = outputs;
 
                         var getFeatureIndex = function(feature) {

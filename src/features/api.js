@@ -61,6 +61,7 @@ var polyfillSolution = {
         function createPolyfill() {
             function createCoreJSPolyfill() {
                 var source = '';
+
                 // Iterable.forEach(requiredCoreJSModules, function(module) {
                 //     if (module.prefixCode) {
                 //         source += module.prefixCode;
@@ -70,20 +71,23 @@ var polyfillSolution = {
                 console.log('concat corejs modules', requiredCoreJSModules);
 
                 return sourcePromise.then(function(source) {
-                    var buildCoreJS = require('core-js-builder');
-                    var promise = buildCoreJS({
-                        modules: requiredCoreJSModules,
-                        librabry: false,
-                        umd: true
-                    });
-                    return promise.then(function(polyfill) {
-                        if (source) {
-                            source += '\n';
-                        }
-                        source += polyfill;
+                    if (requiredCoreJSModules.length) {
+                        var buildCoreJS = require('core-js-builder');
+                        var promise = buildCoreJS({
+                            modules: requiredCoreJSModules,
+                            librabry: false,
+                            umd: true
+                        });
+                        return promise.then(function(polyfill) {
+                            if (source) {
+                                source += '\n';
+                            }
+                            source += polyfill;
 
-                        return source;
-                    });
+                            return source;
+                        });
+                    }
+                    return source;
                 });
             }
             function createOwnFilePolyfill() {
@@ -101,7 +105,7 @@ var polyfillSolution = {
                 createCoreJSPolyfill(),
                 createOwnFilePolyfill()
             ]).then(function(sources) {
-                return sources.join('\n\n');
+                return sources.join('');
             });
         }
 
@@ -211,7 +215,7 @@ function getNextInstruction(instruction) {
         agent: 'Firefox/50.0',
         features: []
     };
-    jsenv.assign(options, instruction.output);
+    jsenv.assign(options, instruction.options || {});
 
     return getRequiredFeatures(options.features).then(function(features) {
         var testOutputsPromise;
@@ -281,7 +285,6 @@ function getNextInstruction(instruction) {
                     }
                 };
             }
-
             var testResults = testOutputs.filter(function(testOutput) {
                 return testOutput.detail;
             });
@@ -299,13 +302,16 @@ function getNextInstruction(instruction) {
             });
             var featuresToFixWithoutSolution = solutionFeatures[0];
             if (featuresToFixWithoutSolution.length) {
+                var featureHasNoSolution = function(feature) {
+                    return Iterable.includes(featuresToFixWithoutSolution, feature);
+                };
                 return {
                     name: 'fail',
                     reason: 'some-feature-have-no-solution',
                     detail: {
                         features: toLocalFeatures(featuresToFixWithoutSolution),
                         results: testResults.filter(function(testResult, index) {
-                            return Iterable.includes(featuresToFixWithoutSolution, features[index]);
+                            return featureHasNoSolution(features[index]);
                         })
                     }
                 };
@@ -313,7 +319,7 @@ function getNextInstruction(instruction) {
             if (featuresToFix.length) {
                 return {
                     name: 'fail',
-                    reason: 'some-feature-solution-is-unknown',
+                    reason: 'some-solution-are-unknown',
                     detail: {
                         features: featuresToFix.map(function(feature) {
                             return {
@@ -333,27 +339,19 @@ function getNextInstruction(instruction) {
                 fixSourcePromise = Promise.resolve('');
             }
             var fixOutputsPromise;
-            if (isBeforeFixInstruction) {
+            if (isBeforeFixInstruction || instruction.reason === 'some-fix-are-required') {
                 fixOutputsPromise = readOutputsFromFileSystem({
                     agent: options.agent,
-                    features: features,
+                    features: featuresToFix,
                     createEntryProperties: getFixOutputEntryProperties
                 });
-            } else if (instruction.name === 'fix') {
-                if (instruction.output.fixResults) {
-                    fixOutputsPromise = writeOutputsToFileSystem({
-                        agent: options.agent,
-                        features: features,
-                        outputs: instruction.output,
-                        createEntryProperties: getFixOutputEntryProperties
-                    });
-                } else {
-                    fixOutputsPromise = readOutputsFromFileSystem({
-                        agent: options.agent,
-                        features: features,
-                        createEntryProperties: getFixOutputEntryProperties
-                    });
-                }
+            } else if (instruction.reason === 'some-fix-output-are-required') {
+                fixOutputsPromise = writeOutputsToFileSystem({
+                    agent: options.agent,
+                    features: featuresToFix,
+                    outputs: instruction.output,
+                    createEntryProperties: getFixOutputEntryProperties
+                });
             }
 
             return Promise.all([
@@ -408,7 +406,7 @@ function getNextInstruction(instruction) {
                             };
                         });
                     }
-                    // it means that event if client just sent the fix
+                    // it means that even if client just sent the fix
                     // we are still missing some fix result
                     // -> client did not send all fix results as he is supposed to during fix instruction
                     // -> some server file has been deleted inbetween
@@ -443,10 +441,10 @@ function getNextInstruction(instruction) {
                 var featuresWithInvalidFixResult = featuresToFix.filter(function(feature, index) {
                     return fixResults[index].status === 'invalid';
                 });
-                if (featuresWithInvalidFixResult) {
+                if (featuresWithInvalidFixResult.length) {
                     return {
                         name: 'fail',
-                        reason: 'some-feature-solution-are-invalid',
+                        reason: 'some-solution-are-invalid',
                         detail: {
                             features: toLocalFeatures(featuresWithInvalidFixResult),
                             results: fixResults.filter(function(fixResult, index) {
@@ -464,7 +462,7 @@ function getNextInstruction(instruction) {
                         name: 'fix',
                         reason: 'some-fix-are-required',
                         detail: {
-                            features: toLocalFeatures(features),
+                            features: toLocalFeatures(featuresToFix),
                             fixSource: fixSource
                         }
                     };
@@ -474,6 +472,8 @@ function getNextInstruction(instruction) {
                     name: 'complete',
                     reason: 'all-feature-are-ok',
                     detail: {
+                        // ptet différencier les features ok
+                        // et les features qu'on a fix
                         features: toLocalFeatures(features)
                     }
                 };
@@ -690,29 +690,36 @@ function createFeatureSourcesFromFolder(features, folderPath, transpiler) {
     }
 }
 
-function getDistantInstruction(instruction) {
-    return getNextInstruction(instruction);
-}
-
-var firstInstruction = {
-    name: 'start',
-    output: {
-        features: [
-            'const/scoped'
-        ]
+module.exports = {
+    getDistantInstruction: function(instruction, complete) {
+        getNextInstruction(instruction).then(
+            complete,
+            function(value) {
+                complete({
+                    name: 'crash',
+                    reason: 'unexpected-rejection',
+                    detail: value
+                });
+            }
+        );
     }
 };
-getDistantInstruction(firstInstruction).then(function(instruction) {
-    console.log('instruction', instruction);
-}).catch(function(e) {
-    setTimeout(function() {
-        throw e;
-    });
-});
 
-module.exports = {
-    getDistantInstruction: getDistantInstruction
-};
+// var firstInstruction = {
+//     name: 'start',
+//     output: {
+//         features: [
+//             'const/scoped'
+//         ]
+//     }
+// };
+// getDistantInstruction(firstInstruction).then(function(instruction) {
+//     console.log('instruction', instruction);
+// }).catch(function(e) {
+//     setTimeout(function() {
+//         throw e;
+//     });
+// });
 
 // var createAgent = (function() {
 //     var Agent = function(name) {
