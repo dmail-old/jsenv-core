@@ -1,3 +1,3 @@
 # polyfill
 
-Will contain cache of sources providing missing standard features.
+Will contain cache of source executed to provided missing standard features.
