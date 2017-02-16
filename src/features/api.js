@@ -6,6 +6,17 @@ with
 https://github.com/kangax/compat-table/blob/gh-pages/data-es5.js
 https://github.com/kangax/compat-table/blob/gh-pages/data-es6.js
 
+ok je sais d'où vient le problème
+
+lorsqu'on a besoin du fix-output ou tu tets-output d'une feature en particulier
+il faut se rapeller que ladite feature peut avoir des dépendances
+et qu'il faut ABSOLUMENT régénérer toutes ses dépendances pour pouvoir
+la retester et obtenir le résultat
+
+autrement dit lorsqu'on souhaite fix const/scoped
+il faut aussi envoyé la feature const même si const est valide
+de sorte que lorsqu'on teste const/scoped on a bien const qui existe
+
 */
 
 require('../jsenv.js');
@@ -201,6 +212,7 @@ function getFixOutputEntryProperties(feature) {
     }
     var entryProperties = {
         name: 'fix-output.json',
+        cacheMode: 'write-only',
         sources: sources
     };
     return entryProperties;
@@ -249,7 +261,7 @@ function getNextInstruction(instruction) {
                             name: 'test',
                             reason: 'some-test-output-are-required',
                             detail: {
-                                features: toLocalFeatures(features),
+                                features: toLocalFeatures(featuresMissingTestOutput),
                                 featuresSource: featuresSource
                             }
                         };
@@ -285,19 +297,19 @@ function getNextInstruction(instruction) {
                     }
                 };
             }
-            var testResults = testOutputs.filter(function(testOutput) {
+            var testResults = testOutputs.map(function(testOutput) {
                 return testOutput.detail;
             });
             var featuresToFix = features.filter(function(feature, index) {
                 return testResults[index].status === 'invalid';
             });
-
             var solutions = [noSolution, polyfillSolution, transpileSolution];
+            var remainingFeaturesToFix = featuresToFix;
             var solutionFeatures = solutions.map(function(solution) {
-                var half = Iterable.bisect(featuresToFix, function(feature) {
+                var half = Iterable.bisect(remainingFeaturesToFix, function(feature) {
                     return solution.match(feature);
                 });
-                featuresToFix = half[1];
+                remainingFeaturesToFix = half[1];
                 return half[0];
             });
             var featuresToFixWithoutSolution = solutionFeatures[0];
@@ -316,12 +328,12 @@ function getNextInstruction(instruction) {
                     }
                 };
             }
-            if (featuresToFix.length) {
+            if (remainingFeaturesToFix.length) {
                 return {
                     name: 'fail',
                     reason: 'some-solution-are-unknown',
                     detail: {
-                        features: featuresToFix.map(function(feature) {
+                        features: remainingFeaturesToFix.map(function(feature) {
                             return {
                                 name: feature.name,
                                 solution: feature.solution
@@ -338,6 +350,7 @@ function getNextInstruction(instruction) {
             } else if (instruction.name === 'fix') {
                 fixSourcePromise = Promise.resolve('');
             }
+
             var fixOutputsPromise;
             if (isBeforeFixInstruction || instruction.reason === 'some-fix-are-required') {
                 fixOutputsPromise = readOutputsFromFileSystem({
@@ -385,6 +398,7 @@ function getNextInstruction(instruction) {
                         }, 'transpile');
                         var fixedFeatureTranspiler = createTranspiler({
                             as: 'code',
+                            sourceMaps: false,
                             plugins: [
                                 plugin
                             ]
@@ -435,6 +449,7 @@ function getNextInstruction(instruction) {
                         }
                     };
                 }
+                // console.log('fix outputs', fixOutputs);
                 var fixResults = fixOutputs.map(function(fixOutput) {
                     return fixOutput.detail;
                 });
@@ -575,7 +590,7 @@ function getFeatures() {
                 features = eval(featuresSource); // eslint-disable-line no-eval
                 return features;
             } catch (e) {
-                console.error('eval error in', featuresSource);
+                // console.error('eval error in', featuresSource);
                 throw e;
             }
         }

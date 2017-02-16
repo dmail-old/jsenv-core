@@ -18,6 +18,8 @@ function normalizePlugins(pluginsOption) {
         var plugin;
         if (typeof pluginOption === 'string') {
             plugin = [pluginOption, {}];
+        } else {
+            plugin = pluginOption;
         }
         var pluginFunction = plugin[0];
         var pluginOptions = plugin[1];
@@ -111,6 +113,8 @@ function createTranspiler(transpilerOptions) {
             // https://babeljs.io/docs/core-packages/#options
             // inputSourceMap: null,
             // minified: false
+
+            // console.log('transpiling', code, 'for', sourceURL);
 
             var babelOptions = {};
             babelOptions.plugins = options.plugins;
@@ -285,6 +289,6 @@ function createTransformTemplateLiteralsTaggedWithPlugin(transpile, TAG_NAME) {
 
     return transformTemplateLiteralsTaggedWithPlugin;
 }
-createTranspiler.createTransformTemplateLiteralsTaggedWithPlugin = createTransformTemplateLiteralsTaggedWithPlugin;
+createTranspiler.transformTemplateLiteralsPlugin = createTransformTemplateLiteralsTaggedWithPlugin;
 
 module.exports = createTranspiler;

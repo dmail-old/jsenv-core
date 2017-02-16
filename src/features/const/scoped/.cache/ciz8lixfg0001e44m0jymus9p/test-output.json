@@ -1,0 +1,17 @@
+{
+	"sources": [
+		{
+			"path": "../../../feature.js",
+			"eTag": "\"199-4Ah97jeQcTjSiCqJsaT8vlOEPW4\""
+		}
+	],
+	"value": {
+		"status": "completed",
+		"reason": "test-result",
+		"detail": {
+			"status": "invalid",
+			"reason": "throwed",
+			"detail": {}
+		}
+	}
+}

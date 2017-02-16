@@ -44,7 +44,7 @@ jsenv.adaptImplementation({
     options: {
         agent: String(jsenv.agent),
         features: [
-            'const'
+            'const/scoped'
         ]
     },
     getDistantInstruction: function(instruction, complete, fail) {

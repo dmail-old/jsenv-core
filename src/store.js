@@ -28,10 +28,16 @@ var createFileSystemCache = (function() {
 
         revive: function() {
             var self = this;
+            var path = this.branchesPath;
 
-            return fsAsync.getFileContent(this.branchesPath, '[]').then(
-                JSON.parse
-            ).then(function(branches) {
+            return fsAsync.getFileContent(this.branchesPath, '[]').then(function(content) {
+                try {
+                    return JSON.parse(content);
+                } catch (e) {
+                    console.error('malformed json at', path, 'got', content);
+                    return Promise.reject(e);
+                }
+            }).then(function(branches) {
                 self.branches = branches.map(function(branchProperties) {
                     return self.branch(branchProperties);
                 });
@@ -190,7 +196,6 @@ var createFileSystemCacheBranchEntry = (function() {
                 return JSON.stringify(value, null, '\t');
             };
             this.decode = function(value) {
-                console.log('decoding', path);
                 return JSON.parse(value);
             };
         }

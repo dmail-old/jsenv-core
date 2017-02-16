@@ -1492,6 +1492,13 @@ en fonction du résultat de ces tests
                 feature[propertyName] = propertyValue;
             }
 
+            if (unconflictualFeatures.length) {
+                var names = unconflictualFeatures.map(function(feature) {
+                    return feature.name;
+                });
+                throw new Error('some feature not found after registration ' + names);
+            }
+
             return features;
         }
 
@@ -1698,7 +1705,7 @@ en fonction du résultat de ces tests
                     'some-fix-source'
                 );
                 if (evaluatedFix.safe) {
-                    if (instruction.reason === 'missing-some-fix-output') {
+                    if (instruction.reason === 'some-fix-output-are-required') {
                         var evaluatedFeatures = evalOrCrash(
                             instruction.detail.fixedFeaturesSource,
                             hooks,
@@ -1749,17 +1756,18 @@ en fonction du résultat de ces tests
                 getDistantInstruction(localInstruction);
 
                 function getDistantInstruction(localInstruction) {
+                    console.log('local', localInstruction);
                     hook('progress', 'before-' + localInstruction.name);
                     how.getDistantInstruction(
                         localInstruction,
                         function(distantInstruction) {
+                            console.log('dist', distantInstruction);
                             hook('progress', 'after-' + localInstruction.name);
                             return handleDistantInstruction(distantInstruction, localInstruction);
                         }
                     );
                 }
                 function handleDistantInstruction(distantInstruction, localInstruction) {
-                    // console.log('dist', distantInstruction.name, distantInstruction.reason);
                     if (distantInstruction.name === 'complete') {
                         hook('complete', distantInstruction);
                     } else if (distantInstruction.name === 'fail') {
@@ -1775,9 +1783,13 @@ en fonction du résultat de ces tests
                         localInstruction.output = outputs;
 
                         var getFeatureIndex = function(feature) {
-                            return instructionFeatures.findIndex(function(instructionFeature) {
+                            var index = instructionFeatures.findIndex(function(instructionFeature) {
                                 return instructionFeature.name === feature.name;
                             });
+                            if (index === -1) {
+                                throw new Error('cannot find feature ' + feature.name);
+                            }
+                            return index;
                         };
 
                         var progress = function() {
@@ -1796,6 +1808,9 @@ en fonction du résultat de ces tests
                             var index = getFeatureIndex(feature);
                             var output = {status: 'crashed'};
                             jsenv.assign(output, data);
+                            if (data.detail instanceof Error) {
+                                data.detail = String(data.detail);
+                            }
                             outputs[index] = output;
                             progress();
                         };
