@@ -1400,37 +1400,117 @@ en fonction du résultat de ces tests
         var Iterable = jsenv.Iterable;
 
         function registerFeatures(fn) {
-            var features = [];
-            var unconflictualFeatures = [];
+            var concreteVersions = [];
+            var abstractVersions = [];
             fn(registerFeature, jsenv.transpile);
 
+            function concrete(featureName) {
+                var feature;
+                var concreteVersion = findConcrete(featureName);
+                if (concreteVersion) {
+                    throw new Error('feature ' + featureName + ' already exists');
+                }
+
+                var abstractVersion = findAbstract(featureName);
+                if (abstractVersion) {
+                    feature = abstractVersion.feature;
+                    Iterable.remove(abstractVersions, abstractVersion);
+                } else {
+                    feature = jsenv.createFeature(name);
+                    concreteVersion = {
+                        feature: feature
+                    };
+                    concreteVersions.push(concreteVersion);
+                }
+                return feature;
+            }
+            function findConcrete(featureName) {
+                return Iterable.find(concreteVersions, function(concreteVersion) {
+                    return concreteVersion.feature.match(featureName);
+                });
+            }
+            function findAbstract(featureName) {
+                return Iterable.find(abstractVersions, function(abstractVersion) {
+                    return abstractVersion.feature.match(featureName);
+                });
+            }
+            function abstract(featureName, dependent) {
+                var feature;
+
+                var concreteVersion = findConcrete(featureName);
+                if (concreteVersion) {
+                    feature = concreteVersion.feature;
+                } else {
+                    var abstractVersion = findAbstract(featureName);
+
+                    if (abstractVersion) {
+                        feature = abstractVersion.feature;
+                        abstractVersion.dependents.push(dependent);
+                    } else {
+                        feature = jsenv.createFeature(name);
+                        abstractVersion = {
+                            feature: feature,
+                            dependents: [dependent]
+                        };
+                        abstractVersions.push(abstractVersion);
+                    }
+                }
+                return feature;
+            }
+
             function registerFeature(name, propertiesConstructor) {
-                var feature = createFeature(name);
+                var feature = concrete(name);
                 var properties = {};
                 var lastSlashIndex = name.lastIndexOf('/');
                 var parent;
+
                 if (lastSlashIndex > -1) {
                     var parentName = name.slice(0, lastSlashIndex);
-                    parent = createFeature(parentName, true);
+                    parent = abstract(parentName, feature);
                     feature.addDependency(parent, {as: 'parent'});
                 }
 
                 if (propertiesConstructor) {
                     // sort of module.exports
-                    feature.expose = function(pojo) {
-                        jsenv.assign(properties, pojo || {});
-                    };
-                    // sort of require()
-                    feature.dependency = function(featureName) {
-                        var featureDependency = createFeature(featureName, true);
-                        feature.addDependency(featureDependency);
-                        return featureDependency;
+                    feature.expose = function() {
+                        var dependencies = [];
+                        var pojo;
+                        var i = 0;
+                        var j = arguments.length;
+                        if (j === 0) {
+                            pojo = {};
+                        } else {
+                            var lastArg;
+                            if (j === 1) {
+                                lastArg = arguments[i];
+                            } else {
+                                var lastIndex = j - 1;
+                                while (i < lastIndex) {
+                                    var arg = arguments[i];
+                                    if (typeof arg === 'string') {
+                                        var dependency = abstract(arg, feature);
+                                        feature.addDependency(dependency);
+                                        dependencies.push(dependency);
+                                    } else {
+                                        throw new TypeError('expose() dependency arg must be string');
+                                    }
+                                    i++;
+                                }
+                                lastArg = arguments[lastIndex];
+                            }
+                            if (typeof lastArg === 'function') {
+                                pojo = lastArg.apply(feature, dependencies);
+                            } else if (typeof lastArg === 'object') {
+                                pojo = lastArg;
+                            }
+                        }
+
+                        jsenv.assign(feature, pojo);
                     };
 
                     propertiesConstructor.call(properties,
                         feature,
                         feature.parent,
-                        feature.dependency,
                         feature.expose
                     );
                 } else {
@@ -1441,45 +1521,22 @@ en fonction du résultat de ces tests
                     };
                 }
 
-                if ('dependencies' in properties) {
-                    Iterable.forEach(properties.dependencies, function(dependencyName) {
-                        feature.addDependency(createFeature(dependencyName, true));
-                    });
-                }
-                if ('parameters' in properties) {
-                    Iterable.forEach(properties.parameters, function(parameterName) {
-                        feature.addDependency(createFeature(parameterName, true), {as: 'parameter'});
-                    });
-                }
+                // if ('dependencies' in properties) {
+                //     Iterable.forEach(properties.dependencies, function(dependencyName) {
+                //         feature.addDependency(createFeature(dependencyName, true));
+                //     });
+                // }
+                // if ('parameters' in properties) {
+                //     Iterable.forEach(properties.parameters, function(parameterName) {
+                //         feature.addDependency(createFeature(parameterName, true), {as: 'parameter'});
+                //     });
+                // }
                 checkProperty(feature, properties, 'code');
                 checkProperty(feature, properties, 'pass');
                 checkProperty(feature, properties, 'fail');
                 checkProperty(feature, properties, 'maxTestDuration');
                 checkProperty(feature, properties, 'solution');
-                checkProperty(feature, properties, 'path');
-
-                return feature;
-            }
-            function createFeature(name, preventConflict) {
-                var feature;
-                var existingFeature = jsenv.Iterable.find(features, function(feature) {
-                    return feature.match(name);
-                });
-                if (existingFeature) {
-                    if (preventConflict) {
-                        feature = existingFeature;
-                    } else if (jsenv.Iterable.remove(unconflictualFeatures, existingFeature)) {
-                        feature = existingFeature;
-                    } else {
-                        throw new Error('feature named ' + name + ' already exists');
-                    }
-                } else {
-                    feature = jsenv.createFeature(name);
-                    if (preventConflict) {
-                        unconflictualFeatures.push(feature);
-                    }
-                    features.push(feature);
-                }
+                // checkProperty(feature, properties, 'path');
 
                 return feature;
             }
@@ -1492,14 +1549,22 @@ en fonction du résultat de ces tests
                 feature[propertyName] = propertyValue;
             }
 
-            if (unconflictualFeatures.length) {
-                var names = unconflictualFeatures.map(function(feature) {
-                    return feature.name;
+            if (abstractVersions.length) {
+                // to get a simple error message we'll just throw with
+                // one abstractVersion which was expected to become concrete
+                var abstractVersion = abstractVersions[0];
+                var abstractFeature = abstractVersion.feature;
+                var dependentNames = abstractVersion.dependents.map(function(dependent) {
+                    return dependent.name;
                 });
-                throw new Error('some feature not found after registration ' + names);
+                throw new Error(
+                    abstractFeature.name + ' is required by ' + dependentNames + ' but does not exists'
+                );
             }
 
-            return features;
+            return concreteVersions.map(function(concreteVersion) {
+                return concreteVersion.feature;
+            });
         }
 
         return {

@@ -17,6 +17,15 @@ autrement dit lorsqu'on souhaite fix const/scoped
 il faut aussi envoyé la feature const même si const est valide
 de sorte que lorsqu'on teste const/scoped on a bien const qui existe
 
+c'est vrai pour test, pour fix, etc
+donc en gros il faut que lorsqu'une feature est envoyé, ses dépendances le soit aussi
+par contre on se moque du résultat de la dépendance (elle est considéré valide)
+mais ptet qu'on la runnera quand même par principe, à voir
+
+- JSON.stringify(new Error('ok)) retourne {} ce qui est génant pour stocker les cas de crash
+il faudrais stocker name, message, stack et que le serveur renvoit
+name + message sans stack
+
 */
 
 require('../jsenv.js');
