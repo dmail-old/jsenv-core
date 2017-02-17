@@ -12,4 +12,4 @@ expose(
         },
         solution: parent.solution
     }
-;
+);

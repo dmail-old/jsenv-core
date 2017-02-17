@@ -1,7 +1,7 @@
 expose(
     'symbol/iterator',
     {
-        core: parent.solution,
+        code: parent.code,
         pass: function(fn) {
             var data = [1, 2, 3];
             var iterable = this.createIterableObject(data);

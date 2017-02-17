@@ -1,4 +1,7 @@
-this.path = 'iterator';
-this.code = 'inherit';
-this.pass = 'inherit';
-this.solution = 'inherit';
+expose(
+    {
+        code: feature.runStandard(parent, 'iterator'),
+        pass: parent.pass,
+        solution: parent.solution
+    }
+);
