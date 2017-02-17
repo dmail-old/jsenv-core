@@ -126,7 +126,16 @@ function createTranspiler(transpilerOptions) {
             }
 
             var babel = require('babel-core');
-            var result = babel.transform(code, babelOptions);
+            var result;
+            try {
+                result = babel.transform(code, babelOptions);
+            } catch (e) {
+                if (e.name === 'SyntaxError') {
+                    console.error(e.message, 'in', sourceURL, 'at\n');
+                    console.error(e.codeFrame);
+                }
+                throw e;
+            }
             var transpiledCode = result.code;
 
             if (sourceURL) {
