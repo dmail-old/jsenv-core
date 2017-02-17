@@ -17,10 +17,14 @@ var fsAsync = require('./fs-async.js');
 var Path = require('path');
 
 var createFileSystemCache = (function() {
-    function FileSystemCache(folderPath) {
+    function FileSystemCache(folderPath, options) {
         this.path = folderPath;
         this.branchesPath = this.path + '/branches.json';
         this.branches = [];
+        options = options || {};
+        for (var key in options) { // eslint-disable-line guard-for-in
+            this[key] = options[key];
+        }
     }
 
     FileSystemCache.prototype = {
@@ -59,7 +63,7 @@ var createFileSystemCache = (function() {
             var j = branches.length;
             while (i < j) {
                 branch = branches[i];
-                if (branch.match(branchMeta)) {
+                if (this.matchBranch(branch, branchMeta)) {
                     break;
                 } else {
                     branch = null;
@@ -75,7 +79,7 @@ var createFileSystemCache = (function() {
             }
 
             branch = this.branch({
-                name: cuid(),
+                name: this.createBranchName(branchMeta),
                 meta: branchMeta,
                 matchCount: 1,
                 firstMatch: Number(Date.now()),
@@ -86,6 +90,14 @@ var createFileSystemCache = (function() {
             return this.update().then(function() {
                 return branch;
             });
+        },
+
+        matchBranch: function(branch, meta) {
+            return JSON.stringify(branch.meta) === JSON.stringify(meta);
+        },
+
+        createBranchName: function() {
+            return cuid();
         },
 
         match: function(meta) {
@@ -140,10 +152,6 @@ var createFileSystemCacheBranch = (function() {
     FileSystemCacheBranch.prototype = {
         constructor: FileSystemCacheBranch,
 
-        match: function(meta) {
-            return JSON.stringify(this.meta) === JSON.stringify(meta);
-        },
-
         toJSON: function() {
             return {
                 name: this.name,
@@ -192,9 +200,11 @@ var createFileSystemCacheBranchEntry = (function() {
             return 'raw';
         })();
         if (format === 'json') {
-            this.encode = function(value) {
-                return JSON.stringify(value, null, '\t');
-            };
+            if (this.hasOwnProperty('encode') === false) {
+                this.encode = function(value) {
+                    return JSON.stringify(value, null, '\t');
+                };
+            }
             this.decode = function(value) {
                 return JSON.parse(value);
             };

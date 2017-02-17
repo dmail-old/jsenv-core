@@ -22,10 +22,6 @@ donc en gros il faut que lorsqu'une feature est envoyé, ses dépendances le soi
 par contre on se moque du résultat de la dépendance (elle est considéré valide)
 mais ptet qu'on la runnera quand même par principe, à voir
 
-- JSON.stringify(new Error('ok)) retourne {} ce qui est génant pour stocker les cas de crash
-il faudrais stocker name, message, stack et que le serveur renvoit
-name + message sans stack
-
 */
 
 require('../jsenv.js');
@@ -188,9 +184,34 @@ var transpileSolution = {
     }
 };
 
+function stringifyErrorReplacer(key, value) {
+    if (value instanceof Error) {
+        var error = {};
+        var properties = [];
+        var property;
+        for (property in value) { // eslint-disable-line guard-for-in
+            properties.push(property);
+        }
+        var nonEnumerableProperties = ["name", "message", "stack"];
+        properties.push.apply(null, nonEnumerableProperties);
+        var i = 0;
+        var j = properties.length;
+        while (i < j) {
+            property = properties[i];
+            error[property] = value[property];
+            i++;
+        }
+
+        return error;
+    }
+    return value;
+}
 function getTestOutputEntryProperties(feature) {
     var entryProperties = {
         name: 'test-output.json',
+        encode: function(value) {
+            return JSON.stringify(value, stringifyErrorReplacer, '\t');
+        },
         sources: [
             {
                 path: featuresFolderPath + '/' + feature.name + '/feature.js',
@@ -221,6 +242,9 @@ function getFixOutputEntryProperties(feature) {
     }
     var entryProperties = {
         name: 'fix-output.json',
+        encode: function(value) {
+            return JSON.stringify(value, stringifyErrorReplacer, '\t');
+        },
         cacheMode: 'write-only',
         sources: sources
     };
@@ -550,10 +574,16 @@ function writeOutputsToFileSystem(how) {
 }
 function getFeatureAgentCache(feature, agent) {
     var featureCacheFolderPath = featuresFolderPath + '/' + feature.name + '/.cache';
-    var featureCache = store.fileSystemCache(featureCacheFolderPath);
-    return featureCache.match({
-        agent: agent
+    var agentString = agent.toString();
+    var featureCache = store.fileSystemCache(featureCacheFolderPath, {
+        createBranchName: function(agentString) {
+            return agentString;
+        },
+        matchBranch: function(branch, agentString) {
+            return branch.name === agentString;
+        }
     });
+    return featureCache.match(agentString);
 }
 function getRequiredFeatures(names) {
     return getFeatures().then(filterRequiredFeatures);
@@ -703,7 +733,7 @@ function createFeatureSourcesFromFolder(features, folderPath, transpiler) {
         var featureNameSource = "'" + feature.name + "'";
         var featurePropertiesSource = '';
         if (featureCode) {
-            featurePropertiesSource += 'function(feature, parent, dependency, expose) {\n\t';
+            featurePropertiesSource += 'function(feature, parent, expose) {\n\t';
             featurePropertiesSource += featureCode;
             featurePropertiesSource += '\n}';
         } else {
