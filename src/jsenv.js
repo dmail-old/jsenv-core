@@ -106,6 +106,11 @@ ainsi que quelques utilitaires comme assign, Iterable et Predicate
         }
         VersionPart.prototype = {
             constructor: VersionPart,
+
+            clone: function() {
+                return new VersionPart(this.value);
+            },
+
             isAny: function() {
                 return this.value === anyChar;
             },
@@ -171,8 +176,8 @@ ainsi que quelques utilitaires comme assign, Iterable et Predicate
                 patch = new VersionPart(unspecifiedChar);
             } else if (versionName.indexOf('.') === -1) {
                 major = new VersionPart(versionName);
-                minor = new VersionPart(0);
-                patch = new VersionPart(0);
+                minor = new VersionPart(unspecifiedChar);
+                patch = new VersionPart(unspecifiedChar);
             } else {
                 var versionParts = versionName.split('.');
                 var versionPartCount = versionParts.length;
@@ -187,7 +192,7 @@ ainsi que quelques utilitaires comme assign, Iterable et Predicate
                 if (versionPartCount === 2) {
                     major = new VersionPart(versionParts[0]);
                     minor = new VersionPart(versionParts[1]);
-                    patch = new VersionPart(0);
+                    patch = new VersionPart(unspecifiedChar);
                 } else if (versionPartCount === 3) {
                     major = new VersionPart(versionParts[0]);
                     minor = new VersionPart(versionParts[1]);
@@ -200,17 +205,6 @@ ainsi que quelques utilitaires comme assign, Iterable et Predicate
             this.patch = patch;
             this.raw = firstArg;
         }
-        Version.cast = function(firstArg) {
-            var version;
-            if (typeof firstArg === 'string') {
-                version = new Version(firstArg);
-            } else if (firstArg instanceof Version) {
-                version = firstArg;
-            } else {
-                throw new Error('version.match expect a string or a version object');
-            }
-            return version;
-        };
         Version.prototype = {
             constructor: Version,
 
@@ -288,6 +282,17 @@ ainsi que quelques utilitaires comme assign, Iterable et Predicate
                 return this.major + '.' + this.minor + '.' + this.patch;
             }
         };
+        Version.cast = function(firstArg) {
+            var version;
+            if (typeof firstArg === 'string') {
+                version = new Version(firstArg);
+            } else if (firstArg instanceof Version) {
+                version = firstArg;
+            } else {
+                throw new Error('version.match expect a string or a version object');
+            }
+            return version;
+        };
 
         var acceptableVersionChars = [
             unspecifiedChar,
@@ -297,7 +302,7 @@ ainsi que quelques utilitaires comme assign, Iterable et Predicate
         function couldBeVersionChar(char) {
             var i = acceptableVersionChars.length;
             while (i--) {
-                if (char === acceptableVersionChars[i]) {
+                if (char === String(acceptableVersionChars[i])) {
                     return true;
                 }
             }
@@ -331,7 +336,9 @@ ainsi que quelques utilitaires comme assign, Iterable et Predicate
                 var shortNotation = '';
 
                 shortNotation += this.name;
-                if (this.version.isSpecified()) {
+                if (this.version.isUnspecified()) {
+
+                } else {
                     shortNotation += versionSeparator + this.version;
                 }
 
@@ -1416,7 +1423,7 @@ en fonction du résultat de ces tests
                     feature = abstractVersion.feature;
                     Iterable.remove(abstractVersions, abstractVersion);
                 } else {
-                    feature = jsenv.createFeature(name);
+                    feature = jsenv.createFeature(featureName);
                     concreteVersion = {
                         feature: feature
                     };
@@ -1447,7 +1454,7 @@ en fonction du résultat de ces tests
                         feature = abstractVersion.feature;
                         abstractVersion.dependents.push(dependent);
                     } else {
-                        feature = jsenv.createFeature(name);
+                        feature = jsenv.createFeature(featureName);
                         abstractVersion = {
                             feature: feature,
                             dependents: [dependent]
