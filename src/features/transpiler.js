@@ -22,7 +22,7 @@ function normalizePlugins(pluginsOption) {
             plugin = pluginOption;
         }
         var pluginFunction = plugin[0];
-        var pluginOptions = plugin[1];
+        var pluginOptions = plugin[1] || {};
         if (typeof pluginFunction === 'string') {
             return [pluginFunction, pluginOptions];
         }
@@ -138,7 +138,7 @@ function createTranspiler(transpilerOptions) {
             }
             var transpiledCode = result.code;
 
-            if (sourceURL) {
+            if (sourceURL && options.sourceURL !== false) {
                 transpiledCode += '\n//# sourceURL=' + sourceURL;
             }
             if (options.transform) {
@@ -177,9 +177,7 @@ function createTranspiler(transpilerOptions) {
             });
         }
 
-        if ('sourceURL' in options) {
-            sourceURL = options.sourceURL;
-        } else if (sourceURL) {
+        if (sourceURL) {
             sourceURL += '!transpiled';
         }
         return transpileSource(sourceURL);
@@ -203,7 +201,9 @@ function createTranspiler(transpilerOptions) {
             return getFileEntry(transpileCodeOptions).then(function(entry) {
                 if (entry) {
                     transpileCodeOptions.cache = false;
-                    transpileCodeOptions.sourceURL = entry.path;
+                    // we don't need sourceURL because the file exists on the filesystem
+                    // or maybe it could be set to entry.path when sourceURL was not already false
+                    transpileCodeOptions.sourceURL = false;
 
                     return memoize.async(
                         createTranspiledCode,

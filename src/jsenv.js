@@ -1424,11 +1424,11 @@ en fonction du résultat de ces tests
                     Iterable.remove(abstractVersions, abstractVersion);
                 } else {
                     feature = jsenv.createFeature(featureName);
-                    concreteVersion = {
-                        feature: feature
-                    };
-                    concreteVersions.push(concreteVersion);
                 }
+                concreteVersion = {
+                    feature: feature
+                };
+                concreteVersions.push(concreteVersion);
                 return feature;
             }
             function findConcrete(featureName) {
@@ -1556,6 +1556,10 @@ en fonction du résultat de ces tests
                 feature[propertyName] = propertyValue;
             }
 
+            var concreteFeatures = concreteVersions.map(function(concreteVersion) {
+                return concreteVersion.feature;
+            });
+
             if (abstractVersions.length) {
                 // to get a simple error message we'll just throw with
                 // one abstractVersion which was expected to become concrete
@@ -1564,14 +1568,15 @@ en fonction du résultat de ces tests
                 var dependentNames = abstractVersion.dependents.map(function(dependent) {
                     return dependent.name;
                 });
+                console.log('the cocnret feature names', concreteFeatures.map(function(feature) {
+                    return feature.name;
+                }));
                 throw new Error(
-                    abstractFeature.name + ' is required by ' + dependentNames + ' but does not exists'
+                    abstractFeature.name + ' is required by ' + dependentNames + ' but is not registered'
                 );
             }
 
-            return concreteVersions.map(function(concreteVersion) {
-                return concreteVersion.feature;
-            });
+            return concreteFeatures;
         }
 
         return {
@@ -1732,6 +1737,41 @@ en fonction du résultat de ces tests
     });
 
     jsenv.provide(function adaptImplementation() {
+        function test(instruction, hooks) {
+            var evalCrashReason;
+            var completeReason;
+            var featuresSource;
+
+            evalCrashReason = 'some-feature-source';
+            featuresSource = instruction.detail.featuresSource;
+            completeReason = 'test-result';
+
+            var evaluated = evalOrCrash(
+                featuresSource,
+                hooks,
+                evalCrashReason
+            );
+            if (evaluated.safe) {
+                var evaluatedFeatures = evaluated.value;
+                var featureToTest = instruction.detail.features.map(function(feature) {
+                    return Iterable.find(evaluatedFeatures, function(evaluatedFeature) {
+                        return evaluatedFeature.match(feature.name);
+                    });
+                });
+
+                jsenv.testFeatures(
+                    featureToTest,
+                    {
+                        progress: function(event) {
+                            hooks.complete(event.target, {
+                                reason: completeReason,
+                                detail: event.detail
+                            });
+                        }
+                    }
+                );
+            }
+        }
         function evalOrCrash(source, hooks, reason) {
             try {
                 return {
@@ -1751,24 +1791,10 @@ en fonction du résultat de ces tests
         }
         var handlers = {
             'test'(instruction, hooks) {
-                var evaluated = evalOrCrash(
-                    instruction.detail.featuresSource,
-                    hooks,
-                    'some-feature-source'
+                test(
+                    instruction,
+                    hooks
                 );
-                if (evaluated.safe) {
-                    jsenv.testFeatures(
-                        evaluated.value,
-                        {
-                            progress: function(event) {
-                                hooks.complete(event.target, {
-                                    reason: 'test-result',
-                                    detail: event.detail
-                                });
-                            }
-                        }
-                    );
-                }
             },
             'fix'(instruction, hooks) {
                 var evaluatedFix = evalOrCrash(
@@ -1778,24 +1804,7 @@ en fonction du résultat de ces tests
                 );
                 if (evaluatedFix.safe) {
                     if (instruction.reason === 'some-fix-output-are-required') {
-                        var evaluatedFeatures = evalOrCrash(
-                            instruction.detail.fixedFeaturesSource,
-                            hooks,
-                            'some-fixed-feature-source'
-                        );
-                        if (evaluatedFeatures.safe) {
-                            jsenv.testFeatures(
-                                evaluatedFeatures.value,
-                                {
-                                    progress: function(event) {
-                                        hooks.complete(event.target, {
-                                            reason: 'test-result',
-                                            detail: event.detail
-                                        });
-                                    }
-                                }
-                            );
-                        }
+                        test(instruction, hooks);
                     } else {
                         hooks.completeRemaining({
                             reason: 'fix-safe'
@@ -1833,7 +1842,7 @@ en fonction du résultat de ces tests
                     how.getDistantInstruction(
                         localInstruction,
                         function(distantInstruction) {
-                            console.log('dist', distantInstruction);
+                            // console.log('dist', distantInstruction);
                             hook('progress', 'after-' + localInstruction.name);
                             return handleDistantInstruction(distantInstruction, localInstruction);
                         }

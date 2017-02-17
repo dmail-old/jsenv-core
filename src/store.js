@@ -137,8 +137,8 @@ var createFileSystemCache = (function() {
         return order;
     }
 
-    return function(folderPath) {
-        return new FileSystemCache(folderPath);
+    return function(folderPath, options) {
+        return new FileSystemCache(folderPath, options);
     };
 })();
 
@@ -323,26 +323,23 @@ var createFileSystemCacheBranchEntry = (function() {
         };
     }
     function composeValidators(validators) {
-        var rejectedBecauseInvalid = {};
-
         return function composedValidator() {
             var self = this;
             var args = arguments;
-            var invalidRejection;
             var entry = this;
             var data = entry.data;
             var validationPromises = validators.map(function(validator) {
                 return Promise.resolve(validator.apply(self, args)).then(function(result) {
                     if (typeof result === 'boolean') {
-                        entry.data.valid = result;
+                        data.valid = result;
                     }
                     if (typeof result === 'object') {
                         data.valid = result.status === 'valid';
                         data.reason = result.reason;
                         data.detail = result.detail;
                     }
-                    if (!entry.data.valid) {
-                        return Promise.reject(rejectedBecauseInvalid);
+                    if (!data.valid) {
+                        return Promise.reject(data);
                     }
                 });
             });
@@ -350,11 +347,8 @@ var createFileSystemCacheBranchEntry = (function() {
             return Promise.all(validationPromises).then(function() {
                 return true;
             }).catch(function(e) {
-                if (e === rejectedBecauseInvalid) {
+                if (e === data) {
                     return false;
-                }
-                if (e === invalidRejection) {
-                    return invalidRejection;
                 }
                 return Promise.reject(e);
             });
@@ -362,11 +356,10 @@ var createFileSystemCacheBranchEntry = (function() {
     }
 
     var FS_VISIBLE = (fs.constants || fs).F_OK;
-    var INVALID = {};
     FileSystemCacheBranchEntry.prototype = {
         constructor: FileSystemCacheBranchEntry,
         mode: 'default', // 'write-only', // utile pour le debug
-        limit: { // todo, la seule strategy possible pour le moment est LRU
+        limit: { // todo, deux strategy possible : 'ignore' (on ne cache plus rien) et 'lru'
             value: Infinity,
             strategy: 'least-recently-used'
         },
@@ -405,12 +398,12 @@ var createFileSystemCacheBranchEntry = (function() {
                 data.detail = {
                     path: path
                 };
-                return Promise.reject(INVALID);
+                return Promise.reject(data);
             }).then(function() {
                 return entry.prevalidate();
             }).then(function() {
                 if (data.valid === false) {
-                    return Promise.reject(INVALID);
+                    return Promise.reject(data);
                 }
             }).then(function() {
                 return fsAsync.getFileContent(path);
@@ -423,7 +416,7 @@ var createFileSystemCacheBranchEntry = (function() {
                 return entry.postvalidate();
             }).then(function() {
                 if (data.valid === false) {
-                    return Promise.reject(INVALID);
+                    return Promise.reject(data);
                 }
             }).then(function() {
                 return entry.unwrap(data.value);
@@ -432,7 +425,7 @@ var createFileSystemCacheBranchEntry = (function() {
                 data.valid = true;
                 return data;
             }).catch(function(value) {
-                if (value === INVALID) {
+                if (value === data) {
                     return data;
                 }
                 return Promise.reject(value);

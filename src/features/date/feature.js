@@ -1,5 +1,7 @@
-expose({
-    code: feature.runStandard('Date'),
-    pass: feature.standardPresence,
-    solution: 'none'
-});
+expose(
+    {
+        code: feature.runStandard('Date'),
+        pass: feature.standardPresence,
+        solution: 'none'
+    }
+);

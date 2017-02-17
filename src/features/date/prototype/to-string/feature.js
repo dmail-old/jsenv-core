@@ -1,4 +1,7 @@
-this.path = 'toString';
-this.code = 'inherit';
-this.pass = 'inherit';
-this.solution = 'none';
+expose(
+    {
+        code: feature.runStandard(parent, 'toString'),
+        pass: parent.pass,
+        solution: 'none'
+    }
+);

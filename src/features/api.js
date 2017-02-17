@@ -8,7 +8,7 @@ https://github.com/kangax/compat-table/blob/gh-pages/data-es6.js
 
 ok je sais d'où vient le problème
 
-lorsqu'on a besoin du fix-output ou tu tets-output d'une feature en particulier
+lorsqu'on a besoin du fix-output ou du test-output d'une feature en particulier
 il faut se rapeller que ladite feature peut avoir des dépendances
 et qu'il faut ABSOLUMENT régénérer toutes ses dépendances pour pouvoir
 la retester et obtenir le résultat
@@ -193,7 +193,7 @@ function stringifyErrorReplacer(key, value) {
             properties.push(property);
         }
         var nonEnumerableProperties = ["name", "message", "stack"];
-        properties.push.apply(null, nonEnumerableProperties);
+        properties.push.apply(properties, nonEnumerableProperties);
         var i = 0;
         var j = properties.length;
         while (i < j) {
@@ -257,7 +257,7 @@ function toLocalFeatures(features) {
 }
 function getNextInstruction(instruction) {
     var options = {
-        agent: 'Firefox/50.0',
+        agent: 'firefox/50.0.0',
         features: []
     };
     jsenv.assign(options, instruction.options || {});
@@ -285,17 +285,32 @@ function getNextInstruction(instruction) {
 
             if (featuresMissingTestOutput.length) {
                 if (instruction.name === 'start') {
-                    return createFeatureSourcesFromFolder(
+                    var validDependencies = [];
+                    // donc en gros il faut parcourir toutes les dépendences des featuresMissingTestOutput
+                    // toutes celles qui ne sont pas dans featuresMissingTestOutput doivent se retrouver dans
+                    // validDependencies et on sera bon je crois
+                    // faudra "recopier" ce principe pour fix
+                    var dependenciesSource = createFeatureSourcesFromFolder(
+                        validDependencies,
+                        featuresFolderPath,
+                        featureTranspiler
+                    );
+                    var featuresToTestSource = createFeatureSourcesFromFolder(
                         featuresMissingTestOutput,
                         featuresFolderPath,
                         featureTranspiler
-                    ).then(function(featuresSource) {
+                    );
+
+                    return Promise.all([
+                        dependenciesSource,
+                        featuresToTestSource
+                    ]).then(function(data) {
                         return {
                             name: 'test',
                             reason: 'some-test-output-are-required',
                             detail: {
                                 features: toLocalFeatures(featuresMissingTestOutput),
-                                featuresSource: featuresSource
+                                featuresSource: data.join('')
                             }
                         };
                     });
@@ -323,9 +338,11 @@ function getNextInstruction(instruction) {
                     name: 'fail',
                     reason: 'some-test-have-crashed',
                     detail: {
-                        features: toLocalFeatures(featuresWithCrashedTestOutput),
-                        outputs: testOutputs.filter(function(testOutput) {
-                            return testOutput.status === 'crashed';
+                        features: featuresWithCrashedTestOutput.map(function(feature) {
+                            return {
+                                name: feature.name,
+                                testOutput: testOutputs[features.indexOf(feature)]
+                            };
                         })
                     }
                 };
@@ -347,16 +364,15 @@ function getNextInstruction(instruction) {
             });
             var featuresToFixWithoutSolution = solutionFeatures[0];
             if (featuresToFixWithoutSolution.length) {
-                var featureHasNoSolution = function(feature) {
-                    return Iterable.includes(featuresToFixWithoutSolution, feature);
-                };
                 return {
                     name: 'fail',
                     reason: 'some-feature-have-no-solution',
                     detail: {
-                        features: toLocalFeatures(featuresToFixWithoutSolution),
-                        results: testResults.filter(function(testResult, index) {
-                            return featureHasNoSolution(features[index]);
+                        features: featuresToFixWithoutSolution.map(function(feature) {
+                            return {
+                                name: feature.name,
+                                testResult: testResults[features.indexOf(feature)]
+                            };
                         })
                     }
                 };
@@ -424,6 +440,7 @@ function getNextInstruction(instruction) {
                                 as: 'code',
                                 filename: false,
                                 sourceMaps: false,
+                                soureURL: false,
                                 // disable cache to prevent race condition with the transpiler
                                 // that will use this plugin (it's the parent transpiler which is reponsible to cache)
                                 cache: false
@@ -432,6 +449,7 @@ function getNextInstruction(instruction) {
                         var fixedFeatureTranspiler = createTranspiler({
                             as: 'code',
                             sourceMaps: false,
+                            soureURL: false,
                             plugins: [
                                 plugin
                             ]
@@ -448,7 +466,7 @@ function getNextInstruction(instruction) {
                                 detail: {
                                     features: toLocalFeatures(featuresMissingFixOutput),
                                     fixSource: fixSource,
-                                    fixedFeaturesSource: fixedFeaturesSource
+                                    featuresSource: fixedFeaturesSource
                                 }
                             };
                         });
@@ -475,9 +493,11 @@ function getNextInstruction(instruction) {
                         name: 'fail',
                         reason: 'some-fix-have-crashed',
                         detail: {
-                            features: toLocalFeatures(featuresWithCrashedFixOutput),
-                            outputs: fixOutputs.filter(function(fixOutput) {
-                                return fixOutput.status === 'crashed';
+                            features: featuresWithCrashedFixOutput.map(function(feature) {
+                                return {
+                                    name: feature.name,
+                                    output: fixOutputs[featuresToFix.indexOf(feature)]
+                                };
                             })
                         }
                     };
@@ -520,9 +540,18 @@ function getNextInstruction(instruction) {
                     name: 'complete',
                     reason: 'all-feature-are-ok',
                     detail: {
-                        // ptet différencier les features ok
-                        // et les features qu'on a fix
-                        features: toLocalFeatures(features)
+                        features: features.map(function(feature) {
+                            var status;
+                            if (Iterable.includes(featuresToFix, feature)) {
+                                status = 'fixed';
+                            } else {
+                                status = 'ok';
+                            }
+                            return {
+                                name: feature.name,
+                                status: status
+                            };
+                        })
                     }
                 };
             });
@@ -629,7 +658,7 @@ function getFeatures() {
                 features = eval(featuresSource); // eslint-disable-line no-eval
                 return features;
             } catch (e) {
-                // console.error('eval error in', featuresSource);
+                // console.log('evaluating', featuresSource);
                 throw e;
             }
         }

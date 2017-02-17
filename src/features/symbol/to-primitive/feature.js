@@ -1,4 +1,7 @@
-this.path = 'toPrimitive';
-this.code = 'inherit';
-this.pass = 'inherit';
-this.solution = 'inherit';
+expose(
+    {
+        code: feature.runStandard(parent, 'toPrimitive'),
+        pass: parent.pass,
+        solution: parent.solution
+    }
+);
