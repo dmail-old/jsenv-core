@@ -1,0 +1,62 @@
+[
+    {
+        "name": "blackberry",
+        "author": "dmail",
+        "versions": []
+    },
+    {
+        "name": "chrome",
+        "author": "dmail",
+        "versions": []
+    },
+    {
+        "name": "chrome-mobile-ios",
+        "author": "dmail",
+        "versions": []
+    },
+    {
+        "name": "firefox",
+        "author": "dmail",
+        "versions": []
+    },
+    {
+        "name": "firefox-mobile",
+        "author": "dmail",
+        "versions": []
+    },
+    {
+        "name": "ie",
+        "author": "dmail",
+        "versions": []
+    },
+    {
+        "name": "ie-mobile",
+        "author": "dmail",
+        "versions": []
+    },
+    {
+        "name": "safari",
+        "author": "dmail",
+        "versions": []
+    },
+    {
+        "name": "safari-ios",
+        "author": "dmail",
+        "versions": []
+    },
+    {
+        "name": "samsung-mobile",
+        "author": "dmail",
+        "versions": []
+    },
+    {
+        "name": "opera",
+        "author": "dmail",
+        "versions": []
+    },
+    {
+        "name": "opera-mobile",
+        "author": "dmail",
+        "versions": []
+    }
+]
