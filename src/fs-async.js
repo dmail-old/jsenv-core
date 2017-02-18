@@ -42,12 +42,17 @@ function getFileContent(path, defaultContent) {
     return callback(fs.readFile, fs, path).then(
         function(buffer) {
             var content = String(buffer);
+            if (hasDefaultContent && content.length === 0) {
+                content = defaultContent;
+            }
             return content;
         },
         function(e) {
             if (e.code === 'ENOENT') {
                 if (hasDefaultContent) {
-                    return setFileContent(path, defaultContent);
+                    return setFileContent(path, defaultContent).then(function() {
+                        return defaultContent;
+                    });
                 }
             }
             return Promise.reject(e);
