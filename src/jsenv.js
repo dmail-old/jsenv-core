@@ -799,6 +799,9 @@ ainsi que quelques utilitaires comme assign, Iterable et Predicate
             }
             return Iterable.filter(iterable, onlyUnique);
         };
+        Iterable.flatten = function flatten(iterable) {
+            return [].concat.apply([], iterable);
+        };
         return Iterable;
     })();
     provide('Iterable', Iterable);
@@ -917,6 +920,20 @@ en fonction du résultat de ces tests
                     selfOrParent = selfOrParent.parent;
                 }
                 return path.join('.');
+            },
+
+            createRegisterCode: function(source) {
+                var featureNameSource = "'" + this.name + "'";
+                var featurePropertiesSource = '';
+                if (source) {
+                    featurePropertiesSource += 'function(feature, parent, expose) {\n\t';
+                    featurePropertiesSource += source;
+                    featurePropertiesSource += '\n}';
+                } else {
+                    featurePropertiesSource = 'null';
+                }
+
+                return 'registerFeature(' + featureNameSource + ', ' + featurePropertiesSource + ');';
             },
 
             addDependent: function(dependentFeature, options) {
@@ -1584,6 +1601,44 @@ en fonction du résultat de ces tests
         };
     });
 
+    jsenv.provide(function reviveFeatureEntries() {
+        return {
+            reviveFeatureEntries: function(entries) {
+                var registerFeaturesHead = 'jsenv.registerFeatures(function(registerFeature, transpile) {';
+                var registerFeaturesBody = entries.map(function(entry) {
+                    return entry.source;
+                });
+                var registerFeaturesFoot = '});';
+                var registerFeaturesSource;
+                registerFeaturesSource = (
+                    '\n' +
+                    registerFeaturesHead +
+                    '\n\t' +
+                    registerFeaturesBody.join('\n\t\n\t') +
+                    '\n' +
+                    registerFeaturesFoot +
+                    '\n'
+                );
+
+                var features = eval(registerFeaturesSource); // eslint-disable-line no-eval
+                features.forEach(function(feature) {
+                    var entry = entries.find(function(entry) {
+                        return entry.feature.match(feature);
+                    });
+                    entry.feature = feature;
+                    if (entry.enabled) {
+                        feature.enable();
+                    }
+                });
+                return entries;
+            }
+        };
+    });
+
+    jsenv.provide(function() {
+
+    });
+
     jsenv.provide(function testFeatures() {
         var Iterable = jsenv.Iterable;
 
@@ -1684,15 +1739,21 @@ en fonction du résultat de ces tests
             var resolvedNodes = [];
             var groups = [];
             var group;
+            var isResolved = function(node) {
+                // un noeud est résolu s'il fait parties des resolvedNodes
+                // mais aussi s'il ne fait pas partie des noeud qu'on veut grouper
+                return (
+                    Iterable.includes(resolvedNodes, node) ||
+                    Iterable.includes(nodes, node) === false
+                );
+            };
 
             while (true) { // eslint-disable-line
                 group = [];
                 i = 0;
                 while (i < j) {
                     var unresolvedNode = unresolvedNodes[i];
-                    var everyDependencyIsResolved = Iterable.every(unresolvedNode.dependencies, function(dependency) {
-                        return Iterable.includes(resolvedNodes, dependency);
-                    });
+                    var everyDependencyIsResolved = Iterable.every(unresolvedNode.dependencies, isResolved);
                     if (everyDependencyIsResolved) {
                         group.push(unresolvedNode);
                         unresolvedNodes.splice(i, 1);
@@ -1737,83 +1798,6 @@ en fonction du résultat de ces tests
     });
 
     jsenv.provide(function adaptImplementation() {
-        function test(instruction, hooks) {
-            var evalCrashReason;
-            var completeReason;
-            var featuresSource;
-
-            evalCrashReason = 'some-feature-source';
-            featuresSource = instruction.detail.featuresSource;
-            completeReason = 'test-result';
-
-            var evaluated = evalOrCrash(
-                featuresSource,
-                hooks,
-                evalCrashReason
-            );
-            if (evaluated.safe) {
-                var evaluatedFeatures = evaluated.value;
-                var featureToTest = instruction.detail.features.map(function(feature) {
-                    return Iterable.find(evaluatedFeatures, function(evaluatedFeature) {
-                        return evaluatedFeature.match(feature.name);
-                    });
-                });
-
-                jsenv.testFeatures(
-                    featureToTest,
-                    {
-                        progress: function(event) {
-                            hooks.complete(event.target, {
-                                reason: completeReason,
-                                detail: event.detail
-                            });
-                        }
-                    }
-                );
-            }
-        }
-        function evalOrCrash(source, hooks, reason) {
-            try {
-                return {
-                    safe: true,
-                    value: eval(source) // eslint-disable-line no-eval
-                };
-            } catch (e) {
-                hooks.crashRemaining({
-                    reason: reason || 'eval-erro',
-                    detail: e
-                });
-                return {
-                    safe: false,
-                    value: undefined
-                };
-            }
-        }
-        var handlers = {
-            'test'(instruction, hooks) {
-                test(
-                    instruction,
-                    hooks
-                );
-            },
-            'fix'(instruction, hooks) {
-                var evaluatedFix = evalOrCrash(
-                    instruction.detail.fixSource,
-                    hooks,
-                    'some-fix-source'
-                );
-                if (evaluatedFix.safe) {
-                    if (instruction.reason === 'some-fix-output-are-required') {
-                        test(instruction, hooks);
-                    } else {
-                        hooks.completeRemaining({
-                            reason: 'fix-safe'
-                        });
-                    }
-                }
-            }
-        };
-
         function adaptImplementation(how) {
             return {
                 run: run
@@ -1856,75 +1840,94 @@ en fonction du résultat de ces tests
                     } else if (distantInstruction.name === 'crash') {
                         hook('crash', distantInstruction);
                     } else {
-                        var instructionFeatures = distantInstruction.detail.features;
-                        var outputs = [];
-
-                        localInstruction.name = distantInstruction.name;
-                        localInstruction.reason = distantInstruction.reason;
-                        localInstruction.output = outputs;
-
-                        var getFeatureIndex = function(feature) {
-                            var index = instructionFeatures.findIndex(function(instructionFeature) {
-                                return instructionFeature.name === feature.name;
-                            });
-                            if (index === -1) {
-                                throw new Error('cannot find feature ' + feature.name);
-                            }
-                            return index;
-                        };
-
-                        var progress = function() {
-                            if (outputs.length === instructionFeatures.length) {
-                                getDistantInstruction(localInstruction);
-                            }
-                        };
-                        var complete = function(feature, data) {
-                            var index = getFeatureIndex(feature);
-                            var output = {status: 'completed'};
-                            jsenv.assign(output, data);
-                            outputs[index] = output;
-                            progress();
-                        };
-                        var crash = function(feature, data) {
-                            var index = getFeatureIndex(feature);
-                            var output = {status: 'crashed'};
-                            jsenv.assign(output, data);
-                            if (data.detail instanceof Error) {
-                                data.detail = String(data.detail);
-                            }
-                            outputs[index] = output;
-                            progress();
-                        };
-                        var crashRemaining = function(data) {
-                            instructionFeatures.forEach(function(feature, index) {
-                                if (index in outputs === false) {
-                                    crash(feature, data);
-                                }
-                            });
-                        };
-                        var completeRemaining = function(data) {
-                            instructionFeatures.forEach(function(feature, index) {
-                                if (index in outputs === false) {
-                                    complete(feature, data);
-                                }
-                            });
-                        };
-
-                        var method = handlers[distantInstruction.name];
-                        var args = [distantInstruction, {
-                            complete: complete,
-                            crash: crash,
-                            crashRemaining: crashRemaining,
-                            completeRemaining: completeRemaining
-                        }];
-
+                        var entries = distantInstruction.detail.entries;
                         try {
-                            method.apply(handlers, args);
+                            jsenv.reviveFeatureEntries(entries);
                         } catch (e) {
-                            crashRemaining({
-                                reason: 'trhow',
+                            hook('crash', {
+                                reason: 'some-feature-source',
                                 detail: e
                             });
+                            return;
+                        }
+                        localInstruction.name = distantInstruction.name;
+                        localInstruction.reason = distantInstruction.reason;
+
+                        var entriesToFix = entries.map(function(entry) {
+                            return entry.mustBeFixed;
+                        });
+                        var entriesToTest = entries.map(function(entry) {
+                            return entry.mustBeTested;
+                        });
+
+                        var done = function() {
+                            getDistantInstruction(localInstruction);
+                        };
+                        var crash = function(entry, property, data) {
+                            var output = {
+                                status: 'crashed'
+                            };
+                            jsenv.assign(output, data);
+                            entry[property] = output;
+                        };
+                        var complete = function(entry, property, data) {
+                            var output = {
+                                status: 'completed'
+                            };
+                            jsenv.assign(output, data);
+                            entry[property] = output;
+                        };
+                        var crashAll = function(entries, property, data) {
+                            entries.forEach(function(entry) {
+                                crash(entry, property, data);
+                            });
+                        };
+
+                        // second: if it's required -> fix (polyfill)
+                        if (distantInstruction.detail.fixSource) {
+                            // because all fix-source are concatened we can't
+                            // really know hwich feature fix is failing
+                            // so we crash every feature
+                            // it could be improved if we could still map source to feature
+                            // either by using sourceMap + error.stack
+                            // or by producing a fix per feature (so one eval per feature)
+                            // this is a huge work for small benefit
+                            try {
+                                eval(distantInstruction.detail.fixSource); // eslint-disable-line no-eval
+                            } catch (e) {
+                                crashAll(entriesToFix, 'fixOutput', {
+                                    reason: 'fix-eval-error',
+                                    detail: e
+                                });
+                                done();
+                                return;
+                            }
+                        }
+
+                        // third: if it's required -> test
+                        var featuresToTest = entriesToTest.map(function(entry) {
+                            return entry.feature;
+                        });
+                        if (featuresToTest.length) {
+                            jsenv.testFeatures(
+                                featuresToTest,
+                                {
+                                    progress: function(event) {
+                                        var entry = entries.find(function(entry) {
+                                            return entry.feature.match(event.target);
+                                        });
+                                        complete(entry, 'testOutput', {
+                                            reason: 'test-result',
+                                            detail: event.detail
+                                        });
+                                    },
+                                    complete: function() {
+                                        done();
+                                    }
+                                }
+                            );
+                        } else {
+                            done();
                         }
                     }
                 }
