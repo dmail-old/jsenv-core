@@ -57,7 +57,7 @@ jsenv.adaptImplementation({
         le temps que ça a pris, est ce que ça venait du cache etc...
         */
 
-        console.log('implementation completed', completeEvent);
+        console.log('implementation completed', completeEvent.reason);
     },
     fail: function(failEvent) {
         /*

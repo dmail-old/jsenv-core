@@ -6,12 +6,12 @@
 		}
 	],
 	"value": {
-		"status": "crashed",
-		"reason": "some-fixed-feature-source",
+		"status": "completed",
+		"reason": "test-result",
 		"detail": {
-			"name": "Error",
-			"message": "const is required by const/scoped but is not registered",
-			"stack": "Error: const is required by const/scoped but is not registered\n    at Object.registerFeatures (C:\\Users\\Damien\\Documents\\GitHub\\core\\src\\jsenv.js:1574:23)\n    at eval (eval at evalOrCrash (C:\\Users\\Damien\\Documents\\GitHub\\core\\src\\jsenv.js:1744:33), <anonymous>:2:7)\n    at evalOrCrash (C:\\Users\\Damien\\Documents\\GitHub\\core\\src\\jsenv.js:1744:28)\n    at Object.fix (C:\\Users\\Damien\\Documents\\GitHub\\core\\src\\jsenv.js:1786:49)\n    at handleDistantInstruction (C:\\Users\\Damien\\Documents\\GitHub\\core\\src\\jsenv.js:1918:36)\n    at C:\\Users\\Damien\\Documents\\GitHub\\core\\src\\jsenv.js:1843:36"
+			"status": "valid",
+			"reason": "returned",
+			"detail": true
 		}
 	}
 }

@@ -168,7 +168,6 @@ var transpileSolution = {
         });
     }
 };
-
 function getTestOutputEntryProperties(feature) {
     var entryProperties = {
         name: 'test-output.json',
@@ -239,7 +238,7 @@ var entryIsEnabled = function(entry) {
     return entry.enabled;
 };
 var entryFeatureMatching = function(entry, otherEntry) {
-    return entry.feature.match(otherEntry.feature);
+    return entry.feature.match(otherEntry.feature.name);
 };
 var entryTestIsMissing = Predicate.every(entryIsEnabled, function(entry) {
     return entry.testOutput === undefined;
@@ -305,8 +304,9 @@ function getNextInstruction(instruction) {
             });
         }
 
+        var entriesEnabled = entries.filter(entryIsEnabled);
         return harmonizeEntriesWithFileSystem(
-            entries,
+            entriesEnabled,
             'testOutput',
             {
                 agent: options.agent,
@@ -449,12 +449,6 @@ function getNextInstruction(instruction) {
                             };
                         });
                     }
-                    // it means that even if client just sent the fix
-                    // we are still missing some fix result
-                    // -> client did not send all fix results as he is supposed to during fix instruction
-                    // -> some server file has been deleted inbetween
-                    // to prevent infinite recursion and because it not supposed to happen
-                    // we tell client to fail
                     return {
                         name: 'fail',
                         reason: 'some-fix-output-are-missing',
@@ -570,7 +564,7 @@ function harmonizeEntriesWithFileSystem(entries, outputName, options) {
 }
 function getEntries(names) {
     return getEntriesFromFileSystem().then(function(entries) {
-        jsenv.reviveEntriesFeature(entries);
+        jsenv.reviveFeatureEntries(entries);
         return entries;
     }).then(function(entries) {
         if (names && names.length) {

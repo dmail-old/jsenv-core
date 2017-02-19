@@ -1,0 +1,21 @@
+{
+	"sources": [
+		{
+			"path": "../../../../feature.js",
+			"eTag": "\"1db-dA+1F/ixidHqYOOGUrrYXyD7SnE\""
+		}
+	],
+	"value": {
+		"status": "completed",
+		"reason": "test-result",
+		"detail": {
+			"status": "invalid",
+			"reason": "throwed",
+			"detail": {
+				"name": "SyntaxError",
+				"message": "Identifier 'a' has already been declared",
+				"stack": "SyntaxError: Identifier 'a' has already been declared\n    at eval (eval at <anonymous> (C:\\Users\\Damien\\Documents\\GitHub\\core\\src\\jsenv.js:1396:33), <anonymous>:1:10)\n    at VersionnedFeature.expose.pass (eval at <anonymous> (C:\\Users\\Damien\\Documents\\GitHub\\core\\src\\jsenv.js:1626:37), <anonymous>:69:27)\n    at VersionnedFeature.<anonymous> (C:\\Users\\Damien\\Documents\\GitHub\\core\\src\\jsenv.js:1168:42)\n    at VersionnedFeature.test (C:\\Users\\Damien\\Documents\\GitHub\\core\\src\\jsenv.js:1102:33)\n    at nextGroup (C:\\Users\\Damien\\Documents\\GitHub\\core\\src\\jsenv.js:1722:41)\n    at Object.testFeatures (C:\\Users\\Damien\\Documents\\GitHub\\core\\src\\jsenv.js:1735:13)\n    at handleDistantInstruction (C:\\Users\\Damien\\Documents\\GitHub\\core\\src\\jsenv.js:1932:35)\n    at C:\\Users\\Damien\\Documents\\GitHub\\core\\src\\jsenv.js:1849:36\n    at getNextInstruction.then.complete.name (C:\\Users\\Damien\\Documents\\GitHub\\core\\src\\features\\api.js:740:17)"
+			}
+		}
+	}
+}

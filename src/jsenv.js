@@ -289,7 +289,10 @@ ainsi que quelques utilitaires comme assign, Iterable et Predicate
             } else if (firstArg instanceof Version) {
                 version = firstArg;
             } else {
-                throw new Error('version.match expect a string or a version object');
+                throw new TypeError(
+                    'version.match expect a string or a version object' +
+                    ' (got ' + firstArg + ')'
+                );
             }
             return version;
         };
@@ -1585,7 +1588,7 @@ en fonction du résultat de ces tests
                 var dependentNames = abstractVersion.dependents.map(function(dependent) {
                     return dependent.name;
                 });
-                console.log('the cocnret feature names', concreteFeatures.map(function(feature) {
+                console.log('the concrete feature names', concreteFeatures.map(function(feature) {
                     return feature.name;
                 }));
                 throw new Error(
@@ -1623,7 +1626,7 @@ en fonction du résultat de ces tests
                 var features = eval(registerFeaturesSource); // eslint-disable-line no-eval
                 features.forEach(function(feature) {
                     var entry = entries.find(function(entry) {
-                        return entry.feature.match(feature);
+                        return feature.match(entry.feature.name);
                     });
                     entry.feature = feature;
                     if (entry.enabled) {
@@ -1785,10 +1788,25 @@ en fonction du résultat de ces tests
                 var hooks = options.hooks || {};
                 var fallbackHooks = options.fallback || {};
                 function hook(name, event) {
+                    var method;
+                    var bind;
+
                     if (name in hooks) {
-                        hooks[name](event);
+                        method = hooks[name];
+                        bind = hooks;
                     } else if (name in fallbackHooks) {
-                        fallbackHooks[name](event);
+                        method = fallbackHooks[name];
+                        bind = fallbackHooks;
+                    }
+
+                    try {
+                        method.call(bind, event);
+                    } catch (e) {
+                        if (name === 'crash') {
+                            throw e;
+                        } else {
+                            hook('crash', e);
+                        }
                     }
                 }
 
@@ -1821,7 +1839,7 @@ en fonction du résultat de ces tests
                 getDistantInstruction(localInstruction);
 
                 function getDistantInstruction(localInstruction) {
-                    console.log('local', localInstruction);
+                    // console.log('local', localInstruction);
                     hook('progress', 'before-' + localInstruction.name);
                     how.getDistantInstruction(
                         localInstruction,
@@ -1840,7 +1858,11 @@ en fonction du résultat de ces tests
                     } else if (distantInstruction.name === 'crash') {
                         hook('crash', distantInstruction);
                     } else {
-                        var entries = distantInstruction.detail.entries;
+                        localInstruction.name = distantInstruction.name;
+                        localInstruction.reason = distantInstruction.reason;
+                        localInstruction.entries = distantInstruction.detail.entries;
+
+                        var entries = localInstruction.entries;
                         try {
                             jsenv.reviveFeatureEntries(entries);
                         } catch (e) {
@@ -1850,13 +1872,11 @@ en fonction du résultat de ces tests
                             });
                             return;
                         }
-                        localInstruction.name = distantInstruction.name;
-                        localInstruction.reason = distantInstruction.reason;
 
-                        var entriesToFix = entries.map(function(entry) {
+                        var entriesToFix = entries.filter(function(entry) {
                             return entry.mustBeFixed;
                         });
-                        var entriesToTest = entries.map(function(entry) {
+                        var entriesToTest = entries.filter(function(entry) {
                             return entry.mustBeTested;
                         });
 
@@ -1914,15 +1934,28 @@ en fonction du résultat de ces tests
                                 {
                                     progress: function(event) {
                                         var entry = entries.find(function(entry) {
-                                            return entry.feature.match(event.target);
+                                            return event.target.match(entry.feature.name);
                                         });
-                                        complete(entry, 'testOutput', {
+                                        var outputName;
+                                        if (Iterable.includes(entriesToFix, entry)) {
+                                            outputName = 'fixOutput';
+                                        } else {
+                                            outputName = 'testOutput';
+                                        }
+
+                                        complete(entry, outputName, {
                                             reason: 'test-result',
                                             detail: event.detail
                                         });
                                     },
                                     complete: function() {
                                         done();
+                                    },
+                                    crash: function(e) {
+                                        hook('crash', {
+                                            reason: 'some-unexpected-error',
+                                            detail: e
+                                        });
                                     }
                                 }
                             );
