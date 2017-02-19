@@ -16,7 +16,6 @@ expose(
                 lastEntry.done === true &&
                 lastEntry.value === undefined
             );
-        },
-        solution: parent.solution
+        }
     }
 );

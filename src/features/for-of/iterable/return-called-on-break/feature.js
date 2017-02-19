@@ -15,7 +15,6 @@ expose(
             });
             fn(iterable);
             return called;
-        },
-        solution: parent.solution
+        }
     }
 );

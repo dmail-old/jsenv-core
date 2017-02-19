@@ -1,9 +1,12 @@
-this.code = transpile`(function({a}) {
-    return a;
-})`;
-this.pass = function(fn) {
-    var value = 1;
-    var result = fn({a: value});
-    return result === value;
-};
-this.solution = 'inherit';
+expose(
+    {
+        code: transpile`(function({a}) {
+            return a;
+        })`,
+        pass: function(fn) {
+            var value = 1;
+            var result = fn({a: value});
+            return result === value;
+        }
+    }
+);

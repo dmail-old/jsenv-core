@@ -16,7 +16,6 @@ expose(
                 return scope();
             });
             return this.sameValues(scopeValues, this.collectKeys(iterable));
-        },
-        solution: parent.solution
+        }
     }
 );

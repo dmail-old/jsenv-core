@@ -1,7 +1,6 @@
 expose(
     'object/get-prototype-of',
     {
-        code: parent.code,
         pass: function(generatorFn) {
             var generator = generatorFn();
             var ownProto = Object.getPrototypeOf(generator);
@@ -13,7 +12,6 @@ expose(
                 sharedProto === Object.getPrototypeOf(generatorFn.prototype) &&
                 sharedProto.hasOwnProperty('next')
             );
-        },
-        solution: parent.solution
+        }
     }
 );

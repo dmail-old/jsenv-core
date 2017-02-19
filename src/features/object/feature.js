@@ -1,5 +1,7 @@
-expose({
-    code: feature.runStandard('Object'),
-    pass: feature.standardPresence,
-    solution: 'none'
-});
+expose(
+    {
+        code: feature.runStandard('Object'),
+        pass: feature.standardPresence,
+        solution: 'none'
+    }
+);

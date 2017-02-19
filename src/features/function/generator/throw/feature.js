@@ -14,7 +14,6 @@ expose(
             var iterator = generatorFn(spy);
             iterator.throw(value);
             return spy.throwedValue === value;
-        },
-        solution: parent.solution
+        }
     }
 );

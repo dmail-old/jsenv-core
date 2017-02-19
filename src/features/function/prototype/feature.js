@@ -1,5 +1,7 @@
-expose({
-    code: feature.runStandard(parent, 'prototype'),
-    pass: parent.pass,
-    solution: 'none'
-});
+expose(
+    {
+        code: feature.runStandard(parent, 'prototype'),
+        pass: parent.pass,
+        solution: 'none'
+    }
+);

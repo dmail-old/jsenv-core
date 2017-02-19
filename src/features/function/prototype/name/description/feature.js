@@ -1,7 +1,6 @@
 expose(
     'object/get-own-property-descriptor',
     {
-        code: parent.code,
         pass: function() {
             var descriptor = Object.getOwnPropertyDescriptor(
                 function f() {},

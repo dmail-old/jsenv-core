@@ -1,6 +1,5 @@
 expose(
     {
-        code: parent.code,
         pass: function(generatorFn) {
             var generator = generatorFn();
             var ownProto = Object.getPrototypeOf(generator);
@@ -13,7 +12,6 @@ expose(
                 ownProto.hasOwnProperty(Symbol.iterator) === false &&
                 generator[Symbol.iterator]() === generator
             );
-        },
-        solution: parent.solution
+        }
     }
 );

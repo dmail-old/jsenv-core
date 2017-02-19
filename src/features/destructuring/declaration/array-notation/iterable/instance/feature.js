@@ -1,10 +1,12 @@
-this.code = 'inherit';
-this.pass = function(fn) {
-    var data = [1, 2];
-    var iterable = this.createIterableObject(data);
-    var instance = Object.create(iterable);
-    var result = fn(instance);
+expose(
+    {
+        pass: function(fn) {
+            var data = [1, 2];
+            var iterable = this.createIterableObject(data);
+            var instance = Object.create(iterable);
+            var result = fn(instance);
 
-    return this.sameValues(result, [1, 2, undefined]);
-};
-this.solution = 'inherit';
+            return this.sameValues(result, [1, 2, undefined]);
+        }
+    }
+);

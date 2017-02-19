@@ -7,7 +7,6 @@ expose(
         })`,
         fail: function(error) {
             return error instanceof Error;
-        },
-        solution: parent.solution
+        }
     }
 );

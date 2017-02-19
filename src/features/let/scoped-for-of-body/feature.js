@@ -17,7 +17,6 @@ expose(
                 return scope();
             });
             return this.sameValues(scopeValues, value);
-        },
-        solution: parent.solution
+        }
     }
 );

@@ -10,7 +10,6 @@ expose(
             var value = 1;
             var iterator = fn(value);
             return this.sameValues(iterator, [value]);
-        },
-        solution: parent.solution
+        }
     }
 );

@@ -4,7 +4,6 @@ expose(
          function(value) {})`,
         fail: function(error) {
             return error.name === 'SyntaxError';
-        },
-        solution: parent.solution
+        }
     }
 );

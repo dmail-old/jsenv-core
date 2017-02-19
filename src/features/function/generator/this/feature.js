@@ -8,7 +8,6 @@ expose(
             var object = {value: value};
             var iterator = fn.call(object);
             return this.sameValues(iterator, [value]);
-        },
-        solution: parent.solution
+        }
     }
 );

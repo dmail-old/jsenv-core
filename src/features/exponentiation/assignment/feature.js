@@ -6,7 +6,6 @@ expose(
         })`,
         pass: function(fn) {
             return fn(2, 3) === 8;
-        },
-        solution: parent.solution
+        }
     }
 );

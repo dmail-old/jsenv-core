@@ -20,7 +20,6 @@ expose(
                 carriageAndLineFeedReturn.length === 3 &&
                 carriageAndLineFeedReturn[1] === '\n'
             );
-        },
-        solution: parent.solution
+
     }
 );

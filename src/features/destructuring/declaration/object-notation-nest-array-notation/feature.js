@@ -11,7 +11,6 @@ expose(
             var value = 1;
             var result = fn({a: [value]});
             return result === value;
-        },
-        solution: parent.solution
+        }
     }
 );

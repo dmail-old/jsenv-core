@@ -1,7 +1,11 @@
-this.code = function() {
-    return jsenv;
-};
-this.pass = function(jsenv) {
-    return typeof jsenv === 'object';
-};
-this.solution = 'none';
+expose(
+    {
+        code: function() {
+            return jsenv;
+        },
+        pass: function(jsenv) {
+            return typeof jsenv === 'object';
+        },
+        solution: 'none'
+    }
+);

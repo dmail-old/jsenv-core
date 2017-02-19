@@ -10,7 +10,6 @@ expose(
             var insideValue = 1;
             var result = fn(outsideValue, insideValue);
             return result === outsideValue;
-        },
-        solution: parent.solution
+        }
     }
 );

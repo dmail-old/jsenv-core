@@ -11,7 +11,6 @@ expose(
             return result.then(function(resolutionValue) {
                 settle(resolutionValue === value);
             });
-        },
-        solution: parent.solution
+        }
     }
 );

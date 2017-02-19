@@ -1,7 +1,11 @@
-this.code = transpile`(function() {
-    return new Function();
-})`;
-this.pass = function(fn) {
-    return fn().name === 'anonymous';
-};
-this.solution = 'none';
+expose(
+    {
+        code: transpile`(function() {
+            return new Function();
+        })`,
+        pass: function(fn) {
+            return fn().name === 'anonymous';
+        },
+        solution: 'none'
+    }
+);

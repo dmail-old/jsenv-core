@@ -14,7 +14,6 @@ expose(
                 }
             });
             return result === String(value);
-        },
-        solution: parent.solution
+        }
     }
 );

@@ -14,7 +14,6 @@ expose(
             promise.then(function(resolutionValue) {
                 settle(resolutionValue === value);
             });
-        },
-        solution: parent.solution
+        }
     }
 );

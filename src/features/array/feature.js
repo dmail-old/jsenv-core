@@ -1,7 +1,7 @@
 expose(
     {
         code: feature.runStandard('Array'),
-        pass: feature.standardPresence,
+        pass: feature.runStandard,
         solution: 'none'
     }
 );

@@ -13,7 +13,6 @@ expose(
             var result = fn(name, value);
             var generator = result[name]();
             return this.sameValues(generator, [value]);
-        },
-        solution: parent.solution
+        }
     }
  );

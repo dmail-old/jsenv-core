@@ -10,7 +10,6 @@ expose(
             var value = 1;
             var result = fn([value], {b: value});
             return this.sameValues(result, [value, value]);
-        },
-        solution: parent.solution
+        }
     }
 );

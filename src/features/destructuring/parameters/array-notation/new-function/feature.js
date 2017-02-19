@@ -1,12 +1,16 @@
-this.code = function() {
-    return new Function( // eslint-disable-line no-new-func
-        '[a]',
-        'return a;'
-    );
-};
-this.pass = function(fn) {
-    var value = 1;
-    var result = fn([value]);
-    return result === value;
-};
-this.solution = 'none';
+expose(
+    {
+        code: function() {
+            return new Function( // eslint-disable-line no-new-func
+                '[a]',
+                'return a;'
+            );
+        },
+        pass: function(fn) {
+            var value = 1;
+            var result = fn([value]);
+            return result === value;
+        },
+        solution: 'none'
+    }
+);

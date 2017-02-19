@@ -19,7 +19,6 @@ expose(
                 this.sameValues(parts.raw, ['foo\\n']) &&
                 this.sameValues(calledWith.slice(1), [value])
             );
-        },
-        solution: parent.solution
+        }
     }
 );

@@ -10,7 +10,6 @@ expose(
             var generator = generatorFn(iterable);
 
             return this.sameValues(generator, data);
-        },
-        solution: parent.solution
+        }
     }
 );

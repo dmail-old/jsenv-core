@@ -1,4 +1,7 @@
-this.path = 'name';
-this.code = 'inherit';
-this.pass = 'inherit';
-this.solution = 'none';
+expose(
+    {
+        code: feature.runStandard(parent, 'name'),
+        pass: parent.pass,
+        solution: 'none'
+    }
+);

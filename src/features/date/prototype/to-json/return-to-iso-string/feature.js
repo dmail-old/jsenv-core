@@ -1,6 +1,5 @@
 expose(
     {
-        code: parent.code,
         pass: function(datePrototypeToJSON) {
             var value = 1;
             var fakeDate = {
@@ -10,7 +9,6 @@ expose(
             };
 
             return datePrototypeToJSON.call(fakeDate) === value;
-        },
-        solution: parent.solution
+        }
     }
 );

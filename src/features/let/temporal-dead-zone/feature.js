@@ -13,7 +13,6 @@ expose(
             var value = 10;
             var result = fn(value);
             return result === value;
-        },
-        solution: parent.solution
+        }
     }
 );

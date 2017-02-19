@@ -19,7 +19,6 @@ expose(
                 this.sameValues(iterator, [value]) &&
                 this.sameValues(sent, [value])
             );
-        },
-        solution: parent.solution
+        }
     }
 );

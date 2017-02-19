@@ -11,7 +11,6 @@ expose(
             var result = fn(iterable);
 
             return this.sameValues(result, [1, 2, undefined]);
-        },
-        solution: parent.solution
+        }
     }
 );

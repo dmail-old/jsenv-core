@@ -1,5 +1,8 @@
-this.code = transpile`(function({a}) {})`;
-this.pass = function(fn) {
-    return fn.length === 1;
-};
-this.solution = 'inherit';
+expose(
+    {
+        code: transpile`(function({a}) {})`,
+        pass: function(fn) {
+            return fn.length === 1;
+        }
+    }
+);

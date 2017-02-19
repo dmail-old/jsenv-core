@@ -1,8 +1,11 @@
-this.code = transpile`(function() {
-    ({} = {a:1, b:2});
-})`;
-this.pass = function(fn) {
-    fn();
-    return true;
-};
-this.solution = 'inherit';
+expose(
+    {
+        code: transpile`(function() {
+            ({} = {a:1, b:2});
+        })`,
+        pass: function(fn) {
+            fn();
+            return true;
+        }
+    }
+);

@@ -12,7 +12,6 @@ expose(
             var insideValue = 1;
             var returnValue = fn(outsideValue, insideValue);
             return returnValue === outsideValue;
-        },
-        solution: parent.solution
+        }
     }
 );

@@ -12,7 +12,6 @@ expose(
             result.catch(function(rejectionValue) {
                 settle(rejectionValue === value);
             });
-        },
-        solution: parent.solution
+        }
     }
 );

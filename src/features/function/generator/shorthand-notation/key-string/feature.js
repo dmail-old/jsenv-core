@@ -12,7 +12,6 @@ expose(
             var result = fn(value);
             var generator = result['foo bar']();
             return this.sameValues(generator, [value]);
-        },
-        solution: parent.solution
+        }
     }
  );

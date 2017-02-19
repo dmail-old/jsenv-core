@@ -24,7 +24,6 @@ expose(
                 );
             }
             return false;
-        },
-        solution: parent.solution
+        }
     }
 );

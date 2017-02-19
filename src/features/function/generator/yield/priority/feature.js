@@ -9,7 +9,6 @@ expose(
             generator.next();
             generator.next(true);
             return spy.value === true;
-        },
-        solution: parent.solution
+        }
     }
 );

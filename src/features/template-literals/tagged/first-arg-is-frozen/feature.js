@@ -1,7 +1,6 @@
 expose(
     'object/is-frozen',
     {
-        code: parent.code,
         pass: function(fn) {
             var parts;
             function tag() {
@@ -13,7 +12,6 @@ expose(
                 Object.isFrozen(parts) &&
                 Object.isFrozen(parts.raw)
             );
-        },
-        solution: parent.solution
+        }
     }
 );
