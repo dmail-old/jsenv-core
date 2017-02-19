@@ -1,5 +1,5 @@
 expose(
-    'symbol/iterator',
+    'iterable-behaviour',
     {
         code: parent.code,
         pass: function(fn) {
