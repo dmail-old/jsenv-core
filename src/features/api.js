@@ -7,6 +7,7 @@ https://github.com/kangax/compat-table/blob/gh-pages/data-es5.js
 https://github.com/kangax/compat-table/blob/gh-pages/data-es6.js
 
 - par défaut solution et code devrait être inherit (si on ne spécifie pas 'none')
+- retester que const/scoped marche bien
 - faudra un mode production où on se sers pas du cache de la même manière
 
 */

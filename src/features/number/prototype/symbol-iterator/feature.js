@@ -3,9 +3,10 @@ expose(
     function(symbolIterator) {
         return {
             code: feature.runStandard(parent, symbolIterator),
+            pass: feature.runStandard,
             solution: {
                 type: 'corejs',
-                name: 'es6.array.iterator'
+                value: 'core.number.iterator'
             }
         };
     }
