@@ -1,6 +1,6 @@
 expose(
     {
-        code: feature.runStandard('ArrayBuffer'),
+        run: feature.runStandard('ArrayBuffer'),
         pass: feature.standardPresence,
         solution: {
             type: 'corejs',

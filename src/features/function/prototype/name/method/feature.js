@@ -1,6 +1,6 @@
 expose(
     {
-        code: transpile`function() {
+        run: transpile`function() {
             var result = {
                 a: function() {},
                 b: function c() {};

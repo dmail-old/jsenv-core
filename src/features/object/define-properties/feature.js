@@ -1,6 +1,6 @@
 expose(
     {
-        code: feature.runStandard(parent, 'defineProperties'),
+        run: feature.runStandard(parent, 'defineProperties'),
         pass: parent.pass,
         solution: {
             type: 'corejs',

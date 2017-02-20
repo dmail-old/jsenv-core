@@ -1,6 +1,6 @@
 expose(
     {
-        code: feature.runStandard(parent, 'asyncIterator'),
+        run: feature.runStandard(parent, 'asyncIterator'),
         pass: parent.pass,
         solution: {
             type: 'corejs',

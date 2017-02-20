@@ -2,7 +2,7 @@ expose(
     'destructuring/declaration/array-notation',
     'destructuring/declaration/object-notation',
     {
-        code: transpile`(function(array, object) {
+        run: transpile`(function(array, object) {
             var [a] = array, {b} = object;
             return [a, b];
         })`,

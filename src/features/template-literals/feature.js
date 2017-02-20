@@ -1,6 +1,6 @@
 expose(
     {
-        code: transpile`(function(a) {
+        run: transpile`(function(a) {
             return \`foo
                 \$\{a + 'z'\} \$\{a.toUpperCase()\}\`;
         })`,

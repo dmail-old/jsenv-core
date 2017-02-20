@@ -1,6 +1,6 @@
 expose(
     {
-        code: transpile`(function(first, middle, last) {
+        run: transpile`(function(first, middle, last) {
             var value = [first, middle, last];
             var head;
             var tail;

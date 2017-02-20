@@ -1,6 +1,6 @@
 expose(
     {
-        code: feature.runStandard('setImmediate'),
+        run: feature.runStandard('setImmediate'),
         pass: feature.standardPresence,
         solution: 'none',
     }

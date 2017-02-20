@@ -1,6 +1,6 @@
 expose(
     {
-        code: transpile`(function(a = function() {
+        run: transpile`(function(a = function() {
             return typeof b;
         }) {
             var b = 1;

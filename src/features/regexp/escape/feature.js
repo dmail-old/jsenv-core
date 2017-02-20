@@ -1,6 +1,6 @@
 expose(
     {
-        code: feature.runStandard('escape'),
+        run: feature.runStandard('escape'),
         pass: feature.runStandard,
         solution: {
             type: 'corejs',

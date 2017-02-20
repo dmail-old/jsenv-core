@@ -1,6 +1,6 @@
 expose(
     {
-        code: transpile`(function() {
+        run: transpile`(function() {
             return {
                 get foo() {},
                 set foo(x) {}

@@ -1,7 +1,7 @@
 expose(
     'symbol/iterator',
     {
-        code: transpile`(function(value) {
+        run: transpile`(function(value) {
             var [a, b, c] = value;
             return [a, b, c];
         })`,

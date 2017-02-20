@@ -1,7 +1,7 @@
 expose(
     'let',
     {
-        code: transpile`(function() {
+        run: transpile`(function() {
             let {c = c} = {};
             let {c = d, d} = {d: 1};
         })`,

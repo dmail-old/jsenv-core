@@ -1,6 +1,6 @@
 expose(
     {
-        code: feature.runStandard(parent, 'create'),
+        run: feature.runStandard(parent, 'create'),
         pass: parent.pass,
         solution: {
             type: 'corejs',

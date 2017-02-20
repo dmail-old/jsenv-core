@@ -1,6 +1,6 @@
 expose(
     {
-        code: feature.runStandard('parseFloat'),
+        run: feature.runStandard('parseFloat'),
         pass: feature.runStandard,
         solution: {
             type: 'corejs',

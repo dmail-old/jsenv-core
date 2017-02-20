@@ -1117,7 +1117,7 @@ en fonction du résultat de ces tests
 
                 return this;
             },
-            code: undefined,
+            run: undefined,
             pass: function() {
                 return true;
             },
@@ -1126,15 +1126,15 @@ en fonction du résultat de ces tests
             compile: function() {
                 var output;
 
-                if (this.hasOwnProperty('code')) {
-                    var code = this.code;
+                if (this.hasOwnProperty('run')) {
+                    var run = this.run;
 
-                    if (jsenv.isSourceCode(code)) {
-                        output = code.compile();
-                    } else if (typeof code === 'function') {
-                        output = code.call(this);
+                    if (jsenv.isSourceCode(run)) {
+                        output = run.compile();
+                    } else if (typeof run === 'function') {
+                        output = run.call(this);
                     } else {
-                        output = code;
+                        output = run;
                     }
                 } else {
                     output = undefined;
@@ -1146,8 +1146,7 @@ en fonction du résultat de ces tests
             toJSON: function() {
                 return {
                     name: this.name,
-                    path: this.path,
-                    code: this.code,
+                    run: this.run,
                     pass: this.pass,
                     fail: this.fail,
                     solution: this.solution,
@@ -1175,11 +1174,23 @@ en fonction du résultat de ces tests
 
         // feature testing helpers
         var helpers = (function() {
-            var noValue = {novalue: true};
+            function UnreachableValue(propertyName, owner) {
+                this.propertyName = propertyName;
+                this.owner = owner;
+            }
+
+            function createUnreachableValue(propertyName, owner) {
+                return new UnreachableValue(propertyName, owner);
+            }
+
+            function isUnreachableValue(a) {
+                return a instanceof UnreachableValue;
+            }
 
             return {
                 runStandard: runStandard,
                 standardPresence: standardPresence,
+                // fixStandard: fixStandard,
                 createIterableObject: createIterableObject,
                 collectKeys: collectKeys,
                 sameValues: sameValues
@@ -1189,23 +1200,24 @@ en fonction du résultat de ces tests
                 var i = 0;
                 var j = arguments.length;
                 var args = [];
+                var initialValue;
                 while (i < j) {
                     var arg = arguments[i];
                     if (jsenv.isFeature(arg)) {
                         // feature.addDependency(arg, {preventDuplicateError: true});
                         args.push(arg);
                     } else if (typeof arg === 'string') {
+                        if (i === 0) {
+                            initialValue = jsenv.global;
+                        }
                         args.push({
                             propertyName: arg,
-                            index: i,
                             compile: function(previousOutput) {
-                                if (this.index === 0) {
-                                    previousOutput = jsenv.global;
-                                }
-                                if (this.propertyName in previousOutput) {
+                                var propertyName = this.propertyName;
+                                if (propertyName in previousOutput) {
                                     return previousOutput[this.propertyName];
                                 }
-                                return noValue;
+                                return createUnreachableValue(propertyName, previousOutput);
                             }
                         });
                     }
@@ -1213,22 +1225,16 @@ en fonction du résultat de ces tests
                 }
 
                 return function() {
-                    var composedOutput = noValue;
-                    var previousOutput;
+                    var composedOutput = createUnreachableValue();
+                    var previousOutput = arguments.length === 0 ? initialValue : arguments[0];
                     var i = 0;
 
                     while (i < j) {
                         var arg = args[i];
                         var output;
-
-                        if (i === 0) {
-                            output = arg.compile();
-                        } else {
-                            output = arg.compile(previousOutput);
-                        }
-
-                        if (output === noValue) {
-                            composedOutput = noValue;
+                        output = arg.compile(previousOutput);
+                        if (isUnreachableValue(output)) {
+                            composedOutput = output;
                             break;
                         }
                         previousOutput = output;
@@ -1239,7 +1245,7 @@ en fonction du résultat de ces tests
                 };
             }
             function standardPresence(output, settle) {
-                if (output === noValue) {
+                if (isUnreachableValue(output)) {
                     settle(false, 'missing');
                 } else {
                     settle(true, 'present');
@@ -1532,7 +1538,7 @@ en fonction du résultat de ces tests
                             }
                         }
 
-                        jsenv.assign(feature, pojo);
+                        jsenv.assign(properties, pojo);
                     };
 
                     propertiesConstructor.call(properties,
@@ -1542,37 +1548,34 @@ en fonction du résultat de ces tests
                     );
                 } else {
                     // un dossier vide a un code et un pass qui réussi par défaut
-                    properties.code = function() {};
+                    properties.run = function() {};
                     properties.pass = function() {
                         return true;
                     };
                 }
 
-                // if ('dependencies' in properties) {
-                //     Iterable.forEach(properties.dependencies, function(dependencyName) {
-                //         feature.addDependency(createFeature(dependencyName, true));
-                //     });
-                // }
-                // if ('parameters' in properties) {
-                //     Iterable.forEach(properties.parameters, function(parameterName) {
-                //         feature.addDependency(createFeature(parameterName, true), {as: 'parameter'});
-                //     });
-                // }
-                checkProperty(feature, properties, 'code');
+                checkProperty(feature, properties, 'run', parent);
                 checkProperty(feature, properties, 'pass');
                 checkProperty(feature, properties, 'fail');
                 checkProperty(feature, properties, 'maxTestDuration');
-                checkProperty(feature, properties, 'solution');
-                // checkProperty(feature, properties, 'path');
+                checkProperty(feature, properties, 'solution', parent);
 
                 return feature;
             }
-            function checkProperty(feature, properties, propertyName) {
+            function checkProperty(feature, properties, propertyName, parent) {
                 if (propertyName in properties) {
                     assignProperty(feature, properties[propertyName], propertyName);
+                } else if (parent) {
+                    assignProperty(feature, parent[propertyName], propertyName);
                 }
             }
             function assignProperty(feature, propertyValue, propertyName) {
+                if (propertyName === 'solution' && propertyValue === 'none') {
+                    propertyValue = {
+                        type: 'null',
+                        value: undefined
+                    };
+                }
                 feature[propertyName] = propertyValue;
             }
 
@@ -1588,9 +1591,9 @@ en fonction du résultat de ces tests
                 var dependentNames = abstractVersion.dependents.map(function(dependent) {
                     return dependent.name;
                 });
-                console.log('the concrete feature names', concreteFeatures.map(function(feature) {
-                    return feature.name;
-                }));
+                // console.log('the concrete feature names', concreteFeatures.map(function(feature) {
+                //     return feature.name;
+                // }));
                 throw new Error(
                     abstractFeature.name + ' is required by ' + dependentNames + ' but is not registered'
                 );

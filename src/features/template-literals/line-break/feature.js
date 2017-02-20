@@ -1,6 +1,6 @@
 expose(
     {
-        code: transpile`(function(a) {
+        run: transpile`(function(a) {
             return [
                 \`x\ry\`,
                 \`x\ny\`,
@@ -20,6 +20,6 @@ expose(
                 carriageAndLineFeedReturn.length === 3 &&
                 carriageAndLineFeedReturn[1] === '\n'
             );
-
+        }
     }
 );

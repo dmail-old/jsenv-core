@@ -1,7 +1,7 @@
 expose(
     'for-of',
     {
-        code: transpile`(function(iterable) {
+        run: transpile`(function(iterable) {
             for(var [a, b] of iterable);
             return [a, b];
         })`,

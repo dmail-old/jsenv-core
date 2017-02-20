@@ -1,6 +1,6 @@
 expose(
     {
-        code: feature.runStandard('Promise'),
+        run: feature.runStandard('Promise'),
         pass: feature.standardPresence,
         solution: {
             type: 'corejs',

@@ -1,6 +1,6 @@
 expose(
     {
-        code: feature.runStandard('Uint32Array'),
+        run: feature.runStandard('Uint32Array'),
         pass: feature.standardPresence,
         solution: {
             type: 'corejs',

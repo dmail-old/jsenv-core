@@ -1,6 +1,6 @@
 expose(
     {
-        code: feature.runStandard('Float64Array'),
+        run: feature.runStandard('Float64Array'),
         pass: feature.standardPresence,
         solution: {
             type: 'corejs',

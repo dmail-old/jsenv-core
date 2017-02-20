@@ -1,6 +1,6 @@
 expose(
     {
-        code: feature.runStandard(parent, '__lookupGetter__'),
+        run: feature.runStandard(parent, '__lookupGetter__'),
         pass: parent.pass,
         solution: {
             type: 'corejs',

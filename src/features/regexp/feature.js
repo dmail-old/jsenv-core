@@ -1,6 +1,6 @@
 expose(
     {
-        code: feature.runStandard('Number'),
+        run: feature.runStandard('Number'),
         pass: feature.runStandard,
         solution: 'none'
     }

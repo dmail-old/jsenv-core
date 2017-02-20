@@ -1,7 +1,7 @@
 expose(
     'array/prototype/symbol-iterator',
     {
-        code: transpile`(function(value) {
+        run: transpile`(function(value) {
             var result = [];
             for (var entry of value) {
                 result.push(entry);

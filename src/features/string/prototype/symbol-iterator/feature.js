@@ -2,7 +2,7 @@ expose(
     'symbol/iterator',
     function(symbolIterator) {
         return {
-            code: feature.runStandard(parent, symbolIterator),
+            run: feature.runStandard(parent, symbolIterator),
             pass: parent.pass,
             solution: {
                 type: 'corejs',

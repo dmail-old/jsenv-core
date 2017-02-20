@@ -2,7 +2,7 @@
 expose(
     // 'function/prototype/bind',
     {
-        code: transpile`(function() {
+        run: transpile`(function() {
             function foo() {}
             var boundFoo = foo.bind({});
             var boundAnonymous = (function() {}).bind({});

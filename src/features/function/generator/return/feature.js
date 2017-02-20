@@ -1,6 +1,6 @@
 expose(
     {
-        code: transpile`(function * generator() {
+        run: transpile`(function * generator() {
             yield 1;
             yield 2;
         })`,

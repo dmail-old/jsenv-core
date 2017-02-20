@@ -1,6 +1,6 @@
 expose(
     {
-        code: feature.runStandard(parent, 'reduceRight'),
+        run: feature.runStandard(parent, 'reduceRight'),
         pass: feature.standardPresence,
         solution: {
             type: 'corejs',

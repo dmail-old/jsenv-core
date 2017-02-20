@@ -1,6 +1,6 @@
 expose(
     {
-        code: feature.runStandard(parent, 'toPrimitive'),
+        run: feature.runStandard(parent, 'toPrimitive'),
         pass: parent.pass
     }
 );

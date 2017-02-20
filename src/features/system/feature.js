@@ -1,6 +1,6 @@
 expose(
     {
-        code: feature.runStandard('System'),
+        run: feature.runStandard('System'),
         pass: feature.standardPresence,
         solution: {
             type: 'file',

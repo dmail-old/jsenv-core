@@ -1,6 +1,6 @@
 expose(
     {
-        code: transpile`(function() {
+        run: transpile`(function() {
             -5 ** 2;
         })`,
         fail: function(error) {

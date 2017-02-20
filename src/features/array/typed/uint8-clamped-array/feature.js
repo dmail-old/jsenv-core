@@ -1,6 +1,6 @@
 expose(
     {
-        code: feature.runStandard('Uint8ClampedArray'),
+        run: feature.runStandard('Uint8ClampedArray'),
         pass: feature.standardPresence,
         solution: {
             type: 'corejs',

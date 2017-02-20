@@ -1,6 +1,6 @@
 expose(
     {
-        code: feature.runStandard('toFixed'),
+        run: feature.runStandard('toFixed'),
         pass: feature.runStandard,
         solution: {
             type: 'corejs',

@@ -1,6 +1,6 @@
 expose(
     {
-        code: feature.runStandard(parent, 'isFrozen'),
+        run: feature.runStandard(parent, 'isFrozen'),
         pass: parent.pass,
         solution: {
             type: 'corejs',

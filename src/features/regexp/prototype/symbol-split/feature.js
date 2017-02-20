@@ -2,7 +2,7 @@ expose(
     'symbol/split',
     function(symbolSplit) {
         return {
-            code: feature.runStandard(parent, symbolSplit),
+            run: feature.runStandard(parent, symbolSplit),
             pass: feature.runStandard,
             solution: {
                 type: 'corejs',

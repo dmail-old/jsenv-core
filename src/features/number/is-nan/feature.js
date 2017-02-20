@@ -1,6 +1,6 @@
 expose(
     {
-        code: feature.runStandard('isNaN'),
+        run: feature.runStandard('isNaN'),
         pass: feature.runStandard,
         solution: {
             type: 'corejs',

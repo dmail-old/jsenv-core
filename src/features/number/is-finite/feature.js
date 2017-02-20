@@ -1,6 +1,6 @@
 expose(
     {
-        code: feature.runStandard('isFinite'),
+        run: feature.runStandard('isFinite'),
         pass: feature.runStandard,
         solution: {
             type: 'corejs',

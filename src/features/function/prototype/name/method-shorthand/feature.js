@@ -1,7 +1,7 @@
 expose(
     'shorthand-notation/methods',
     {
-        code: transpile`(function() {
+        run: transpile`(function() {
             return {
                 foo() {}
             };

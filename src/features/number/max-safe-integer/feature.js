@@ -1,6 +1,6 @@
 expose(
     {
-        code: feature.runStandard('MAX_SAFE_INTEGER'),
+        run: feature.runStandard('MAX_SAFE_INTEGER'),
         pass: feature.runStandard,
         solution: {
             type: 'corejs',

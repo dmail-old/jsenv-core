@@ -1,6 +1,6 @@
 expose(
     {
-        code: function() {
+        run: function() {
             return new Function( // eslint-disable-line no-new-func
                 "a", "...rest",
                 "return [a, rest]"

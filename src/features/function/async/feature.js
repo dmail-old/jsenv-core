@@ -1,8 +1,8 @@
 expose(
     'promise',
-    'function/generator-runtime', // because babel transpile async to generator
+    'regenerator-runtime', // because babel transpile async to generator
     {
-        code: transpile`(async function(value) {
+        run: transpile`(async function(value) {
             return value;
         })`,
         pass: function(fn, settle) {

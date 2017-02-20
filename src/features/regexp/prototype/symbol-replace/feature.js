@@ -2,7 +2,7 @@ expose(
     'symbol/replace',
     function(symbolReplace) {
         return {
-            code: feature.runStandard(parent, symbolReplace),
+            run: feature.runStandard(parent, symbolReplace),
             pass: feature.runStandard,
             solution: {
                 type: 'corejs',

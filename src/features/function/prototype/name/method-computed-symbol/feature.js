@@ -2,7 +2,7 @@ expose(
     'symbol',
     'computed-properties',
     {
-        code: transpile`(function() {
+        run: transpile`(function() {
             var first = Symbol('foo');
             var second = Symbol();
             return {

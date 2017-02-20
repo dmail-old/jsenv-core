@@ -1,6 +1,6 @@
 expose(
     {
-        code: transpile`(function(defaultA, defaultB) {
+        run: transpile`(function(defaultA, defaultB) {
             return function(a = defaultA, b = defaultB) {
                 return [a, b];
             };

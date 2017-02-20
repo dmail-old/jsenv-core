@@ -3,7 +3,7 @@ expose(
     'destructuring/declaration/object-notation',
     'destructuring/declaration/object-notation/double-dot-as',
     {
-        code: transpile`(function(value) {
+        run: transpile`(function(value) {
             var {a:[a]} = value;
             return a;
         })`,

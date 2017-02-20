@@ -1,6 +1,6 @@
 expose(
     {
-        code: transpile`(function(value, operand) {
+        run: transpile`(function(value, operand) {
             value **= operand;
             return value;
         })`,

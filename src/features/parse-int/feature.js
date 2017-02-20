@@ -1,6 +1,6 @@
 expose(
     {
-        code: feature.runStandard('parseInt'),
+        run: feature.runStandard('parseInt'),
         pass: feature.standardPresence
     }
 );

@@ -1,6 +1,6 @@
 expose(
     {
-        code: transpile`(function(defaultValues, values) {
+        run: transpile`(function(defaultValues, values) {
             var [a = defaultValues[0], b = defaultValues[1], c = defaultValues[2]] = values;
             return [a, b, c];
         })`,

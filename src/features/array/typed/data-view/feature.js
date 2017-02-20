@@ -1,6 +1,6 @@
 expose(
     {
-        code: feature.runStandard('DataView'),
+        run: feature.runStandard('DataView'),
         pass: feature.standardPresence,
         solution: {
             type: 'corejs',

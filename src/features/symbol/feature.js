@@ -1,6 +1,6 @@
 expose(
     {
-        code: feature.runStandard('Symbol'),
+        run: feature.runStandard('Symbol'),
         pass: feature.standardPresence,
         solution: {
             type: 'corejs',

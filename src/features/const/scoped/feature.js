@@ -1,6 +1,6 @@
 expose(
     {
-        code: transpile`(function(outsideValue, insideValue) {
+        run: transpile`(function(outsideValue, insideValue) {
             const a = outsideValue;
             {
                 const a = insideValue;
@@ -11,6 +11,8 @@ expose(
             var outsideValue = 0;
             var insideValue = 1;
             var returnValue = fn(outsideValue, insideValue);
+            console.log('return value is', returnValue);
+            console.log('the code is', this.run);
             return returnValue === outsideValue;
         }
     }

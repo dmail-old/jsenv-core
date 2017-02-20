@@ -1,7 +1,7 @@
 expose(
     'computed-properties',
     {
-        code: transpile`(function(name, value) {
+        run: transpile`(function(name, value) {
             var {[name]: a} = value;
             return a;
         })`,

@@ -2,7 +2,7 @@ expose(
     'symbol/match',
     function(symbolMatch) {
         return {
-            code: feature.runStandard(parent, symbolMatch),
+            run: feature.runStandard(parent, symbolMatch),
             pass: feature.runStandard,
             solution: {
                 type: 'corejs',

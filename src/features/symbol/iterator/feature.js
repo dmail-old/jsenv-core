@@ -1,6 +1,6 @@
 expose(
     {
-        code: feature.runStandard(parent, 'iterator'),
+        run: feature.runStandard(parent, 'iterator'),
         pass: parent.pass
     }
 );

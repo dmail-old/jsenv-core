@@ -2,7 +2,7 @@ expose(
     'symbol/search',
     function(symbolSearch) {
         return {
-            code: feature.runStandard(parent, symbolSearch),
+            run: feature.runStandard(parent, symbolSearch),
             pass: feature.runStandard,
             solution: {
                 type: 'corejs',

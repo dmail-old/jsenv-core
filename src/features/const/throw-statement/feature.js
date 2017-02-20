@@ -1,6 +1,6 @@
 expose(
     {
-        code: transpile`(function() {
+        run: transpile`(function() {
             if (true) const bar = 1;
         })`,
         fail: function(error) {

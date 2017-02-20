@@ -1,6 +1,6 @@
 expose(
     {
-        code: feature.runStandard('URLSearchParams'),
+        run: feature.runStandard('URLSearchParams'),
         pass: feature.standardPresence,
         solution: {
             type: 'file',

@@ -1,6 +1,6 @@
 expose(
     {
-        code: feature.runStandard('EPSILON'),
+        run: feature.runStandard('EPSILON'),
         pass: feature.runStandard,
         solution: {
             type: 'corejs',

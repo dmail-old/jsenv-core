@@ -1,6 +1,6 @@
 expose(
     {
-        code: transpile`(function(value, throwedValue) {
+        run: transpile`(function(value, throwedValue) {
             for (var it of value) {
                 throw throwedValue;
             }

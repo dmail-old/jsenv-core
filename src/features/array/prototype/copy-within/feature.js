@@ -1,6 +1,6 @@
 expose(
     {
-        code: feature.runStandard(parent, 'copyWithin'),
+        run: feature.runStandard(parent, 'copyWithin'),
         pass: feature.standardPresence,
         solution: {
             type: 'corejs',

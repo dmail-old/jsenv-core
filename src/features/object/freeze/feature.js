@@ -1,6 +1,6 @@
 expose(
     {
-        code: feature.runStandard(parent, 'freeze'),
+        run: feature.runStandard(parent, 'freeze'),
         pass: parent.pass,
         solution: {
             type: 'corejs',

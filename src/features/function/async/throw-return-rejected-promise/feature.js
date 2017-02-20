@@ -1,6 +1,6 @@
 expose(
     {
-        code: transpile`(async function(value) {
+        run: transpile`(async function(value) {
             throw value;
         })`,
         pass: function(fn, settle) {

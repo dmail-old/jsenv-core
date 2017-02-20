@@ -1,6 +1,6 @@
 expose(
     {
-        code: transpile`(function * generator(spy) {
+        run: transpile`(function * generator(spy) {
             spy.value = yield 0 ? true : false;
         })`,
         pass: function(generatorFn) {

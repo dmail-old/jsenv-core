@@ -1,8 +1,8 @@
 expose(
     'symbol/iterator',
-    'regenerator',
+    'regenerator-runtime',
     {
-        code: transpile`(function * generator(value) {
+        run: transpile`(function * generator(value) {
             yield value;
         })`,
         pass: function(fn) {

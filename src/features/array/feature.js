@@ -1,6 +1,6 @@
 expose(
     {
-        code: feature.runStandard('Array'),
+        run: feature.runStandard('Array'),
         pass: feature.runStandard,
         solution: 'none'
     }

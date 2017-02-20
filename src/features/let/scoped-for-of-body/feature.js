@@ -1,7 +1,7 @@
 expose(
     'for-of',
     {
-        code: transpile`(function(value) {
+        run: transpile`(function(value) {
             var scopes = [];
             for(const i of value) {
                 scopes.push(function() {

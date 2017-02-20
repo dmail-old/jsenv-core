@@ -1,6 +1,6 @@
 expose(
     {
-        code: feature.runStandard(parent, 'getOwnPropertyDescriptor'),
+        run: feature.runStandard(parent, 'getOwnPropertyDescriptor'),
         pass: parent.pass,
         solution: {
             type: 'corejs',

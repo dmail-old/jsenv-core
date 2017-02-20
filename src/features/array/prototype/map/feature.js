@@ -1,6 +1,6 @@
 expose(
     {
-        code: feature.runStandard(parent, 'map'),
+        run: feature.runStandard(parent, 'map'),
         pass: feature.standardPresence,
         solution: {
             type: 'corejs',

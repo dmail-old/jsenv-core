@@ -1,7 +1,7 @@
 expose(
     'iterable-behaviour',
     {
-        code: transpile`(function * generator(value) {
+        run: transpile`(function * generator(value) {
             yield * value;
         })`,
         pass: function(generatorFn) {

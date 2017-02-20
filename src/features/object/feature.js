@@ -1,6 +1,6 @@
 expose(
     {
-        code: feature.runStandard('Object'),
+        run: feature.runStandard('Object'),
         pass: feature.standardPresence,
         solution: 'none'
     }

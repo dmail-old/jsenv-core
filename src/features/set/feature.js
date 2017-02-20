@@ -1,6 +1,6 @@
 expose(
     {
-        code: feature.runStandard('Set'),
+        run: feature.runStandard('Set'),
         pass: feature.standardPresence,
         solution: {
             type: 'corejs',

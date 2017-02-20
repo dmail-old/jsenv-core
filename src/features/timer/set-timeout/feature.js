@@ -1,6 +1,6 @@
 expose(
     {
-        code: feature.runStandard('setTimeout'),
+        run: feature.runStandard('setTimeout'),
         pass: feature.standardPresence,
         solution: 'none'
     }

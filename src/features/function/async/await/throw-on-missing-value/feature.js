@@ -1,6 +1,6 @@
 expose(
     {
-        code: transpile`(async function() {
+        run: transpile`(async function() {
             await;
         })`,
         fail: function(error) {

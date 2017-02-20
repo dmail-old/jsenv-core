@@ -1,6 +1,6 @@
 expose(
     {
-        code: feature.runStandard('isSafeInteger'),
+        run: feature.runStandard('isSafeInteger'),
         pass: feature.runStandard,
         solution: {
             type: 'corejs',

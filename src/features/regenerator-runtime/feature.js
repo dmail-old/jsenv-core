@@ -1,6 +1,6 @@
 expose(
     {
-        code: feature.runStandard('regeneratorRuntime'),
+        run: feature.runStandard('regeneratorRuntime'),
         pass: feature.standardPresence,
         solution: {
             type: 'file',

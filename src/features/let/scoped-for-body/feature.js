@@ -1,6 +1,6 @@
 expose(
     {
-        code: transpile`(function(iterable) {
+        run: transpile`(function(iterable) {
             var scopes = [];
             for(let i in iterable) {
                 scopes.push(function() {

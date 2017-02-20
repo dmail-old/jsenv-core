@@ -1,6 +1,6 @@
 expose(
     {
-        code: transpile`(async function(thenable) {
+        run: transpile`(async function(thenable) {
             var result = await thenable;
             return result;
         })`,

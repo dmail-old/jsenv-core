@@ -1,6 +1,6 @@
 expose(
     {
-        code: feature.runStandard('asap'),
+        run: feature.runStandard('asap'),
         pass: feature.standardPresence,
         solution: {
             type: 'corejs',

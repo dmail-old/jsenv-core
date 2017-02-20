@@ -1,6 +1,6 @@
 expose(
     {
-        code: transpile`(function(defaultValue) {
+        run: transpile`(function(defaultValue) {
             return function(a = defaultValue) {
                 a = 10;
                 return arguments;

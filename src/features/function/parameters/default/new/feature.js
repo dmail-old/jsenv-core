@@ -1,6 +1,6 @@
 expose(
     {
-        code: function() {
+        run: function() {
             return function(defaultA, defaultB) {
                 return new Function( // eslint-disable-line no-new-func
                     "a = " + defaultA, "b = " + defaultB,

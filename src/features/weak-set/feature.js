@@ -1,6 +1,6 @@
 expose(
     {
-        code: feature.runStandard('WeakSet'),
+        run: feature.runStandard('WeakSet'),
         pass: feature.standardPresence,
         solution: {
             type: 'corejs',

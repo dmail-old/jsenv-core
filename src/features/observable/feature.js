@@ -1,6 +1,6 @@
 expose(
     {
-        code: feature.runStandard('Observable'),
+        run: feature.runStandard('Observable'),
         pass: feature.standardPresence
     }
 );

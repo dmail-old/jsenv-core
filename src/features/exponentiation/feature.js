@@ -1,6 +1,6 @@
 expose(
     {
-        code: transpile`(function(left, right, negate) {
+        run: transpile`(function(left, right, negate) {
             if (negate) {
                 return -(left ** right);
             }

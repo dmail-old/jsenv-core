@@ -1,6 +1,6 @@
 expose(
     {
-        code: feature.runStandard('WeakMap'),
+        run: feature.runStandard('WeakMap'),
         pass: feature.standardPresence,
         solution: {
             type: 'corejs',

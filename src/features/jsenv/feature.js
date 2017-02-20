@@ -1,6 +1,6 @@
 expose(
     {
-        code: function() {
+        run: function() {
             return jsenv;
         },
         pass: function(jsenv) {

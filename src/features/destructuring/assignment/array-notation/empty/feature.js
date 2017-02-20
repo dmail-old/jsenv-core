@@ -1,6 +1,6 @@
 expose(
     {
-        code: transpile`(function() {
+        run: transpile`(function() {
             [] = [1,2];
         })`,
         pass: function(fn) {
