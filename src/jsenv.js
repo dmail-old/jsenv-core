@@ -1121,7 +1121,10 @@ en fonction du résultat de ces tests
             pass: function() {
                 return true;
             },
-            solution: 'none',
+            solution: {
+                type: 'none',
+                value: undefined
+            },
             maxTestDuration: 100,
             compile: function() {
                 var output;
@@ -1178,6 +1181,12 @@ en fonction du résultat de ces tests
                 this.propertyName = propertyName;
                 this.owner = owner;
             }
+            UnreachableValue.prototype = {
+                constructor: UnreachableValue,
+                polyfill: function(value) {
+                    this.owner[this.propertyName] = value;
+                }
+            };
 
             function createUnreachableValue(propertyName, owner) {
                 return new UnreachableValue(propertyName, owner);
@@ -1572,7 +1581,7 @@ en fonction du résultat de ces tests
             function assignProperty(feature, propertyValue, propertyName) {
                 if (propertyName === 'solution' && propertyValue === 'none') {
                     propertyValue = {
-                        type: 'null',
+                        type: 'none',
                         value: undefined
                     };
                 }

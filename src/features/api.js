@@ -31,7 +31,12 @@ var featureTranspiler = createTranspiler({
 });
 var noSolution = {
     match: function(feature) {
-        return feature.solution === 'none' || !feature.solution;
+        return feature.solution.type === 'none';
+    }
+};
+var inlineSolution = {
+    match: function(feature) {
+        return feature.solution.type === 'inline';
     }
 };
 var polyfillSolution = {
@@ -208,7 +213,7 @@ function getFixOutputEntryProperties(feature) {
         encode: function(value) {
             return JSON.stringify(value, stringifyErrorReplacer, '\t');
         },
-        cacheMode: 'write-only',
+        cacheMode: 'default',
         sources: sources
     };
     return entryProperties;
@@ -238,9 +243,6 @@ function stringifyErrorReplacer(key, value) {
 var entryIsEnabled = function(entry) {
     return entry.enabled;
 };
-// var entryFeatureMatching = function(entry, otherEntry) {
-//     return entry.feature.match(otherEntry.feature.name);
-// };
 var entryTestIsMissing = function(entry) {
     return entry.testOutput === undefined;
 };
@@ -250,17 +252,14 @@ var entryTestHasCrashed = Predicate.every(entryIsEnabled, function(entry) {
 var entryTestHasFailed = Predicate.every(entryIsEnabled, function(entry) {
     return entry.testOutput.detail.status === 'invalid';
 });
-var entryFixIsMissing = Predicate.every(entryTestHasFailed, function(entry) {
+var entryFixIsMissing = function(entry) {
     return entry.fixOutput === undefined;
-});
-// var entryFixHasCrashed = Predicate.every(entryTestHasFailed, function(entry) {
-//     return entry.fixOutput.status === 'crashed';
-// });
-// var entryFixHasFailed = Predicate.every(entryTestHasFailed, function(entry) {
-//     return entry.fixOutput.detail.status === 'invalid';
-// });
+};
 var entryHasTestMark = function(entry) {
     return entry.mustBeTested;
+};
+var entryHasFixMark = function(entry) {
+    return entry.mustBeFixed;
 };
 function markEntryTestAsRequired(entry) {
     entry.mustBeTested = true;
@@ -288,53 +287,28 @@ function cleanDormant(entries, filteredEntries) {
         delete entry.source;
     });
 }
-function harmonizeEntriesWithFileSystem(entries, outputName, options) {
-    var entriesHarmonizationPromises = entries.map(function(entry) {
-        return harmonizeEntry(entry, options);
-    });
-    return Promise.all(entriesHarmonizationPromises);
-
-    function harmonizeEntry(entry, options) {
-        var output = entry[outputName];
-        if (output) {
-            return writeOutputToFileSystem(
-                entry.feature,
-                output,
-                options.agent,
-                options.createEntryProperties
-            );
+function readOutputFromFileSystem(feature, agent, createEntryProperties) {
+    var entry = getFeatureAgentEntry(feature, agent, createEntryProperties);
+    return entry.read().then(function(data) {
+        if (data.valid) {
+            console.log('got valid data for', feature.name);
+            return data.value;
         }
-        return readOutputFromFileSystem(
-            entry.feature,
-            options.agent,
-            options.createEntryProperties
-        ).then(function(output) {
-            entry[outputName] = output;
-        });
-    }
-    function readOutputFromFileSystem(feature, agent, createEntryProperties) {
-        var entry = getFeatureAgentEntry(feature, agent, createEntryProperties);
-        return entry.read().then(function(data) {
-            if (data.valid) {
-                console.log('got valid data for', feature.name);
-                return data.value;
-            }
-            console.log('no valid data for', feature.name, 'because', data.reason);
-            return undefined;
-        });
-    }
-    function writeOutputToFileSystem(feature, output, agent, createEntryProperties) {
-        var entry = getFeatureAgentEntry(feature, agent, createEntryProperties);
-        return entry.write(output);
-    }
-    function getFeatureAgentEntry(feature, agent, createEntryProperties) {
-        var agentString = agent.toString();
-        var featureCacheFolderPath = featuresFolderPath + '/' + feature.name + '/.cache';
-        var featureAgentCachePath = featureCacheFolderPath + '/' + agentString;
-        var entryProperties = createEntryProperties(feature, agent);
-        entryProperties.path = featureAgentCachePath + '/' + entryProperties.name;
-        return store.fileSystemEntry(entryProperties);
-    }
+        console.log('no valid at', entry.path, 'because', data.reason);
+        return undefined;
+    });
+}
+function writeOutputToFileSystem(feature, output, agent, createEntryProperties) {
+    var entry = getFeatureAgentEntry(feature, agent, createEntryProperties);
+    return entry.write(output);
+}
+function getFeatureAgentEntry(feature, agent, createEntryProperties) {
+    var agentString = agent.toString();
+    var featureCacheFolderPath = featuresFolderPath + '/' + feature.name + '/.cache';
+    var featureAgentCachePath = featureCacheFolderPath + '/' + agentString;
+    var entryProperties = createEntryProperties(feature, agent);
+    entryProperties.path = featureAgentCachePath + '/' + entryProperties.name;
+    return store.fileSystemEntry(entryProperties);
 }
 function getEntries() {
     return getEntriesFromFileSystem().then(function(entries) {
@@ -415,12 +389,6 @@ function createEntry(feature) {
             if (this.source) {
                 object.source = this.source;
             }
-            if (this.testOutput) {
-                object.testOutput = this.testOutput;
-            }
-            if (this.fixOutput) {
-                object.fixOutput = this.fixOutput;
-            }
             if (this.mustBeTested) {
                 object.mustBeTested = true;
             }
@@ -469,6 +437,26 @@ function readFeatureSourcesFromFolder(entries, folderPath, transpiler) {
 function fail(reason) {
     return Promise.reject(reason);
 }
+function readAllOutputFromFileSystem(entries, agent, type) {
+    var createEntryProperties;
+    if (type === 'test') {
+        createEntryProperties = getTestOutputEntryProperties;
+    } else {
+        createEntryProperties = getFixOutputEntryProperties;
+    }
+
+    var promises = entries.map(function(entry) {
+        return readOutputFromFileSystem(
+            entry.feature,
+            agent,
+            createEntryProperties
+        ).then(function(output) {
+            var propertyName = type + 'Output';
+            entry[propertyName] = output;
+        });
+    });
+    return Promise.all(promises);
+}
 
 var api = {
     // retourne la liste de tous les records
@@ -505,29 +493,10 @@ var api = {
         });
     },
 
-    // retourne la liste de tous les record avec ceux dont ils manque le résulat du test marqué
-    // avec mustBeTested
-    updateAllRecordTestMark: function(entries, agent) {
-        return harmonizeEntriesWithFileSystem(
-            entries,
-            'testOutput',
-            {
-                agent: agent,
-                createEntryProperties: getTestOutputEntryProperties
-            }
-        ).then(function() {
-            var entriesWithoutTestOutput = entries.filter(entryTestIsMissing);
-            if (entriesWithoutTestOutput.length) {
-                entriesWithoutTestOutput.forEach(markEntryTestAsRequired);
-                cleanDormant(entries, entriesWithoutTestOutput);
-            }
-        });
-    },
-
     // ça me retourne les entries avec des marque mustbeTested
     // je n'ai plus qu'à run les tests si nécéssaire
     // sinon je passerais dans getAllRecordForFix
-    getAllRecordForTest: function(featureNames, agent) {
+    getAllRequiredTest: function(featureNames, agent) {
         return api.getAllRecordEnabledByNames(featureNames).then(function(entries) {
             var enabledEntries = entries.filter(entryIsEnabled);
             return api.updateAllRecordTestMark(enabledEntries, agent).then(function(meta) {
@@ -539,62 +508,97 @@ var api = {
         });
     },
 
-    setAllRecordTest: function(entries, agent) {
-        var entriesWithTestMark = entries.filter(entryHasTestMark);
-        return harmonizeEntriesWithFileSystem(
-            entriesWithTestMark,
-            'testOutput',
-            {
-                agent: agent,
-                createEntryProperties: getTestOutputEntryProperties
+    // retourne la liste de tous les record avec ceux dont ils manque le résulat du test marqué
+    // avec mustBeTested
+    updateAllRecordTestMark: function(entries, agent) {
+        return readAllOutputFromFileSystem(entries, agent, 'test').then(function() {
+            var entriesWithoutTestOutput = entries.filter(entryTestIsMissing);
+            if (entriesWithoutTestOutput.length) {
+                entriesWithoutTestOutput.forEach(markEntryTestAsRequired);
+                cleanDormant(entries, entriesWithoutTestOutput);
             }
-        );
+        });
+    },
+
+    setAllTestRecord: function(records, agent) {
+        return api.getAllRecord().then(function(entries) {
+            var promises = records.map(function(record) {
+                var featureName = record.featureName;
+                var testOutput = record.output;
+                var entry = entries.find(function(entry) {
+                    return entry.feature.match(featureName);
+                });
+                if (entry) {
+                    return writeOutputToFileSystem(
+                        entry.feature,
+                        testOutput,
+                        agent,
+                        getTestOutputEntryProperties
+                    ).then(function() {
+                        return 200;
+                    });
+                }
+                return 404;
+            });
+            return Promise.all(promises);
+        });
+    },
+
+    getAllRequiredFix: function(featureNames, agent) {
+        return api.getAllRecordEnabledByNames(featureNames).then(function(entries) {
+            var enabledEntries = entries.filter(entryIsEnabled);
+            return api.updateAllRecordFixMark(enabledEntries, agent).then(function(meta) {
+                return {
+                    entries: entries,
+                    meta: meta
+                };
+            });
+        });
     },
 
     updateAllRecordFixMark: function(entries, agent) {
-        var entriesWithCrashedTest = entries.filter(entryTestHasCrashed);
-        if (entriesWithCrashedTest.length) {
-            return fail('some-test-have-crashed', entries);
-        }
-
-        var entriesWithFailedTest = entries.filter(entryTestHasFailed);
-
-        var solutions = [polyfillSolution, transpileSolution, noSolution];
-        var remainingEntriesWithFailedTest = entriesWithFailedTest;
-        var solutionsEntries = solutions.map(function(solution) {
-            var half = Iterable.bisect(remainingEntriesWithFailedTest, function(entry) {
-                return solution.match(entry.feature);
-            });
-            remainingEntriesWithFailedTest = half[1];
-            return half[0];
-        });
-
-        var entriesUsingPolyfillSolution = solutionsEntries[0];
-        var entriesUsingTranspileSolution = solutionsEntries[1];
-        // on ignore ces deux cas ici
-        // var entriesWithoutSolution = solutionsEntries[2];
-        // var entriesUsingUnknownSolution = remainingEntriesWithFailedTest;
-        entriesUsingPolyfillSolution.forEach(markEntryFixAsRequired);
-        entriesUsingTranspileSolution.forEach(markEntryFixAsRequired);
-
-        var harmonizeFixPromise = harmonizeEntriesWithFileSystem(
-            entriesWithFailedTest,
-            'fixOutput',
-            {
-                agent: agent,
-                createEntryProperties: getFixOutputEntryProperties
+        return readAllOutputFromFileSystem(
+            entries,
+            agent,
+            'test'
+        ).then(function() {
+            var entriesWithoutTestOutput = entries.filter(entryTestIsMissing);
+            if (entriesWithoutTestOutput.length) {
+                return fail('some-test-are-missing', entries);
             }
-        );
 
-        return Promise.all([
-            polyfillSolution.solve(entriesUsingPolyfillSolution),
-            harmonizeFixPromise
-        ]).then(function(data) {
-            var fixSource = data[0];
-            var entriesWithoutFix = entriesWithFailedTest.filter(entryFixIsMissing);
+            var entriesWithCrashedTest = entries.filter(entryTestHasCrashed);
+            if (entriesWithCrashedTest.length) {
+                return fail('some-test-have-crashed', entries);
+            }
 
-            if (entriesWithoutFix.length) {
-                entriesWithoutFix.forEach(markEntryTestAsRequired);
+            var entriesWithFailedTest = entries.filter(entryTestHasFailed);
+            var solutions = [polyfillSolution, transpileSolution, inlineSolution, noSolution];
+            var remainingEntriesWithFailedTest = entriesWithFailedTest;
+            var solutionsEntries = solutions.map(function(solution) {
+                var half = Iterable.bisect(remainingEntriesWithFailedTest, function(entry) {
+                    return solution.match(entry.feature);
+                });
+                remainingEntriesWithFailedTest = half[1];
+                return half[0];
+            });
+            var entriesUsingPolyfillSolution = solutionsEntries[0];
+            var entriesUsingTranspileSolution = solutionsEntries[1];
+            var entriesUsingInlineSolution = solutionsEntries[2];
+
+            return readAllOutputFromFileSystem(
+                entriesWithFailedTest,
+                agent,
+                'fix'
+            ).then(function() {
+                var polyfillWithoutFixOutput = entriesUsingPolyfillSolution.filter(entryFixIsMissing);
+                var transpileWithoutFixOutput = entriesUsingTranspileSolution.filter(entryFixIsMissing);
+                var inlineWithoutFixOutput = entriesUsingInlineSolution.filter(entryFixIsMissing);
+
+                polyfillWithoutFixOutput.forEach(markEntryFixAsRequired);
+                transpileWithoutFixOutput.forEach(markEntryFixAsRequired);
+                inlineWithoutFixOutput.forEach(markEntryFixAsRequired);
+
                 /*
                 it may be the most complex thing involved here so let me explain
                 we create a transpiler adapted to required features
@@ -621,118 +625,232 @@ var api = {
                         plugin
                     ]
                 });
-                return readFeatureSourcesFromFolder(
-                    entriesWithoutFix,
-                    featuresFolderPath,
-                    fixedFeatureTranspiler
-                ).then(function() {
-                    // normalement faudrais aussi ne pas clean toutes les
-                    // entriesWithFailedTest
-                    cleanDormant(entries, entriesWithoutFix);
+
+                return Promise.all([
+                    polyfillSolution.solve(polyfillWithoutFixOutput),
+                    readFeatureSourcesFromFolder(
+                        transpileWithoutFixOutput,
+                        featuresFolderPath,
+                        fixedFeatureTranspiler
+                    )
+                ]).then(function(data) {
                     return {
-                        fixSource: fixSource
+                        concatenedFixSource: data[0]
                     };
                 });
-            }
+            });
         });
     },
 
-    getAllRecordFoxFix: function(entries, agent) {
-        var enabledEntries = entries.filter(entryIsEnabled);
-        return this.updateAllRecordFixMark(enabledEntries, agent).then(function(meta) {
-            return {
-                entries: entries,
-                meta: meta
-            };
+    setAllFixRecord: function(records, agent) {
+        return api.getAllRecord().then(function(entries) {
+            var promises = records.map(function(record) {
+                var featureName = record.featureName;
+                var fixOutput = record.output;
+                var entry = entries.find(function(entry) {
+                    return entry.feature.match(featureName);
+                });
+                if (entry) {
+                    return writeOutputToFileSystem(
+                        entry.feature,
+                        fixOutput,
+                        agent,
+                        getFixOutputEntryProperties
+                    ).then(function() {
+                        return 200;
+                    });
+                }
+                return 404;
+            });
+            return Promise.all(promises);
         });
-    },
-
-    setAllRecordFix: function(entries, agent) {
-        var entriesWithFixMark = entries.filter(function(entry) {
-            return entry.mustBeFixed;
-        });
-        return harmonizeEntriesWithFileSystem(
-            entriesWithFixMark,
-            'fixOutput',
-            {
-                agent: agent,
-                createEntryProperties: getFixOutputEntryProperties
-            }
-        );
     }
-    // getDistantInstruction: function(instruction, complete) {
-    //     getNextInstruction(instruction).then(
-    //         function(instruction) {
-    //             // ensure nothing is shared for now
-    //             if (instruction.name === 'fail' || instruction.name === 'complete') {
-    //                 cleanDormant(instruction.detail.entries);
-    //             }
-    //             complete(
-    //                 JSON.parse(JSON.stringify(instruction))
-    //             );
-    //         },
-    //         function(value) {
-    //             complete({
-    //                 name: 'crash',
-    //                 reason: 'unexpected-rejection',
-    //                 detail: value
-    //             });
-    //         }
-    //     );
-    // }
 };
 
-api.getAllRecordForTest(['const/scoped'], String(jsenv.agent)).then(function(data) {
-    var clientEntries = JSON.parse(JSON.stringify(data.entries));
+var mediator = {
+    send: function(action, params) {
+        if (action === 'getAllRequiredTest') {
+            return api.getAllRequiredTest(params.features, params.agent).then(function(data) {
+                var clientData = {};
+                clientData.entries = getClientEntries(data.entries);
+                jsenv.assign(clientData, data.meta);
+                return clientData;
+            });
+        }
+        if (action === 'setAllTestRecord') {
+            return api.setAllTestRecord(params.records, params.agent);
+        }
+        if (action === 'getAllRequiredFix') {
+            return api.getAllRequiredFix(params.features, params.agent).then(function(data) {
+                var clientData = {};
+                clientData.entries = getClientEntries(data.entries);
+                jsenv.assign(clientData, data.meta);
+                return clientData;
+            });
+        }
+        if (action === 'setAllFixRecord') {
+            return api.setAllFixRecord(params.records, params.agent);
+        }
+    }
+};
+function getClientEntries(serverEntries) {
+    var JSONSource = JSON.stringify(serverEntries);
+    var clientEntries = JSON.parse(JSONSource);
     try {
         jsenv.reviveFeatureEntries(clientEntries);
     } catch (e) {
         return fail('some-feature-source', e);
     }
+    return clientEntries;
+}
 
-    var entriesToTest = clientEntries.filter(entryHasTestMark);
-    var featuresToTest = entriesToTest.map(function(entry) {
-        return entry.feature;
-    });
-    var storeFeatureOutput = function(feature, outputName, output) {
-        var entry = entriesToTest.find(function(entry) {
-            return feature.match(entry.feature.name);
+var featureNames = ['const/scoped'];
+var agentString = String(jsenv.agent);
+
+function testImplementation(params) {
+    return mediator.send('getAllRequiredTest', params).then(function(data) {
+        var entries = data.entries;
+        var entriesToTest = entries.filter(entryHasTestMark);
+        var featuresToTest = entriesToTest.map(function(entry) {
+            return entry.feature;
         });
-        entry[outputName] = output;
-    };
-    jsenv.testFeatures(
-        featuresToTest,
-        {
-            progress: function(event) {
-                console.log('tested', event.target.name, '->', event.detail);
-                storeFeatureOutput(event.target, 'testOutput', {
-                    status: 'completed',
-                    reason: 'test-result',
-                    detail: event.detail
-                });
-            },
-            complete: function() {
+        var testRecords = createRecords();
 
-            },
-            crash: function(e) {
-                setTimeout(function() {
-                    throw e;
+        return testFeatures(
+            featuresToTest,
+            testRecords
+        ).then(function() {
+            return mediator.send('setAllTestRecord', {
+                records: testRecords,
+                agent: params.agent
+            });
+        });
+    });
+}
+function createRecords() {
+    var records = [];
+    return records;
+}
+function testFeatures(features, records) {
+    return new Promise(function(resolve, reject) {
+        jsenv.testFeatures(
+            features,
+            {
+                progress: function(event) {
+                    console.log('tested', event.target.name, '->', event.detail);
+                    records.push({
+                        featureName: event.target.name,
+                        output: {
+                            status: 'completed',
+                            reason: 'test-result',
+                            detail: event.detail
+                        }
+                    });
+                },
+                complete: function() {
+                    resolve();
+                },
+                crash: function(e) {
+                    reject(e);
+                }
+            }
+        );
+    });
+}
+function fixImplementation(params) {
+    return mediator.send('getAllRequiredFix', params).then(function(data) {
+        var entries = data.entries;
+        var fixRecords = createRecords();
+        var concatenedFixSource = data.concatenedFixSource;
+        var entriesToFix = entries.filter(entryHasFixMark);
+        var featuresToFix = entriesToFix.map(function(entry) {
+            return entry.feature;
+        });
+        var featuresUsingInlineSolution = featuresToFix.filter(function(feature) {
+            return feature.solution.type === 'inline';
+        });
+        var featureUsingConcatenedSolution = featuresToFix.filter(function(feature) {
+            return (
+                feature.solution.type === 'corejs' ||
+                feature.solution.type === 'file'
+            );
+        });
+
+        featuresUsingInlineSolution.forEach(function(feature) {
+            try {
+                var unreachableValue = feature.compile();
+                unreachableValue.polyfill(feature.solution);
+            } catch (e) {
+                fixRecords.push({
+                    featureName: feature.name,
+                    output: {
+                        status: 'crashed',
+                        reason: 'throw',
+                        detail: e
+                    }
+                });
+            }
+        });
+        if (concatenedFixSource) {
+            try {
+                eval(concatenedFixSource); // eslint-disable-line no-eval
+            } catch (e) {
+                // on fait crash toutes les features marqué comme fix
+                // et ayantpour solution corejs ou file
+                featureUsingConcatenedSolution.forEach(function(feature) {
+                    fixRecords.push({
+                        featureName: feature.name,
+                        output: {
+                            status: 'crashed',
+                            reason: 'some-feature-source',
+                            detail: e
+                        }
+                    });
                 });
             }
         }
-    );
+
+        // test feature which have no output yet (not crashed)
+        var featuresToTest = featuresToFix.filter(function(feature) {
+            var output = Iterable.find(fixRecords, function(record) {
+                return feature.match(record.featureName);
+            });
+            return !output;
+        });
+        return testFeatures(featuresToTest, fixRecords).then(function() {
+            return mediator.send('setAllFixRecord', {
+                records: fixRecords,
+                agent: params.agent
+            });
+        });
+    });
+}
+
+/*
+// scanImplementation sera la combo de test + fix
+function scanImplementation() {
+
+}
+*/
+
+// testImplementation({
+//     features: featureNames,
+//     agent: agentString
+// }).catch(function(e) {
+//     setTimeout(function() {
+//         throw e;
+//     });
+// });
+
+fixImplementation({
+    features: featureNames,
+    agent: agentString
 }).catch(function(e) {
     setTimeout(function() {
         throw e;
     });
 });
 
+api.testImplementation = testImplementation;
+api.fixImplementation = fixImplementation;
 module.exports = api;
-
-// getDistantInstruction(firstInstruction).then(function(instruction) {
-//     console.log('instruction', instruction);
-// }).catch(function(e) {
-//     setTimeout(function() {
-//         throw e;
-//     });
-// });
