@@ -159,7 +159,7 @@ var normalizers = [
     }
 ];
 var USER_AGENT_STRING_MAX_LENGTH = 200;
-var useragent = require('useragent');
+var ua = require('useragent');
 
 function parse(firstArg) {
     // https://github.com/Financial-Times/polyfill-service/blob/master/lib/UA.js
@@ -170,19 +170,20 @@ function parse(firstArg) {
     // The longest string that can possibly be a normalized browser name that we
     // support is XXXXXXXXXX/###.###.### (22 chars), so avoid doing the regex if
     // the input string is longer than that
-    if (truncatedUserAgentString < 22) {
+    if (truncatedUserAgentString.length < 22) {
         match = truncatedUserAgentString.match(/^([\w ]+)\/(\d+)(?:\.(\d+)(?:\.(\d+))?)?$/i);
     }
     var userAgent;
     if (match) {
-        userAgent = new useragent.Agent(
+        userAgent = new ua.Agent(
             match[1],
             match[2],
             (match[3] || 0),
             (match[4] || 0)
         );
     } else {
-        userAgent = useragent.parse(stripiOSWebViewBrowsers(userAgentString));
+        var strippedTruncatedUserAgentString = stripiOSWebViewBrowsers(truncatedUserAgentString);
+        userAgent = ua.parse(strippedTruncatedUserAgentString);
     }
     var agent = createAgent(
         userAgent.family.toLowerCase(),
@@ -262,7 +263,7 @@ function expect(agentString, expectedNormalizedAgentString) {
     var normalizedAgent = parse(agentString);
     var normalizedAgentString = normalizedAgent.toString();
     if (normalizedAgentString === expectedNormalizedAgentString) {
-        console.log(agentString, '->', expectedNormalizedAgentString);
+        // console.log(agentString, '->', expectedNormalizedAgentString);
     } else {
         throw new Error(
             agentString +
