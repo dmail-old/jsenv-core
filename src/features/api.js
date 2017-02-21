@@ -875,32 +875,50 @@ function adaptAgentToCache(feature, agent) {
         });
     }
     function adaptVersion(version, path) {
-        var originalPath = path + '/' + version;
+        var cachePath = path + '/' + version + '/test-output.json';
         return visibleFallback(
-            originalPath,
+            cachePath,
             function() {
                 return fsAsync('readdir', path).then(function(names) {
                     var sortedNames = names.sort();
                     var i = 0;
                     var j = sortedNames.length;
-                    var closestPreviousVersion = null;
+                    var previousVersions = [];
                     while (i < j) {
                         var versionName = sortedNames[i];
                         var availableVersion = jsenv.createVersion(versionName);
                         if (availableVersion.isSpecified()) { // to be sure this is a valid version
                             if (version.above(availableVersion)) {
-                                closestPreviousVersion = availableVersion;
+                                previousVersions.unshift(availableVersion);
                             } else {
                                 break;
                             }
                         }
                         i++;
                     }
-                    if (closestPreviousVersion === null) {
-                        version.update('?');
-                        return path + '/' + version;
-                    }
-                    version.update(closestPreviousVersion);
+                    return Promise.all(previousVersions.map(function(previousVersion) {
+                        return fsAsync.visible(path + '/' + previousVersion + '/test-output.json').then(
+                            function() {
+                                // console.log('valid previous version ' + previousVersion);
+                                return true;
+                            },
+                            function() {
+                                // console.log('invalid previous version ' + previousVersion);
+                                return false;
+                            }
+                        );
+                    })).then(function(validities) {
+                        return previousVersions.find(function(previousVersion, index) {
+                            return validities[index];
+                        });
+                    }).then(function(closestPreviousValidVersion) {
+                        if (closestPreviousValidVersion) {
+                            version.update(closestPreviousValidVersion);
+                        } else {
+                            version.update('?');
+                            return path + '/' + version;
+                        }
+                    });
                 });
             }
         );
@@ -938,14 +956,11 @@ function adaptAgentToCache(feature, agent) {
 //     });
 // });
 
-// adapt agent to cache a l'air de fonctionner
-// on va pouvoir l'utiliser
-// dans le cas ou ça throw c'est que la feature n'a pas de cahce pour cet agent
 // adaptAgentToCache(
 //     {
 //         name: 'const'
 //     },
-//     jsenv.createAgent('percor/4.7.1')
+//     jsenv.createAgent('node/4.7.4')
 // ).then(function(agent) {
 //     console.log('agent', agent.toString());
 // }).catch(function(e) {
