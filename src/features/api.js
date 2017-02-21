@@ -12,6 +12,11 @@ et qui récupère, selon le user-agent, un polyfill
 il faudra aussi désactiver la validation e-tag en mode production parce que mieux vaut un vieux résultat
 que pas de résultat
 
+- trouve un promise polyfill qu'on utilisera sous le nom de thenable mais qui ne doit pas s'installer
+dans l'environnement global pour ne pas niquer les tests
+il sera utilisé pour createClient et mediator
+surement celui la : https://github.com/taylorhakes/promise-polyfill/blob/master/promise.js
+
 */
 
 require('../jsenv.js');
@@ -25,7 +30,7 @@ var memoize = require('../memoize.js');
 var rootFolder = path.resolve(__dirname, '../..').replace(/\\/g, '/');
 var cacheFolder = rootFolder + '/cache';
 var featuresFolderPath = rootFolder + '/src/features';
-var polyfillFolder = cacheFolder + '/polyfill';
+var corejsCacheFolder = cacheFolder + '/corejs';
 var createTranspiler = require('./transpiler.js');
 
 var api = {};
@@ -114,14 +119,16 @@ function createEntriesFromFileSystem() {
                 featureObject.name = feature.name;
 
                 object.feature = featureObject;
-                if (this.source) {
-                    object.source = this.source;
+
+                var source = this.source || '';
+                if (this.solver) {
+                    source += '\n feature.solver = (' + this.solver.toString() + ');';
+                }
+                if (source) {
+                    object.source = source;
                 }
                 if (this.mustBeTested) {
                     object.mustBeTested = true;
-                }
-                if (this.mustBeFixed) {
-                    object.mustBeFixed = true;
                 }
                 if (this.enabled) {
                     object.enabled = this.enabled;
@@ -417,102 +424,91 @@ var noSolution = {
     match: entryHasNoSolution
 };
 var inlineSolution = {
-    match: entryUseInlineSolution
-};
-var polyfillSolution = {
-    match: entryUsePolyfillSolution,
+    match: entryUseInlineSolution,
 
-    solve: function(entriesUsingPolyfillSolution) {
-        var entriesUsingCoreJS = entriesUsingPolyfillSolution.filter(entryUseCoreJSSolution);
-        var entriesUsingFile = entriesUsingPolyfillSolution.filter(entryUseFileSolution);
-        var coreJSModules = Iterable.uniq(entriesUsingCoreJS.map(function(entry) {
-            return entry.feature.solution.value;
-        }));
+    solve: function() {
+
+    }
+};
+var fileSolution = {
+    match: entryUseFileSolution,
+
+    solve: function(entriesUsingFile) {
         var files = Iterable.uniq(entriesUsingFile.map(function(entry) {
             return require('path').resolve(
                 featuresFolderPath + '/' + entry.feature.name + '/feature.js',
                 entry.feature.solution.value.replace('${rootFolder}', rootFolder)
             );
         }));
+        var promises = Iterable.map(files, function(filePath, index) {
+            console.log('fetch file solution', filePath);
 
-        function createPolyfill() {
-            function createCoreJSPolyfill() {
-                var source = '';
+            return fsAsync.getFileContent(filePath).then(function(content) {
+                return new Function(content); // eslint-disable-line no-new-func
+            }).then(function(solver) {
+                entriesUsingFile[index].solver = solver;
+            });
+        });
+        return Promise.all(promises);
+    }
+};
+var coreJSSolution = {
+    match: entryUseCoreJSSolution,
 
-                // Iterable.forEach(requiredCoreJSModules, function(module) {
-                //     if (module.prefixCode) {
-                //         source += module.prefixCode;
-                //     }
-                // });
-                var sourcePromise = Promise.resolve(source);
-                console.log('concat corejs modules', coreJSModules);
+    solve: function(entriesUsingCoreJS) {
+        var coreJSModules = Iterable.uniq(entriesUsingCoreJS.map(function(entry) {
+            return entry.feature.solution.value;
+        }));
 
-                return sourcePromise.then(function(source) {
-                    if (coreJSModules.length) {
-                        var buildCoreJS = require('core-js-builder');
-                        var promise = buildCoreJS({
-                            modules: coreJSModules,
-                            librabry: false,
-                            umd: true
-                        });
-                        return promise.then(function(polyfill) {
-                            if (source) {
-                                source += '\n';
-                            }
-                            source += polyfill;
+        function createCoreJSBuild() {
+            var source = '';
+            // Iterable.forEach(requiredCoreJSModules, function(module) {
+            //     if (module.prefixCode) {
+            //         source += module.prefixCode;
+            //     }
+            // });
+            var sourcePromise = Promise.resolve(source);
+            console.log('concat corejs modules', coreJSModules);
 
-                            return source;
-                        });
-                    }
-                    return source;
-                });
-            }
-            function createOwnFilePolyfill() {
-                console.log('concat files', files);
+            return sourcePromise.then(function(source) {
+                if (coreJSModules.length) {
+                    var buildCoreJS = require('core-js-builder');
+                    var promise = buildCoreJS({
+                        modules: coreJSModules,
+                        librabry: false,
+                        umd: true
+                    });
+                    return promise.then(function(polyfill) {
+                        if (source) {
+                            source += '\n';
+                        }
+                        source += polyfill;
 
-                var sourcesPromises = Iterable.map(files, function(filePath) {
-                    return fsAsync.getFileContent(filePath);
-                });
-                return Promise.all(sourcesPromises).then(function(sources) {
-                    return sources.join('\n\n');
-                });
-            }
-
-            return Promise.all([
-                createCoreJSPolyfill(),
-                createOwnFilePolyfill()
-            ]).then(function(sources) {
-                return sources.join('');
+                        return source;
+                    });
+                }
+                return source;
             });
         }
 
-        var polyfillCache = store.fileSystemCache(polyfillFolder);
+        var polyfillCache = store.fileSystemCache(corejsCacheFolder);
         return polyfillCache.match({
-            solutions: {
-                files: files,
-                corejs: coreJSModules
-            }
+            modules: coreJSModules
         }).then(function(cacheBranch) {
             return memoize.async(
-                createPolyfill,
+                createCoreJSBuild,
                 cacheBranch.entry({
-                    name: 'polyfill.js',
-                    sources: files.map(function(filePath) {
-                        return {
-                            path: filePath,
-                            strategy: 'mtime'
-                        };
-                    })
+                    name: 'build.js'
                 })
             )();
         });
     }
 };
-var transpileSolution = {
-    match: entryUseTranspileSolution,
+var babelSolution = {
+    match: entryUseBabelSolution,
 
-    solve: function(entriesUsingTranspileSolution) {
-        var requiredPlugins = entriesUsingTranspileSolution.map(function(entry) {
+    solve: function(entriesUsingBabel) {
+        var requiredPlugins = entriesUsingBabel.map(function(entry) {
             var solution = entry.feature.solution;
             var createOptions = function() {
                 var options = {};
@@ -521,7 +517,7 @@ var transpileSolution = {
                     if (typeof config === 'object') {
                         jsenv.assign(options, config);
                     } else if (typeof config === 'function') {
-                        jsenv.assign(options, config(entriesUsingTranspileSolution));
+                        jsenv.assign(options, config(entriesUsingBabel));
                     }
                 }
                 return options;
@@ -559,7 +555,13 @@ function updateAllRecordFixMark(entries, agent) {
         }
 
         var entriesWithFailedTest = entries.filter(entryTestHasFailed);
-        var solutions = [polyfillSolution, transpileSolution, inlineSolution, noSolution];
+        var solutions = [
+            inlineSolution,
+            fileSolution,
+            coreJSSolution,
+            babelSolution,
+            noSolution
+        ];
         var remainingEntriesWithFailedTest = entriesWithFailedTest;
         var solutionsEntries = solutions.map(function(solution) {
             var half = Iterable.bisect(remainingEntriesWithFailedTest, function(entry) {
@@ -568,22 +570,25 @@ function updateAllRecordFixMark(entries, agent) {
             remainingEntriesWithFailedTest = half[1];
             return half[0];
         });
-        var entriesUsingPolyfillSolution = solutionsEntries[0];
-        var entriesUsingTranspileSolution = solutionsEntries[1];
-        var entriesUsingInlineSolution = solutionsEntries[2];
+        var entriesUsingInlineSolution = solutionsEntries[0];
+        var entriesUsingFileSolution = solutionsEntries[1];
+        var entriesUsingCoreJSSolution = solutionsEntries[2];
+        var entriesUsingBabelSolution = solutionsEntries[3];
 
         return readAllOutputFromFileSystem(
             entriesWithFailedTest,
             agent,
             'fix'
         ).then(function() {
-            var polyfillWithoutFixOutput = entriesUsingPolyfillSolution.filter(entryFixIsMissing);
-            var transpileWithoutFixOutput = entriesUsingTranspileSolution.filter(entryFixIsMissing);
             var inlineWithoutFixOutput = entriesUsingInlineSolution.filter(entryFixIsMissing);
+            var fileWithoutFixOutput = entriesUsingFileSolution.filter(entryFixIsMissing);
+            var corejsWithoutFixOutput = entriesUsingCoreJSSolution.filter(entryFixIsMissing);
+            var babelWithoutFixOutput = entriesUsingBabelSolution.filter(entryFixIsMissing);
 
-            polyfillWithoutFixOutput.forEach(markEntryFixAsRequired);
-            transpileWithoutFixOutput.forEach(markEntryFixAsRequired);
-            inlineWithoutFixOutput.forEach(markEntryFixAsRequired);
+            inlineWithoutFixOutput.forEach(markEntryTestAsRequired);
+            fileWithoutFixOutput.forEach(markEntryTestAsRequired);
+            corejsWithoutFixOutput.forEach(markEntryTestAsRequired);
+            babelWithoutFixOutput.forEach(markEntryTestAsRequired);
 
             /*
             it may be the most complex thing involved here so let me explain
@@ -591,7 +596,7 @@ function updateAllRecordFixMark(entries, agent) {
             then we create a babel plugin which transpile template literals using that transpiler
             finally we create a transpiler which uses that plugin
             */
-            var transpiler = transpileSolution.solve(entriesUsingTranspileSolution);
+            var transpiler = babelSolution.solve(entriesUsingBabelSolution);
             var plugin = createTranspiler.transformTemplateLiteralsPlugin(function(code) {
                 return transpiler.transpile(code, {
                     as: 'code',
@@ -613,15 +618,17 @@ function updateAllRecordFixMark(entries, agent) {
             });
 
             return Promise.all([
-                polyfillSolution.solve(polyfillWithoutFixOutput),
+                inlineSolution.solve(inlineWithoutFixOutput),
+                fileSolution.solve(fileWithoutFixOutput),
+                coreJSSolution.solve(corejsWithoutFixOutput),
                 readFeatureSourcesFromFolder(
-                    transpileWithoutFixOutput,
+                    babelWithoutFixOutput,
                     featuresFolderPath,
                     fixedFeatureTranspiler
                 )
             ]).then(function(data) {
                 return {
-                    concatenedFixSource: data[0]
+                    coreJSBuildSource: data[0]
                 };
             });
         });
@@ -653,19 +660,6 @@ function entryUseCoreJSSolution(entry) {
 }
 function entryUseBabelSolution(entry) {
     return entry.feature.solution.type === 'babel';
-}
-function entryUsePolyfillSolution(entry) {
-    return (
-        entryUseInlineSolution(entry) ||
-        entryUseFileSolution(entry) ||
-        entryUseCoreJSSolution(entry)
-    );
-}
-function entryUseTranspileSolution(entry) {
-    return entryUseBabelSolution(entry);
-}
-function markEntryFixAsRequired(entry) {
-    entry.mustBeFixed = true;
 }
 
 api.setAllFixRecord = function(records, agent) {
@@ -726,61 +720,53 @@ api.createClient = function createClient(mediator) {
         return mediator.send('getAllRequiredFix').then(function(data) {
             var entries = data.entries;
             var fixRecords = createRecords();
-            var concatenedFixSource = data.concatenedFixSource;
-            var entriesToFix = entries.filter(entryHasFixMark);
-            var featuresToFix = entriesToFix.map(function(entry) {
-                return entry.feature;
-            });
-            var featuresUsingInlineSolution = featuresToFix.filter(function(feature) {
-                return feature.solution.type === 'inline';
-            });
-            var featureUsingConcatenedSolution = featuresToFix.filter(function(feature) {
-                return (
-                    feature.solution.type === 'corejs' ||
-                    feature.solution.type === 'file'
-                );
-            });
+            var coreJSBuildSource = data.coreJSBuildSource;
+            var entriesToFix = entries.filter(entryHasTestMark);
+            var entriesUsingInlineSolution = entriesToFix.filter(entryUseInlineSolution);
+            var entriesUsingFileSolution = entriesToFix.filter(entryUseFileSolution);
+            var entriesUsingCoreJSSolution = entriesToFix.filter(entryUseCoreJSSolution);
 
-            featuresUsingInlineSolution.forEach(function(feature) {
-                try {
-                    var unreachableValue = feature.compile();
-                    unreachableValue.polyfill(feature.solution);
-                } catch (e) {
-                    fixRecords.push({
-                        featureName: feature.name,
-                        output: {
-                            status: 'crashed',
-                            reason: 'throw',
-                            detail: e
+            function createConcatenedSolver(source) {
+                var output = {status: 'pending'};
+
+                return function() {
+                    if (output.status === 'pending') {
+                        try {
+                            var value = eval(source); // eslint-disable-line no-eval
+
+                            output.status = 'completed';
+                            output.reason = 'fixed';
+                            output.detail = value;
+                        } catch (e) {
+                            output.status = 'crashed';
+                            output.reason = 'some-source';
+                            output.detail = e;
                         }
-                    });
-                }
-            });
-            if (concatenedFixSource) {
-                try {
-                    eval(concatenedFixSource); // eslint-disable-line no-eval
-                } catch (e) {
-                    // on fait crash toutes les features marqué comme fix
-                    // et ayantpour solution corejs ou file
-                    featureUsingConcatenedSolution.forEach(function(feature) {
-                        fixRecords.push({
-                            featureName: feature.name,
-                            output: {
-                                status: 'crashed',
-                                reason: 'some-feature-source',
-                                detail: e
-                            }
-                        });
-                    });
-                }
-            }
+                    }
 
-            // test feature which have no output yet (not crashed)
-            var featuresToTest = featuresToFix.filter(function(feature) {
-                var output = Iterable.find(fixRecords, function(record) {
-                    return feature.match(record.featureName);
-                });
-                return !output;
+                    if (output.status === 'completed') {
+                        return output.detail;
+                    }
+                    if (output.status === 'crashed') {
+                        throw output.detail;
+                    }
+                };
+            }
+            var coreJSSolver = createConcatenedSolver(coreJSBuildSource);
+            entriesUsingCoreJSSolution.forEach(function(entry) {
+                entry.feature.beforeTest = coreJSSolver;
+            });
+            entriesUsingInlineSolution.forEach(function(entry) {
+                entry.feature.beforeTest = function() {
+                    this.polyfill(this.solution.value);
+                };
+            });
+            entriesUsingFileSolution.forEach(function(entry) {
+                entry.feature.beforeTest = entry.feature.solver;
+            });
+
+            var featuresToTest = entriesToFix.map(function(entry) {
+                return entry.feature;
             });
             return testFeatures(featuresToTest, fixRecords).then(function() {
                 return mediator.send('setAllFixRecord', fixRecords);
@@ -794,9 +780,6 @@ api.createClient = function createClient(mediator) {
     }
     function entryHasTestMark(entry) {
         return entry.mustBeTested;
-    }
-    function entryHasFixMark(entry) {
-        return entry.mustBeFixed;
     }
 
     return {
@@ -852,12 +835,16 @@ api.createOwnMediator = function(featureNames, agent) {
 };
 
 var ownMediator = api.createOwnMediator(
-    ['const/scoped'],
+    [
+        'math/deg-per-rad'
+    ],
     String(jsenv.agent)
 );
 api.client = api.createClient(ownMediator);
 
-api.client.scan().catch(function(e) {
+api.client.scan().then(function() {
+    // console.log('here', Math.DEG_PER_RAD);
+}).catch(function(e) {
     setTimeout(function() {
         throw e;
     });

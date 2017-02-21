@@ -358,6 +358,7 @@ var createFileSystemCacheBranchEntry = (function() {
     var FS_VISIBLE = (fs.constants || fs).F_OK;
     FileSystemCacheBranchEntry.prototype = {
         constructor: FileSystemCacheBranchEntry,
+        sources: [],
         mode: 'default', // 'write-only', // utile pour le debug
         limit: { // todo, deux strategy possible : 'ignore' (on ne cache plus rien) et 'lru'
             value: Infinity,

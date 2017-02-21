@@ -1040,6 +1040,8 @@ en fonction du résultat de ces tests
                 return this.enabled !== true;
             },
 
+            beforeTest: function() {},
+
             test: function(callback) {
                 var feature = this;
                 var settled = false;
@@ -1066,53 +1068,64 @@ en fonction du résultat de ces tests
                     }
                 };
 
-                var output;
-                var outputOrigin;
+                var beforeTestError;
                 try {
-                    output = this.compile();
-                    outputOrigin = 'return';
+                    this.beforeTest();
                 } catch (e) {
-                    output = e;
-                    outputOrigin = 'throw';
+                    beforeTestError = e;
                 }
 
-                var settler;
-                var settlerPropertyName = outputOrigin === 'throw' ? 'fail' : 'pass';
-                if (this.hasOwnProperty(settlerPropertyName)) {
-                    settler = this[settlerPropertyName];
-                    var type = typeof settler;
-                    if (type !== 'function') {
-                        throw new TypeError(
-                            'feature.' + settlerPropertyName +
-                            ' must be a function (not ' + type + ')'
-                        );
-                    }
-                    // ce throw au dessus fait que settle n'est jamais appelé
-                    // et bizarrement l'erreur n'est jamais log...
-
-                    var settlerArgs = [];
-                    settlerArgs.push(output);
-                    Iterable.forEach(this.parameters, function(parameter) {
-                        settlerArgs.push(parameter);
-                    });
-                    settlerArgs.push(settle);
-                    settler = convertToSettler(settler);
-
-                    try {
-                        settler.apply(
-                            this,
-                            settlerArgs
-                        );
-
-                        var maxDuration = feature.maxTestDuration;
-                        timeout = setTimeout(function() {
-                            settle(false, 'timeout', maxDuration);
-                        }, maxDuration);
-                    } catch (e) {
-                        settle(false, 'throwed', e);
-                    }
+                if (beforeTestError) {
+                    settle(false, 'before-test-throw', beforeTestError);
                 } else {
-                    settle(false, 'unexpected-compilation-' + outputOrigin);
+                    var output;
+                    var outputOrigin;
+                    try {
+                        output = this.compile();
+                        outputOrigin = 'return';
+                    } catch (e) {
+                        output = e;
+                        outputOrigin = 'throw';
+                    }
+
+                    var settler;
+                    var settlerPropertyName = outputOrigin === 'throw' ? 'fail' : 'pass';
+                    if (this.hasOwnProperty(settlerPropertyName)) {
+                        settler = this[settlerPropertyName];
+                        var type = typeof settler;
+                        if (type !== 'function') {
+                            throw new TypeError(
+                                'feature.' + settlerPropertyName +
+                                ' must be a function (not ' + type + ')'
+                            );
+                        }
+                        // ce throw au dessus fait que settle n'est jamais appelé
+                        // et bizarrement l'erreur n'est jamais log...
+
+                        var settlerArgs = [];
+                        settlerArgs.push(output);
+                        Iterable.forEach(this.parameters, function(parameter) {
+                            settlerArgs.push(parameter);
+                        });
+                        settlerArgs.push(settle);
+                        settler = convertToSettler(settler);
+
+                        try {
+                            settler.apply(
+                                this,
+                                settlerArgs
+                            );
+
+                            var maxDuration = feature.maxTestDuration;
+                            timeout = setTimeout(function() {
+                                settle(false, 'timeout', maxDuration);
+                            }, maxDuration);
+                        } catch (e) {
+                            settle(false, 'throwed', e);
+                        }
+                    } else {
+                        settle(false, 'unexpected-compilation-' + outputOrigin);
+                    }
                 }
 
                 return this;
@@ -1177,56 +1190,93 @@ en fonction du résultat de ces tests
 
         // feature testing helpers
         var helpers = (function() {
-            function UnreachableValue(propertyName, owner) {
-                this.propertyName = propertyName;
-                this.owner = owner;
+            function DeepValue() {
+
             }
-            UnreachableValue.prototype = {
-                constructor: UnreachableValue,
+            DeepValue.prototype = {
+                constructor: DeepValue,
+                reached: false,
+                read: function(property) {
+                    var next;
+                    if (this.reached) {
+                        if (property in this.value) {
+                            next = new DeepValue();
+                            next.reached = true;
+                            next.value = this.value[property];
+                            next.property = property;
+                        } else {
+                            next = new DeepValue();
+                            next.reached = false;
+                            next.property = property;
+                        }
+                    } else {
+                        next = new DeepValue();
+                        next.reached = false;
+                        next.property = property;
+                    }
+                    next.previous = this;
+                    return next;
+                },
                 polyfill: function(value) {
-                    this.owner[this.propertyName] = value;
+                    if (this.reached) {
+                        throw new Error('polyfill expect an unreachable value');
+                    }
+                    var previous = this.previous;
+                    if (!previous) {
+                        throw new Error('polyfill expect previous');
+                    }
+                    if (!previous.reached) {
+                        throw new Error('polyfill expect previous to be reachable');
+                    }
+                    // console.log('polyfill', this, 'at', this.property, 'with', value);
+                    previous.value[this.property] = value;
                 }
             };
 
-            function createUnreachableValue(propertyName, owner) {
-                return new UnreachableValue(propertyName, owner);
+            function createDeepValue() {
+                var deepValue = new DeepValue();
+                return deepValue;
             }
 
-            function isUnreachableValue(a) {
-                return a instanceof UnreachableValue;
+            function isDeepValue(a) {
+                return a instanceof DeepValue;
             }
 
             return {
                 runStandard: runStandard,
                 standardPresence: standardPresence,
-                // fixStandard: fixStandard,
                 createIterableObject: createIterableObject,
                 collectKeys: collectKeys,
-                sameValues: sameValues
+                sameValues: sameValues,
+                polyfill: polyfill
             };
 
             function runStandard() {
                 var i = 0;
                 var j = arguments.length;
                 var args = [];
-                var initialValue;
+                var composedValue = createDeepValue();
                 while (i < j) {
                     var arg = arguments[i];
                     if (jsenv.isFeature(arg)) {
-                        // feature.addDependency(arg, {preventDuplicateError: true});
                         args.push(arg);
                     } else if (typeof arg === 'string') {
                         if (i === 0) {
-                            initialValue = jsenv.global;
+                            composedValue.value = jsenv.global;
+                            composedValue.reached = true;
                         }
                         args.push({
-                            propertyName: arg,
+                            property: arg,
                             compile: function(previousOutput) {
-                                var propertyName = this.propertyName;
-                                if (propertyName in previousOutput) {
-                                    return previousOutput[this.propertyName];
+                                var deepValue;
+                                if (isDeepValue(previousOutput)) {
+                                    deepValue = previousOutput;
+                                } else {
+                                    deepValue = createDeepValue();
+                                    deepValue.value = previousOutput;
+                                    deepValue.reached = true;
                                 }
-                                return createUnreachableValue(propertyName, previousOutput);
+                                return deepValue.read(this.property);
                             }
                         });
                     }
@@ -1234,18 +1284,15 @@ en fonction du résultat de ces tests
                 }
 
                 return function() {
-                    var composedOutput = createUnreachableValue();
-                    var previousOutput = arguments.length === 0 ? initialValue : arguments[0];
+                    var previousOutput = arguments.length === 0 ? composedValue : arguments[0];
+                    var composedOutput = previousOutput;
                     var i = 0;
 
                     while (i < j) {
                         var arg = args[i];
                         var output;
                         output = arg.compile(previousOutput);
-                        if (isUnreachableValue(output)) {
-                            composedOutput = output;
-                            break;
-                        }
+                        composedOutput = output;
                         previousOutput = output;
                         i++;
                     }
@@ -1254,10 +1301,14 @@ en fonction du résultat de ces tests
                 };
             }
             function standardPresence(output, settle) {
-                if (isUnreachableValue(output)) {
-                    settle(false, 'missing');
+                if (isDeepValue(output)) {
+                    if (output.reached) {
+                        settle(true, 'present');
+                    } else {
+                        settle(false, 'missing');
+                    }
                 } else {
-                    settle(true, 'present');
+                    settle(false, 'output-must-be-deep-value', output);
                 }
             }
             function createIterableObject(arr, methods) {
@@ -1350,6 +1401,16 @@ en fonction du résultat de ces tests
                     next = iterator.next();
                 }
                 return values;
+            }
+            function polyfill(value) {
+                var output = this.compile();
+                if (isDeepValue(output)) {
+                    output.polyfill(value);
+                } else {
+                    throw new TypeError(
+                        'feature.polyfill must be called on a feature compiled to deepValue'
+                    );
+                }
             }
         })();
         jsenv.assign(VersionnedFeature.prototype, helpers);

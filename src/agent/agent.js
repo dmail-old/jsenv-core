@@ -5,6 +5,7 @@
 // https://github.com/babel/babel-preset-env/blob/master/src/index.js#L97
 
 require('../jsenv.js');
+var Iterable = jsenv.Iterable;
 var createAgent = jsenv.createAgent;
 var createPlatform = jsenv.createPlatform;
 function match() {
@@ -199,7 +200,7 @@ function stripiOSWebViewBrowsers(userAgentString) {
     return userAgentString.replace(/((CriOS|OPiOS)\/(\d+)\.(\d+)\.(\d+)\.(\d+)|(FxiOS\/(\d+)\.(\d+)))/, '');
 }
 function normalize(agent, platform) {
-    var matchedNormalizer = normalizers.find(function(normalizer) {
+    var matchedNormalizer = Iterable.find(normalizers, function(normalizer) {
         return normalizer.match(agent, platform);
     });
     if (matchedNormalizer) {
