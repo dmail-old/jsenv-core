@@ -885,6 +885,312 @@ ainsi que quelques utilitaires comme assign, Iterable et Predicate
         return Predicate;
     })();
     provide('Predicate', Predicate);
+
+    // we need a promise like object to use Promise power even in environment wo Promise
+    // we reuse this one https://github.com/taylorhakes/promise-polyfill/blob/master/promise.js
+    var Thenable = (function() {
+        var forOf = (function() {
+            if (typeof Symbol === 'function' && 'iterator' in Symbol) {
+                return function forOf(iterable, fn, bind) {
+                    var method;
+                    var iterator;
+                    var next;
+
+                    method = iterable[Symbol.iterator];
+
+                    if (typeof method !== 'function') {
+                        throw new TypeError(iterable + 'is not iterable');
+                    }
+
+                    if (typeof fn !== 'function') {
+                        throw new TypeError('second argument must be a function');
+                    }
+
+                    iterator = method.call(iterable);
+                    next = iterator.next();
+                    while (next.done === false) {
+                        try {
+                            fn.call(bind, next.value);
+                        } catch (e) {
+                            if (typeof iterator['return'] === 'function') { // eslint-disable-line dot-notation
+                                iterator['return'](); // eslint-disable-line dot-notation
+                            }
+                            throw e;
+                        }
+                        next = iterator.next();
+                    }
+                };
+            }
+            return function forOf(iterable, fn, bind) {
+                for (var key in iterable) {
+                    if (iterable.hasOwnProperty(key)) {
+                        fn.call(bind, iterable[key]);
+                    }
+                }
+            };
+        })();
+        var triggerUnhandled = (function() {
+            if (jsenv.isBrowser()) {
+                return function tiggerUnhandled(value, promise) {
+                    if (window.onunhandledrejection) {
+                        window.onunhandledrejection(value, promise);
+                    } else {
+                        // var mess = value instanceof Error ? value.stack : value;
+                        console.log('possibly unhandled rejection "' + value + '" for promise', promise);
+                    }
+                };
+            }
+            return function tiggerUnhandled(value, promise) {
+                if (process.listeners('unhandledRejection').length === 0) {
+                    var mess = value instanceof Error ? value.stack : value;
+                    console.log('possibly unhandled rejection "' + mess + '" for promise', promise);
+                }
+                process.emit('unhandledRejection', value, promise);
+            };
+        })();
+        var triggerHandled = (function() {
+            if (jsenv.isBrowser()) {
+                return function triggerHandled(promise) {
+                    if (window.onrejectionhandled) {
+                        window.onrejectionhandled(promise);
+                    }
+                };
+            }
+            return function triggerHandled(promise) {
+                process.emit('rejectionHandled', promise);
+            };
+        })();
+        var asap = (function() {
+            if (typeof setImmediate === 'function') {
+                return setImmediate;
+            }
+            return setTimeout;
+        })();
+        function callThenable(thenable, onFulfill, onReject) {
+            var then;
+            try {
+                then = thenable.then;
+                then.call(thenable, onFulfill, onReject);
+            } catch (e) {
+                onReject(e);
+            }
+        }
+        function isThenable(object) {
+            if (object) {
+                return typeof object.then === 'function';
+            }
+            return false;
+        }
+        function bindAndOnce(fn, thisValue) {
+            var called = false;
+            return function boundAndCalledOnce() {
+                if (called === false) {
+                    called = true;
+                    return fn.apply(thisValue, arguments);
+                }
+            };
+        }
+        function noop() {}
+
+        function Thenable(executor) {
+            if (arguments.length === 0) {
+                throw new Error('missing executor function');
+            }
+            if (typeof executor !== 'function') {
+                throw new TypeError('function expected as executor');
+            }
+
+            this.status = 'pending';
+
+            if (executor !== noop) {
+                try {
+                    executor(
+                        bindAndOnce(resolveThenable, this),
+                        bindAndOnce(rejectThenable, this)
+                    );
+                } catch (e) {
+                    rejectThenable.call(this, e);
+                }
+            }
+        }
+        Thenable.prototype = {
+            constructor: Thenable,
+            unhandledTriggered: false,
+            handled: false,
+            toString: function() {
+                return '[object Thenable]';
+            },
+            then: function(onFulfill, onReject) {
+                if (onFulfill && typeof onFulfill !== 'function') {
+                    throw new TypeError('then first arg must be a function ' + onFulfill + ' given');
+                }
+                if (onReject && typeof onReject !== 'function') {
+                    throw new TypeError('then second arg must be a function ' + onReject + ' given');
+                }
+
+                var thenable = new this.constructor(noop);
+                var handler = {
+                    thenable: thenable,
+                    onFulfill: onFulfill || null,
+                    onReject: onReject || null
+                };
+                handle(this, handler);
+                return thenable;
+            },
+            'catch': function(onReject) {
+                return this.then(null, onReject);
+            }
+        };
+        function resolveThenable(value) {
+            try {
+                if (isThenable(value)) {
+                    if (value === this) {
+                        throw new TypeError('A promise cannot be resolved with itself');
+                    } else {
+                        this.status = 'resolved';
+                        this.value = value;
+                        callThenable(
+                            value,
+                            bindAndOnce(resolveThenable, this),
+                            bindAndOnce(rejectThenable, this)
+                        );
+                    }
+                } else {
+                    this.status = 'fulfilled';
+                    this.value = value;
+                    settleThenable(this);
+                }
+            } catch (e) {
+                rejectThenable.call(this, e);
+            }
+        }
+        function rejectThenable(value) {
+            this.status = 'rejected';
+            this.value = value;
+            settleThenable(this);
+        }
+        function settleThenable(thenable) {
+            if (thenable.status === 'rejected' && thenable.handled === false) {
+                asap(function() {
+                    if (!thenable.handled) {
+                        triggerUnhandled(thenable.value, thenable);
+                        thenable.unhandledTriggered = true;
+                    }
+                });
+            }
+
+            var hasPendingList = thenable.hasOwnProperty('pendingList');
+            if (hasPendingList) {
+                var pendingList = thenable.pendingList;
+                var i = 0;
+                var j = pendingList.length;
+                while (i < j) {
+                    handle(thenable, pendingList[i]);
+                    i++;
+                }
+                // on peut "supprimer" pendingList mais
+                pendingList.length = 0;
+            }
+        }
+        function handle(thenable, handler) {
+            // on doit s'inscrire sur la bonne pendingList
+            // on finis forcément par tomber sur un thenable en mode 'pending'
+            while (thenable.status === 'resolved') {
+                thenable = thenable.value;
+            }
+            if (thenable.unhandledTriggered) {
+                triggerHandled(thenable);
+            }
+            thenable.handled = true;
+
+            if (thenable.status === 'pending') {
+                if (thenable.hasOwnProperty('pendingList')) {
+                    thenable.pendingList.push(handler);
+                } else {
+                    thenable.pendingList = [handler];
+                }
+            } else {
+                asap(function() {
+                    var isFulfilled = thenable.status === 'fulfilled';
+                    var value = thenable.value;
+                    var callback = isFulfilled ? handler.onFulfill : handler.onReject;
+
+                    if (callback !== null) {
+                        try {
+                            value = callback(value);
+                        } catch (e) {
+                            isFulfilled = false;
+                            value = e;
+                        }
+                    }
+
+                    var sourceThenable = handler.thenable;
+                    if (isFulfilled) {
+                        resolveThenable.call(sourceThenable, value);
+                    } else {
+                        rejectThenable.call(sourceThenable, value);
+                    }
+                });
+            }
+        }
+
+        Thenable.resolve = function resolve(value) {
+            if (arguments.length > 0) {
+                if (value instanceof this && value.constructor === this) {
+                    return value;
+                }
+            }
+
+            return new this(function resolveExecutor(resolve) {
+                resolve(value);
+            });
+        };
+        Thenable.reject = function reject(value) {
+            return new this(function rejectExecutor(resolve, reject) {
+                reject(value);
+            });
+        };
+        Thenable.all = function all(iterable) {
+            return new this(function allExecutor(resolve, reject) {
+                var index = 0;
+                var length = 0;
+                var values = [];
+                var resolveOne = function(value, index) {
+                    if (isThenable(value)) {
+                        callThenable(value, function(value) {
+                            resolveOne(value, index);
+                        }, reject);
+                    } else {
+                        values[index] = value;
+                        length--;
+                        if (length === 0) {
+                            resolve(values);
+                        }
+                    }
+                };
+
+                forOf(iterable, function(value) {
+                    length++;
+                    resolveOne(value, index);
+                    index++;
+                });
+
+                if (length === 0) {
+                    resolve(values);
+                }
+            });
+        };
+        Thenable.race = function race(iterable) {
+            return new this(function(resolve, reject) {
+                forOf(iterable, function(thenable) {
+                    thenable.then(resolve, reject);
+                });
+            });
+        };
+
+        return Thenable;
+    })();
+    provide('Thenable', Thenable);
 })();
 
 /*
@@ -895,6 +1201,7 @@ en fonction du résultat de ces tests
 (function() {
     var Iterable = jsenv.Iterable;
     // var Predicate = jsenv.Predicate;
+    var Thenable = jsenv.Thenable;
 
     /*
     plus tard on pourrais imaginer supporter les features avec des version par exemple
@@ -1711,24 +2018,20 @@ en fonction du résultat de ces tests
         };
     });
 
-    jsenv.provide(function() {
-
-    });
-
     jsenv.provide(function testFeatures() {
         var Iterable = jsenv.Iterable;
 
-        function testFeatures(features, hooks) {
+        function testFeatures(features, progressCallback) {
             var results = [];
             var readyCount = 0;
             var groups = groupNodesByDependencyDepth(features);
             var groupIndex = -1;
             var groupCount = groups.length;
-            var done = function() {
-                hook('complete', results);
-            };
-            var hook = jsenv.createHooks({
-                hooks: hooks
+            var done;
+            var thenable = new Thenable(function(resolve) {
+                done = function() {
+                    resolve(results);
+                };
             });
 
             function nextGroup() {
@@ -1749,16 +2052,17 @@ en fonction du résultat de ces tests
                         results[featureIndex] = result;
                         readyCount++;
 
-                        var progressEvent = {
-                            type: 'progress',
-                            target: feature,
-                            detail: result,
-                            lengthComputable: true,
-                            total: features.length,
-                            loaded: readyCount
-                        };
-                        hook('progress', progressEvent);
-
+                        if (progressCallback) {
+                            var progressEvent = {
+                                type: 'progress',
+                                target: feature,
+                                detail: result,
+                                lengthComputable: true,
+                                total: features.length,
+                                loaded: readyCount
+                            };
+                            progressCallback(progressEvent);
+                        }
                         groupReadyCount++;
                         if (groupReadyCount === j) {
                             nextGroup();
@@ -1806,6 +2110,7 @@ en fonction du résultat de ces tests
                 }
             }
             nextGroup();
+            return thenable;
         }
 
         function groupNodesByDependencyDepth(nodes) {
@@ -1855,193 +2160,126 @@ en fonction du résultat de ces tests
         };
     });
 
-    jsenv.provide(function createHooks() {
-        return {
-            createHooks: function(options) {
-                var hooks = options.hooks || {};
-                var fallbackHooks = options.fallback || {};
-                function hook(name, event) {
-                    var method;
-                    var bind;
+    jsenv.provide(function createImplementationClient() {
+        function createImplementationClient(mediator) {
+            function testImplementation() {
+                return mediator.send('getAllRequiredTest').then(function(data) {
+                    var entries = data.entries;
+                    var entriesToTest = entries.filter(entryHasTestMark);
+                    var featuresToTest = entriesToTest.map(function(entry) {
+                        return entry.feature;
+                    });
+                    var testRecords = createRecords();
 
-                    if (name in hooks) {
-                        method = hooks[name];
-                        bind = hooks;
-                    } else if (name in fallbackHooks) {
-                        method = fallbackHooks[name];
-                        bind = fallbackHooks;
-                    }
-
-                    try {
-                        method.call(bind, event);
-                    } catch (e) {
-                        if (name === 'crash') {
-                            throw e;
-                        } else {
-                            hook('crash', e);
-                        }
-                    }
-                }
-
-                return hook;
-            }
-        };
-    });
-
-    jsenv.provide(function adaptImplementation() {
-        function adaptImplementation(how) {
-            return {
-                run: run
-            };
-
-            function run(hooks) {
-                var hook = jsenv.createHooks({
-                    hooks: hooks,
-                    fallback: {
-                        crash: function(event) {
-                            setTimeout(function() {
-                                throw event.detail;
-                            });
-                        }
-                    }
+                    return testFeatures(
+                        featuresToTest,
+                        testRecords
+                    ).then(function() {
+                        return mediator.send('setAllTestRecord', testRecords);
+                    });
                 });
-                var localInstruction = {
-                    name: 'start',
-                    options: how.options
-                };
-                getDistantInstruction(localInstruction);
-
-                function getDistantInstruction(localInstruction) {
-                    // console.log('local', localInstruction);
-                    hook('progress', 'before-' + localInstruction.name);
-                    how.getDistantInstruction(
-                        localInstruction,
-                        function(distantInstruction) {
-                            // console.log('dist', distantInstruction);
-                            hook('progress', 'after-' + localInstruction.name);
-                            return handleDistantInstruction(distantInstruction, localInstruction);
-                        }
-                    );
-                }
-                function handleDistantInstruction(distantInstruction, localInstruction) {
-                    if (distantInstruction.name === 'complete') {
-                        hook('complete', distantInstruction);
-                    } else if (distantInstruction.name === 'fail') {
-                        hook('fail', distantInstruction);
-                    } else if (distantInstruction.name === 'crash') {
-                        hook('crash', distantInstruction);
-                    } else {
-                        localInstruction.name = distantInstruction.name;
-                        localInstruction.reason = distantInstruction.reason;
-                        localInstruction.entries = distantInstruction.detail.entries;
-
-                        var entries = localInstruction.entries;
-                        try {
-                            jsenv.reviveFeatureEntries(entries);
-                        } catch (e) {
-                            hook('crash', {
-                                reason: 'some-feature-source',
-                                detail: e
-                            });
-                            return;
-                        }
-
-                        var entriesToFix = entries.filter(function(entry) {
-                            return entry.mustBeFixed;
-                        });
-                        var entriesToTest = entries.filter(function(entry) {
-                            return entry.mustBeTested;
-                        });
-
-                        var done = function() {
-                            getDistantInstruction(localInstruction);
-                        };
-                        var crash = function(entry, property, data) {
-                            var output = {
-                                status: 'crashed'
-                            };
-                            jsenv.assign(output, data);
-                            entry[property] = output;
-                        };
-                        var complete = function(entry, property, data) {
-                            var output = {
-                                status: 'completed'
-                            };
-                            jsenv.assign(output, data);
-                            entry[property] = output;
-                        };
-                        var crashAll = function(entries, property, data) {
-                            entries.forEach(function(entry) {
-                                crash(entry, property, data);
-                            });
-                        };
-
-                        // second: if it's required -> fix (polyfill)
-                        if (distantInstruction.detail.fixSource) {
-                            // because all fix-source are concatened we can't
-                            // really know hwich feature fix is failing
-                            // so we crash every feature
-                            // it could be improved if we could still map source to feature
-                            // either by using sourceMap + error.stack
-                            // or by producing a fix per feature (so one eval per feature)
-                            // this is a huge work for small benefit
-                            try {
-                                eval(distantInstruction.detail.fixSource); // eslint-disable-line no-eval
-                            } catch (e) {
-                                crashAll(entriesToFix, 'fixOutput', {
-                                    reason: 'fix-eval-error',
-                                    detail: e
-                                });
-                                done();
-                                return;
-                            }
-                        }
-
-                        // third: if it's required -> test
-                        var featuresToTest = entriesToTest.map(function(entry) {
-                            return entry.feature;
-                        });
-                        if (featuresToTest.length) {
-                            jsenv.testFeatures(
-                                featuresToTest,
-                                {
-                                    progress: function(event) {
-                                        var entry = entries.find(function(entry) {
-                                            return event.target.match(entry.feature.name);
-                                        });
-                                        var outputName;
-                                        if (Iterable.includes(entriesToFix, entry)) {
-                                            outputName = 'fixOutput';
-                                        } else {
-                                            outputName = 'testOutput';
-                                        }
-
-                                        complete(entry, outputName, {
-                                            reason: 'test-result',
-                                            detail: event.detail
-                                        });
-                                    },
-                                    complete: function() {
-                                        done();
-                                    },
-                                    crash: function(e) {
-                                        hook('crash', {
-                                            reason: 'some-unexpected-error',
-                                            detail: e
-                                        });
-                                    }
-                                }
-                            );
-                        } else {
-                            done();
-                        }
-                    }
-                }
             }
+            function createRecords() {
+                var records = [];
+                return records;
+            }
+            function testFeatures(features, records) {
+                return jsenv.testFeatures(features, function(event) {
+                    console.log('tested', event.target.name, '->', event.detail);
+                    records.push({
+                        featureName: event.target.name,
+                        output: {
+                            status: 'completed',
+                            reason: 'test-result',
+                            detail: event.detail
+                        }
+                    });
+                });
+            }
+            function fixImplementation() {
+                return mediator.send('getAllRequiredFix').then(function(data) {
+                    var entries = data.entries;
+                    var fixRecords = createRecords();
+                    var coreJSBuildSource = data.coreJSBuildSource;
+                    var entriesToFix = entries.filter(entryHasTestMark);
+                    var entriesUsingInlineSolution = entriesToFix.filter(entryUseInlineSolution);
+                    var entriesUsingFileSolution = entriesToFix.filter(entryUseFileSolution);
+                    var entriesUsingCoreJSSolution = entriesToFix.filter(entryUseCoreJSSolution);
+
+                    function createConcatenedSolver(source) {
+                        var output = {status: 'pending'};
+
+                        return function() {
+                            if (output.status === 'pending') {
+                                try {
+                                    var value = eval(source); // eslint-disable-line no-eval
+
+                                    output.status = 'completed';
+                                    output.reason = 'fixed';
+                                    output.detail = value;
+                                } catch (e) {
+                                    output.status = 'crashed';
+                                    output.reason = 'some-source';
+                                    output.detail = e;
+                                }
+                            }
+
+                            if (output.status === 'completed') {
+                                return output.detail;
+                            }
+                            if (output.status === 'crashed') {
+                                throw output.detail;
+                            }
+                        };
+                    }
+                    var coreJSSolver = createConcatenedSolver(coreJSBuildSource);
+                    entriesUsingCoreJSSolution.forEach(function(entry) {
+                        entry.feature.beforeTest = coreJSSolver;
+                    });
+                    entriesUsingInlineSolution.forEach(function(entry) {
+                        entry.feature.beforeTest = function() {
+                            this.polyfill(this.solution.value);
+                        };
+                    });
+                    entriesUsingFileSolution.forEach(function(entry) {
+                        entry.feature.beforeTest = entry.feature.solver;
+                    });
+
+                    var featuresToTest = entriesToFix.map(function(entry) {
+                        return entry.feature;
+                    });
+                    return testFeatures(featuresToTest, fixRecords).then(function() {
+                        return mediator.send('setAllFixRecord', fixRecords);
+                    });
+                });
+            }
+            function entryUseInlineSolution(entry) {
+                return entry.feature.solution.type === 'inline';
+            }
+            function entryUseFileSolution(entry) {
+                return entry.feature.solution.type === 'file';
+            }
+            function entryUseCoreJSSolution(entry) {
+                return entry.feature.solution.type === 'corejs';
+            }
+            function scanImplementation() {
+                return testImplementation().then(function() {
+                    return fixImplementation();
+                });
+            }
+            function entryHasTestMark(entry) {
+                return entry.mustBeTested;
+            }
+
+            return {
+                test: testImplementation,
+                fix: fixImplementation,
+                scan: scanImplementation
+            };
         }
 
         return {
-            adaptImplementation: adaptImplementation
+            createImplementationClient: createImplementationClient
         };
     });
 })();

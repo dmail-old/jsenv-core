@@ -12,11 +12,6 @@ et qui récupère, selon le user-agent, un polyfill
 il faudra aussi désactiver la validation e-tag en mode production parce que mieux vaut un vieux résultat
 que pas de résultat
 
-- trouve un promise polyfill qu'on utilisera sous le nom de thenable mais qui ne doit pas s'installer
-dans l'environnement global pour ne pas niquer les tests
-il sera utilisé pour createClient et mediator
-surement celui la : https://github.com/taylorhakes/promise-polyfill/blob/master/promise.js
-
 */
 
 require('../jsenv.js');
@@ -668,127 +663,6 @@ api.setAllFixRecord = function(records, agent) {
     });
 };
 
-api.createClient = function createClient(mediator) {
-    function testImplementation() {
-        return mediator.send('getAllRequiredTest').then(function(data) {
-            var entries = data.entries;
-            var entriesToTest = entries.filter(entryHasTestMark);
-            var featuresToTest = entriesToTest.map(function(entry) {
-                return entry.feature;
-            });
-            var testRecords = createRecords();
-
-            return testFeatures(
-                featuresToTest,
-                testRecords
-            ).then(function() {
-                return mediator.send('setAllTestRecord', testRecords);
-            });
-        });
-    }
-    function createRecords() {
-        var records = [];
-        return records;
-    }
-    function testFeatures(features, records) {
-        return new Promise(function(resolve, reject) {
-            jsenv.testFeatures(
-                features,
-                {
-                    progress: function(event) {
-                        console.log('tested', event.target.name, '->', event.detail);
-                        records.push({
-                            featureName: event.target.name,
-                            output: {
-                                status: 'completed',
-                                reason: 'test-result',
-                                detail: event.detail
-                            }
-                        });
-                    },
-                    complete: function() {
-                        resolve();
-                    },
-                    crash: function(e) {
-                        reject(e);
-                    }
-                }
-            );
-        });
-    }
-    function fixImplementation() {
-        return mediator.send('getAllRequiredFix').then(function(data) {
-            var entries = data.entries;
-            var fixRecords = createRecords();
-            var coreJSBuildSource = data.coreJSBuildSource;
-            var entriesToFix = entries.filter(entryHasTestMark);
-            var entriesUsingInlineSolution = entriesToFix.filter(entryUseInlineSolution);
-            var entriesUsingFileSolution = entriesToFix.filter(entryUseFileSolution);
-            var entriesUsingCoreJSSolution = entriesToFix.filter(entryUseCoreJSSolution);
-
-            function createConcatenedSolver(source) {
-                var output = {status: 'pending'};
-
-                return function() {
-                    if (output.status === 'pending') {
-                        try {
-                            var value = eval(source); // eslint-disable-line no-eval
-
-                            output.status = 'completed';
-                            output.reason = 'fixed';
-                            output.detail = value;
-                        } catch (e) {
-                            output.status = 'crashed';
-                            output.reason = 'some-source';
-                            output.detail = e;
-                        }
-                    }
-
-                    if (output.status === 'completed') {
-                        return output.detail;
-                    }
-                    if (output.status === 'crashed') {
-                        throw output.detail;
-                    }
-                };
-            }
-            var coreJSSolver = createConcatenedSolver(coreJSBuildSource);
-            entriesUsingCoreJSSolution.forEach(function(entry) {
-                entry.feature.beforeTest = coreJSSolver;
-            });
-            entriesUsingInlineSolution.forEach(function(entry) {
-                entry.feature.beforeTest = function() {
-                    this.polyfill(this.solution.value);
-                };
-            });
-            entriesUsingFileSolution.forEach(function(entry) {
-                entry.feature.beforeTest = entry.feature.solver;
-            });
-
-            var featuresToTest = entriesToFix.map(function(entry) {
-                return entry.feature;
-            });
-            return testFeatures(featuresToTest, fixRecords).then(function() {
-                return mediator.send('setAllFixRecord', fixRecords);
-            });
-        });
-    }
-    function scanImplementation() {
-        return testImplementation().then(function() {
-            return fixImplementation();
-        });
-    }
-    function entryHasTestMark(entry) {
-        return entry.mustBeTested;
-    }
-
-    return {
-        test: testImplementation,
-        fix: fixImplementation,
-        scan: scanImplementation
-    };
-};
-
 api.createOwnMediator = function(featureNames, agent) {
     agent = Agent.parse(agent);
 
@@ -834,16 +708,131 @@ api.createOwnMediator = function(featureNames, agent) {
     }
 };
 
+function createBrowserMediator(featureNames) {
+    return {
+        send: function(action, value) {
+            if (action === 'getAllRequiredTest') {
+                return get(
+                    'test?features=' + featureNames.join(encodeURIComponent(','))
+                ).then(readBody);
+            }
+            if (action === 'setAllTestRecord') {
+                return postAsJSON(
+                    'test',
+                    value
+                );
+            }
+            if (action === 'getAllRequiredFix') {
+                return get(
+                    'fix?features=' + featureNames.join(encodeURIComponent(','))
+                ).then(readBody);
+            }
+            if (action === 'setAllFixRecord') {
+                return postAsJSON(
+                    'fix',
+                    value
+                );
+            }
+        }
+    };
+
+    function get(url) {
+        return sendRequest(
+            'GET',
+            url,
+            {},
+            null
+        ).then(checkStatus);
+    }
+    function postAsJSON(url, object) {
+        return sendRequest(
+            'POST',
+            url,
+            {
+                'content-type': 'application/json'
+            },
+            JSON.stringify(object)
+        ).then(checkStatus);
+    }
+    function checkStatus(response) {
+        if (response.status < 200 || response.status > 299) {
+            throw new Error(response.status);
+        }
+        return response;
+    }
+    function sendRequest(method, url, headers, body) {
+        var xhr = new XMLHttpRequest();
+
+        return new jsenv.Thenable(function(resolve, reject) {
+            var responseBody = {
+                data: '',
+                write: function(chunk) {
+                    this.data += chunk;
+                },
+                close: function() {}
+            };
+
+            xhr.onerror = function(e) {
+                reject(e);
+            };
+            var offset = 0;
+            xhr.onreadystatechange = function() {
+                if (xhr.readyState === 2) {
+                    resolve({
+                        status: xhr.status,
+                        headers: xhr.getAllResponseHeaders(),
+                        body: responseBody
+                    });
+                } else if (xhr.readyState === 3) {
+                    var data = xhr.responseText;
+                    if (offset) {
+                        data = data.slice(offset);
+                    }
+                    offset += data.length;
+                    responseBody.write(data);
+                } else if (xhr.readyState === 4) {
+                    responseBody.close();
+                }
+            };
+
+            xhr.open(method, url);
+            for (var headerName in headers) {
+                if (headers.hasOwnPorperty(headerName)) {
+                    xhr.setRequestHeader(headerName, headers[headerName]);
+                }
+            }
+            xhr.send(body || null);
+        });
+    }
+    function readBody(response) {
+        var body = response.body;
+        var object = JSON.parse(body);
+        object.entries = getClientEntries(object.entries);
+        jsenv.assign(object, body.meta);
+        delete object.meta;
+        return object;
+    }
+    function getClientEntries(entries) {
+        try {
+            jsenv.reviveFeatureEntries(entries);
+        } catch (e) {
+            return fail('some-feature-source', e);
+        }
+        return entries;
+    }
+}
+api.createBrowserMediator = createBrowserMediator;
+
 var ownMediator = api.createOwnMediator(
     [
         'math/deg-per-rad'
     ],
     String(jsenv.agent)
 );
-api.client = api.createClient(ownMediator);
+api.client = jsenv.createImplementationClient(ownMediator);
 
 api.client.scan().then(function() {
-    // console.log('here', Math.DEG_PER_RAD);
+    console.log('here', Math.DEG_PER_RAD);
 }).catch(function(e) {
     setTimeout(function() {
         throw e;
