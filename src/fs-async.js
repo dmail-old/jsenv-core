@@ -137,4 +137,9 @@ function createEtag(string) {
 }
 fsAsync.getFileContentEtag = getFileContentEtag;
 
+var FS_VISIBLE = (fs.constants || fs).F_OK;
+fsAsync.visible = function(path) {
+    return fsAsync('access', path, FS_VISIBLE);
+};
+
 module.exports = fsAsync;

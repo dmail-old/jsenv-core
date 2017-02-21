@@ -127,7 +127,8 @@ ainsi que quelques utilitaires comme assign, Iterable et Predicate
                 return this.isAny() === false && this.isSpecified();
             },
 
-            match: function(other) {
+            match: function(value) {
+                var other = VersionPart.cast(value);
                 return (
                     this.isAny() ||
                     other.isAny() ||
@@ -135,7 +136,8 @@ ainsi que quelques utilitaires comme assign, Iterable et Predicate
                 );
             },
 
-            above: function(other) {
+            above: function(value) {
+                var other = VersionPart.cast(value);
                 return (
                     this.isPrecise() &&
                     other.isPrecise() &&
@@ -143,7 +145,8 @@ ainsi que quelques utilitaires comme assign, Iterable et Predicate
                 );
             },
 
-            below: function(other) {
+            below: function(value) {
+                var other = VersionPart.cast(value);
                 return (
                     this.isPrecise() &&
                     other.isPrecise() &&
@@ -159,54 +162,78 @@ ainsi que quelques utilitaires comme assign, Iterable et Predicate
                 return String(this.value);
             }
         };
+        VersionPart.cast = function(value) {
+            var versionPart;
+            if (typeof value === 'string' || typeof value === 'number') {
+                versionPart = new VersionPart(value);
+            } else if (value instanceof VersionPart) {
+                versionPart = value;
+            } else {
+                throw new TypeError(
+                    'VersionPart.cast expect a string, a number or a VersionPart instance' +
+                    ' (got ' + value + ')'
+                );
+            }
+            return versionPart;
+        };
 
         function Version(firstArg) {
-            var versionName = String(firstArg);
-            var major;
-            var minor;
-            var patch;
-
-            if (versionName === anyChar) {
-                major = new VersionPart(anyChar);
-                minor = new VersionPart(anyChar);
-                patch = new VersionPart(anyChar);
-            } else if (versionName === unspecifiedChar) {
-                major = new VersionPart(unspecifiedChar);
-                minor = new VersionPart(unspecifiedChar);
-                patch = new VersionPart(unspecifiedChar);
-            } else if (versionName.indexOf('.') === -1) {
-                major = new VersionPart(versionName);
-                minor = new VersionPart(unspecifiedChar);
-                patch = new VersionPart(unspecifiedChar);
-            } else {
-                var versionParts = versionName.split('.');
-                var versionPartCount = versionParts.length;
-
-                // truncate too precise version
-                if (versionPartCount > 3) {
-                    versionParts = versionParts.slice(0, 3);
-                    versionPartCount = 3;
-                    this.truncated = true;
-                }
-
-                if (versionPartCount === 2) {
-                    major = new VersionPart(versionParts[0]);
-                    minor = new VersionPart(versionParts[1]);
-                    patch = new VersionPart(unspecifiedChar);
-                } else if (versionPartCount === 3) {
-                    major = new VersionPart(versionParts[0]);
-                    minor = new VersionPart(versionParts[1]);
-                    patch = new VersionPart(versionParts[2]);
-                }
-            }
-
-            this.major = major;
-            this.minor = minor;
-            this.patch = patch;
-            this.raw = firstArg;
+            this.update(firstArg);
         }
         Version.prototype = {
             constructor: Version,
+
+            update: function(firstArg) {
+                var versionName = String(firstArg);
+                var major;
+                var minor;
+                var patch;
+
+                if (versionName === anyChar) {
+                    major = new VersionPart(anyChar);
+                    minor = new VersionPart(anyChar);
+                    patch = new VersionPart(anyChar);
+                } else if (versionName === unspecifiedChar) {
+                    major = new VersionPart(unspecifiedChar);
+                    minor = new VersionPart(unspecifiedChar);
+                    patch = new VersionPart(unspecifiedChar);
+                } else if (versionName.indexOf('.') === -1) {
+                    major = new VersionPart(versionName);
+                    minor = new VersionPart(unspecifiedChar);
+                    patch = new VersionPart(unspecifiedChar);
+                } else {
+                    var versionParts = versionName.split('.');
+                    var versionPartCount = versionParts.length;
+
+                    // truncate too precise version
+                    if (versionPartCount > 3) {
+                        versionParts = versionParts.slice(0, 3);
+                        versionPartCount = 3;
+                        this.truncated = true;
+                    }
+
+                    if (versionPartCount === 2) {
+                        major = new VersionPart(versionParts[0]);
+                        minor = new VersionPart(versionParts[1]);
+                        patch = new VersionPart(unspecifiedChar);
+                    } else if (versionPartCount === 3) {
+                        major = new VersionPart(versionParts[0]);
+                        minor = new VersionPart(versionParts[1]);
+                        patch = new VersionPart(versionParts[2]);
+                    }
+                }
+
+                this.major = major;
+                this.minor = minor;
+                this.patch = patch;
+                this.raw = firstArg;
+            },
+
+            clone: function() {
+                var clone = new Version(String(this));
+                clone.raw = this.raw;
+                return clone;
+            },
 
             isAny: function() {
                 return (
@@ -282,16 +309,16 @@ ainsi que quelques utilitaires comme assign, Iterable et Predicate
                 return this.major + '.' + this.minor + '.' + this.patch;
             }
         };
-        Version.cast = function(firstArg) {
+        Version.cast = function(value) {
             var version;
-            if (typeof firstArg === 'string') {
-                version = new Version(firstArg);
-            } else if (firstArg instanceof Version) {
-                version = firstArg;
+            if (typeof value === 'string' || typeof value === 'number') {
+                version = new Version(value);
+            } else if (value instanceof Version) {
+                version = value;
             } else {
                 throw new TypeError(
-                    'version.match expect a string or a version object' +
-                    ' (got ' + firstArg + ')'
+                    'Version.cast expect a string, a number or a Version instance' +
+                    ' (got ' + value + ')'
                 );
             }
             return version;
@@ -364,6 +391,10 @@ ainsi que quelques utilitaires comme assign, Iterable et Predicate
         return {
             createVersion: function() {
                 return jsenv.construct(Version, arguments);
+            },
+
+            createVersionPath: function() {
+                return jsenv.construct(VersionPart, arguments);
             },
 
             makeVersionnable: function(Constructor) {

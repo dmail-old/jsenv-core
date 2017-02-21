@@ -12,7 +12,6 @@ cache/before-fix/jkljkjkjkljkl/file.js#content
 */
 
 var cuid = require('cuid');
-var fs = require('fs');
 var fsAsync = require('./fs-async.js');
 var Path = require('path');
 
@@ -355,7 +354,6 @@ var createFileSystemCacheBranchEntry = (function() {
         };
     }
 
-    var FS_VISIBLE = (fs.constants || fs).F_OK;
     FileSystemCacheBranchEntry.prototype = {
         constructor: FileSystemCacheBranchEntry,
         sources: [],
@@ -393,7 +391,7 @@ var createFileSystemCacheBranchEntry = (function() {
                 return Promise.resolve(data);
             }
 
-            return fsAsync('access', path, FS_VISIBLE).catch(function() {
+            return fsAsync.visible(path).catch(function() {
                 data.valid = false;
                 data.reason = 'file-not-found';
                 data.detail = {

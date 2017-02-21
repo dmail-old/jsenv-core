@@ -17,6 +17,7 @@ que pas de résultat
 require('../jsenv.js');
 var path = require('path');
 var Iterable = jsenv.Iterable;
+var Thenable = jsenv.Thenable;
 // var Predicate = jsenv.Predicate;
 var Agent = require('../agent/agent.js');
 var fsAsync = require('../fs-async.js');
@@ -92,10 +93,10 @@ function createEntriesFromFileSystem() {
                                 return readFolderFeatures(feature);
                             }
                         }
-                        return Promise.resolve();
+                        return Thenable.resolve();
                     });
                 });
-                return Promise.all(ressourcesPromise);
+                return Thenable.all(ressourcesPromise);
             });
         }
         function readFolder(path) {
@@ -159,7 +160,7 @@ function readFeatureSourcesFromFolder(entries, folderPath, transpiler) {
     });
 
     function getSources(paths) {
-        return Promise.all(paths.map(function(path) {
+        return Thenable.all(paths.map(function(path) {
             return fsAsync('stat', path).then(
                 function(stat) {
                     if (stat.isFile()) {
@@ -170,7 +171,7 @@ function readFeatureSourcesFromFolder(entries, folderPath, transpiler) {
                     if (e && e.code === 'ENOENT') {
                         return '';
                     }
-                    return Promise.reject(e);
+                    return Thenable.reject(e);
                 }
             );
         }));
@@ -246,9 +247,14 @@ function readAllOutputFromFileSystem(entries, agent, type) {
             entry[propertyName] = output;
         });
     });
-    return Promise.all(promises);
+    return Thenable.all(promises);
 }
-function createTestOutputProperties(feature) {
+function createTestOutputProperties(feature, agent) {
+    var agentString = agent.toString();
+    var featureFolderPath = featuresFolderPath + '/' + feature.name;
+    var featureCachePath = featureFolderPath + '/.cache';
+    var featureAgentCachePath = featureCachePath + '/' + agentString;
+
     var properties = {
         name: 'test-output.json',
         encode: function(value) {
@@ -261,10 +267,16 @@ function createTestOutputProperties(feature) {
             }
         ]
     };
+    properties.path = featureAgentCachePath + '/' + properties.name;
     return properties;
 }
-function createFixOutputProperties(feature) {
-    var featureFilePath = featuresFolderPath + '/' + feature.name + '/feature.js';
+function createFixOutputProperties(feature, agent) {
+    var agentString = agent.toString();
+    var featureFolderPath = featuresFolderPath + '/' + feature.name;
+    var featureCachePath = featureFolderPath + '/.cache';
+    var featureAgentCachePath = featureCachePath + '/' + agentString;
+
+    var featureFilePath = featureFolderPath + '/feature.js';
     var sources = [
         {
             path: featureFilePath,
@@ -290,6 +302,7 @@ function createFixOutputProperties(feature) {
         cacheMode: 'default',
         sources: sources
     };
+    properties.path = featureAgentCachePath + '/' + properties.name;
     return properties;
 }
 function stringifyErrorReplacer(key, value) {
@@ -326,12 +339,7 @@ function readOutputFromFileSystem(feature, agent, createProperties) {
     });
 }
 function getFeatureAgentCache(feature, agent, createProperties) {
-    var agentString = agent.toString();
-    var featureFolderPath = featuresFolderPath + '/' + feature.name;
-    var featureCachePath = featureFolderPath + '/.cache';
-    var featureAgentCachePath = featureCachePath + '/' + agentString;
     var properties = createProperties(feature, agent);
-    properties.path = featureAgentCachePath + '/' + properties.name;
     return store.fileSystemEntry(properties);
 }
 function entryTestIsMissing(entry) {
@@ -397,7 +405,7 @@ function writeAllOutputToFileSystem(entries, agent, type, records) {
         }
         return 404;
     });
-    return Promise.all(promises);
+    return Thenable.all(promises);
 }
 function writeOutputToFileSystem(feature, agent, createProperties, output) {
     var cache = getFeatureAgentCache(feature, agent, createProperties);
@@ -444,7 +452,7 @@ var fileSolution = {
                 entriesUsingFile[index].solver = solver;
             });
         });
-        return Promise.all(promises);
+        return Thenable.all(promises);
     }
 };
 var coreJSSolution = {
@@ -462,7 +470,7 @@ var coreJSSolution = {
             //         source += module.prefixCode;
             //     }
             // });
-            var sourcePromise = Promise.resolve(source);
+            var sourcePromise = Thenable.resolve(source);
             console.log('concat corejs modules', coreJSModules);
 
             return sourcePromise.then(function(source) {
@@ -612,7 +620,7 @@ function updateAllRecordFixMark(entries, agent) {
                 ]
             });
 
-            return Promise.all([
+            return Thenable.all([
                 inlineSolution.solve(inlineWithoutFixOutput),
                 fileSolution.solve(fileWithoutFixOutput),
                 coreJSSolution.solve(corejsWithoutFixOutput),
@@ -630,7 +638,7 @@ function updateAllRecordFixMark(entries, agent) {
     });
 }
 function fail(reason) {
-    return Promise.reject(reason);
+    return Thenable.reject(reason);
 }
 function entryTestHasCrashed(entry) {
     return entry.testOutput.status === 'crashed';
@@ -831,12 +839,117 @@ var ownMediator = api.createOwnMediator(
 );
 api.client = jsenv.createImplementationClient(ownMediator);
 
-api.client.scan().then(function() {
-    console.log('here', Math.DEG_PER_RAD);
-}).catch(function(e) {
-    setTimeout(function() {
-        throw e;
+api.getFixSource = function(featureNames, agent) {
+    return api.getAllRecordEnabledByNames(featureNames).then(function(entries) {
+        var enabledEntries = entries.filter(entryIsEnabled);
+        var promises = enabledEntries.map(function(entry) {
+            return adaptAgentToCache(entry.feature, agent);
+        });
+        return Promise.all(promises).then(function() {
+            // got the cache path for all feature
+            // now we can keep going
+
+        });
     });
-});
+};
+function adaptAgentToCache(feature, agent) {
+    var featureFolderPath = featuresFolderPath + '/' + feature.name;
+    var featureCachePath = featureFolderPath + '/.cache';
+
+    function adaptAgentName(agent, path) {
+        return visibleFallback(
+            path + '/' + agent.name,
+            function() {
+                agent.name = 'other';
+                return path + '/' + agent.name;
+            }
+        );
+    }
+    function visibleFallback(path, fallback) {
+        return fsAsync.visible(path).catch(function() {
+            return Promise.resolve(fallback()).then(function(fallbackPath) {
+                if (fallbackPath) {
+                    return fsAsync.visible(fallbackPath);
+                }
+            });
+        });
+    }
+    function adaptVersion(version, path) {
+        var originalPath = path + '/' + version;
+        return visibleFallback(
+            originalPath,
+            function() {
+                return fsAsync('readdir', path).then(function(names) {
+                    var sortedNames = names.sort();
+                    var i = 0;
+                    var j = sortedNames.length;
+                    var closestPreviousVersion = null;
+                    while (i < j) {
+                        var versionName = sortedNames[i];
+                        var availableVersion = jsenv.createVersion(versionName);
+                        if (availableVersion.isSpecified()) { // to be sure this is a valid version
+                            if (version.above(availableVersion)) {
+                                closestPreviousVersion = availableVersion;
+                            } else {
+                                break;
+                            }
+                        }
+                        i++;
+                    }
+                    if (closestPreviousVersion === null) {
+                        version.update('?');
+                        return path + '/' + version;
+                    }
+                    version.update(closestPreviousVersion);
+                });
+            }
+        );
+    }
+
+    var adaptedAgent = jsenv.createAgent(agent.name, agent.version);
+    return adaptAgentName(
+        adaptedAgent,
+        featureCachePath
+    ).catch(function(e) {
+        if (e && e.code === 'ENOENT') {
+            throw new Error(feature.name + ' feature has no cache for agent ' + agent.name);
+        }
+        return Promise.reject(e);
+    }).then(function() {
+        return adaptVersion(
+            adaptedAgent.version,
+            featureCachePath + '/' + adaptedAgent.name
+        ).catch(function(e) {
+            if (e && e.code === 'ENOENT') {
+                throw new Error(feature.name + ' feature has no cache for ' + agent);
+            }
+            return Promise.reject(e);
+        });
+    }).then(function() {
+        return adaptedAgent;
+    });
+}
+
+// api.client.scan().then(function() {
+//     console.log('here', Math.DEG_PER_RAD);
+// }).catch(function(e) {
+//     setTimeout(function() {
+//         throw e;
+//     });
+// });
+
+// adapt agent to cache a l'air de fonctionner
+// on va pouvoir l'utiliser
+// dans le cas ou ça throw c'est que la feature n'a pas de cahce pour cet agent
+// adaptAgentToCache(
+//     {
+//         name: 'const'
+//     },
+//     jsenv.createAgent('percor/4.7.1')
+// ).then(function(agent) {
+//     console.log('agent', agent.toString());
+// }).catch(function(e) {
+//     console.log('rejected with', e);
+// });
 
 module.exports = api;
