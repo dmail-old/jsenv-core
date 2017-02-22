@@ -6,11 +6,38 @@ with
 https://github.com/kangax/compat-table/blob/gh-pages/data-es5.js
 https://github.com/kangax/compat-table/blob/gh-pages/data-es6.js
 
-- fournir des méthode destinée à la "production" qui s'attendent à ce que les test/fix
-existent ou alors hérite de la verison la plus proche ou alors sont considéré comme invalide
-et qui récupère, selon le user-agent, un polyfill
-il faudra aussi désactiver la validation e-tag en mode production parce que mieux vaut un vieux résultat
-que pas de résultat
+- les fix qu'on renvoit son pas bon
+il faut renvoyer le fix de la feature décrivant la solution
+exemple ac promise, si promise/unhandled-rejection ne marche pas il faut appliqué le fix
+de promise mais pas de promise/unhandled-rejection et relancer les tests de promise & promise/unhandled-rejection
+-> normalement je viens de fix ça, faut tester
+
+- test-output.json
+missing
+-> renvoyer la solution sinon "espérer" que ça marcheras
+crashed
+-> même chose qu'au dessus
+failed
+-> si une solution, regarde fix-output.jsn
+    missing
+    -> renvoyer la solution et espérer que ça passe
+    crashed
+    -> même chose qu'au dessus
+    failed
+    -> renvoyer un code d'erreur comme quoi la solution pour cette feature ne marche pas
+    completed
+    -> renvoyer la solution
+sinon renvoyer un code d'erreur comme quoi la feature n'a pas de solution
+
+dans les cas "espérer" que ça marchera, le client pourra émétter un warning genre
+cette feature pourrait ne pas marcher puisque:
+    j'applique la solution sans tester OU je n'ai pas testé
+
+- chaque polyfill pourrait lui aussi définir des dépendances
+pour le moment comme si le polyfill était toujours standalone
+ou que son implémentation ne requiert rien de spécial d'autre que la feature elle-même
+comme on peut le voir dans corjs il y a souvent besoin du résultat d'autre polyfill pour
+fournir celui qu'on veut, ignorons ça pour le moment
 
 */
 
@@ -447,7 +474,7 @@ var fileSolution = {
             console.log('fetch file solution', filePath);
 
             return fsAsync.getFileContent(filePath).then(function(content) {
-                return new Function(content); // eslint-disable-line no-new-func
+                return new Function('feature', content); // eslint-disable-line no-new-func
             }).then(function(solver) {
                 entriesUsingFile[index].solver = solver;
             });
@@ -511,7 +538,8 @@ var babelSolution = {
     match: entryUseBabelSolution,
 
     solve: function(entriesUsingBabel) {
-        var requiredPlugins = entriesUsingBabel.map(function(entry) {
+        var plugins = [];
+        entriesUsingBabel.forEach(function(entry) {
             var solution = entry.feature.solution;
             var createOptions = function() {
                 var options = {};
@@ -525,13 +553,25 @@ var babelSolution = {
                 }
                 return options;
             };
+            var name = solution.value;
+            var options = createOptions();
 
-            return {
-                name: solution.value,
-                options: createOptions()
-            };
+            var existingPlugin = Iterable.find(plugins, function(plugin) {
+                return plugin.name === name;
+            });
+            if (existingPlugin) {
+                throw new Error(
+                    'two feature cannot share the same babel solution ' + name
+                );
+            } else {
+                plugins.push({
+                    name: name,
+                    options: options
+                });
+            }
         });
-        var pluginsAsOptions = Iterable.map(requiredPlugins, function(plugin) {
+
+        var pluginsAsOptions = Iterable.map(plugins, function(plugin) {
             return [plugin.name, plugin.options];
         });
         return createTranspiler({
@@ -584,14 +624,16 @@ function updateAllRecordFixMark(entries, agent) {
             'fix'
         ).then(function() {
             var inlineWithoutFixOutput = entriesUsingInlineSolution.filter(entryFixIsMissing);
-            var fileWithoutFixOutput = entriesUsingFileSolution.filter(entryFixIsMissing);
-            var corejsWithoutFixOutput = entriesUsingCoreJSSolution.filter(entryFixIsMissing);
-            var babelWithoutFixOutput = entriesUsingBabelSolution.filter(entryFixIsMissing);
+            var entriesSolvingByInline = inlineWithoutFixOutput.map(markAndGetSolutionOwner);
+            var inlineSolver = inlineSolution.solve(entriesSolvingByInline);
 
-            inlineWithoutFixOutput.forEach(markEntryTestAsRequired);
-            fileWithoutFixOutput.forEach(markEntryTestAsRequired);
-            corejsWithoutFixOutput.forEach(markEntryTestAsRequired);
-            babelWithoutFixOutput.forEach(markEntryTestAsRequired);
+            var fileWithoutFixOutput = entriesUsingFileSolution.filter(entryFixIsMissing);
+            var entriesSolvingByFile = fileWithoutFixOutput.map(markAndGetSolutionOwner);
+            var fileSolver = fileSolution.solve(entriesSolvingByFile);
+
+            var corejsWithoutFixOutput = entriesUsingCoreJSSolution.filter(entryFixIsMissing);
+            var entriesSolvingByCoreJS = corejsWithoutFixOutput.map(markAndGetSolutionOwner);
+            var coreJSSolver = coreJSSolution.solve(entriesSolvingByCoreJS);
 
             /*
             it may be the most complex thing involved here so let me explain
@@ -599,7 +641,8 @@ function updateAllRecordFixMark(entries, agent) {
             then we create a babel plugin which transpile template literals using that transpiler
             finally we create a transpiler which uses that plugin
             */
-            var transpiler = babelSolution.solve(entriesUsingBabelSolution);
+            var entriesSolvingByBabel = entriesUsingBabelSolution.map(getSolutionOwner);
+            var transpiler = babelSolution.solve(entriesSolvingByBabel);
             var plugin = createTranspiler.transformTemplateLiteralsPlugin(function(code) {
                 return transpiler.transpile(code, {
                     as: 'code',
@@ -619,19 +662,66 @@ function updateAllRecordFixMark(entries, agent) {
                     plugin
                 ]
             });
+            var babelWithoutFixOutput = entriesUsingBabelSolution.filter(entryFixIsMissing);
+            var entriesUsingBabelRequiringTranspilation = babelWithoutFixOutput.concat(
+                collectDependencies(babelWithoutFixOutput)
+            );
+            entriesUsingBabelRequiringTranspilation.forEach(markEntryTestAsRequired);
+            var babelSolver = readFeatureSourcesFromFolder(
+                entriesUsingBabelRequiringTranspilation,
+                featuresFolderPath,
+                fixedFeatureTranspiler
+            );
+
+            function markAndGetSolutionOwner(entry) {
+                return getSolutionOwner(entry, true);
+            }
+            function getSolutionOwner(entry, mark) {
+                var featureOwningSolution = entry.feature;
+                var featureEntry = entry;
+                if (mark) {
+                    markEntryTestAsRequired(featureEntry);
+                }
+                while (solutionIsInherited(featureOwningSolution)) {
+                    featureOwningSolution = feature.parent;
+                    featureEntry = getFeatureEntry(featureOwningSolution);
+                    if (mark) {
+                        markEntryTestAsRequired(featureEntry);
+                    }
+                }
+                return featureEntry;
+            }
+            function solutionIsInherited(feature) {
+                var parent = feature.parent;
+                return parent && feature.solution === parent.solution;
+            }
+            function getFeatureEntry(feature) {
+                return entries.find(function(entry) {
+                    return entry.feature === feature;
+                });
+            }
+            function collectDependencies(entries) {
+                var dependencies = [];
+                function visit(entry) {
+                    entry.dependencies.forEach(function(dependency) {
+                        if (Iterable.includes(dependencies, dependency) === false) {
+                            dependencies.push(dependency);
+                            visit(dependency);
+                        }
+                    });
+                }
+                entries.forEach(visit);
+                return dependencies;
+            }
 
             return Thenable.all([
-                inlineSolution.solve(inlineWithoutFixOutput),
-                fileSolution.solve(fileWithoutFixOutput),
-                coreJSSolution.solve(corejsWithoutFixOutput),
-                readFeatureSourcesFromFolder(
-                    babelWithoutFixOutput,
-                    featuresFolderPath,
-                    fixedFeatureTranspiler
-                )
+                inlineSolver,
+                fileSolver,
+                coreJSSolver,
+                babelSolver
             ]).then(function(data) {
                 return {
-                    coreJSBuildSource: data[0]
+                    coreJSBuildSource: data[2]
                 };
             });
         });
@@ -880,19 +970,30 @@ function adaptAgentToCache(feature, agent) {
             cachePath,
             function() {
                 return fsAsync('readdir', path).then(function(names) {
-                    var sortedNames = names.sort();
+                    var availableVersions = names.map(function(name) {
+                        return jsenv.createVersion(name);
+                    }).filter(function(version) {
+                        // exclude folder name like ?, * or alphabetic
+                        return version.isSpecified();
+                    }).sort(function(a, b) {
+                        if (a.above(b)) {
+                            return 1;
+                        }
+                        if (a.below(b)) {
+                            return -1;
+                        }
+                        return 0;
+                    });
+
                     var i = 0;
-                    var j = sortedNames.length;
+                    var j = availableVersions.length;
                     var previousVersions = [];
                     while (i < j) {
-                        var versionName = sortedNames[i];
-                        var availableVersion = jsenv.createVersion(versionName);
-                        if (availableVersion.isSpecified()) { // to be sure this is a valid version
-                            if (version.above(availableVersion)) {
-                                previousVersions.unshift(availableVersion);
-                            } else {
-                                break;
-                            }
+                        var availableVersion = availableVersions[i];
+                        if (version.above(availableVersion)) {
+                            previousVersions.unshift(availableVersion);
+                        } else {
+                            break;
                         }
                         i++;
                     }

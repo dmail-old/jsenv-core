@@ -1556,15 +1556,18 @@ en fonction du résultat de ces tests
                     return next;
                 },
                 polyfill: function(value) {
-                    if (this.reached) {
-                        throw new Error('polyfill expect an unreachable value');
-                    }
                     var previous = this.previous;
                     if (!previous) {
                         throw new Error('polyfill expect previous');
                     }
                     if (!previous.reached) {
                         throw new Error('polyfill expect previous to be reachable');
+                    }
+                    if (this.reached) {
+                        // il est possible qu'on force le polyfill pour deux raisons :
+                        // (a) la version actuelle ne se comporte pas correctement d'après nos tests
+                        // (b) un met le polyfill par mesure de sécurité car on ne sait
+                        //     pas comment se comporte la version actuelle (pas testé)
                     }
                     // console.log('polyfill', this, 'at', this.property, 'with', value);
                     previous.value[this.property] = value;
@@ -1741,13 +1744,36 @@ en fonction du résultat de ces tests
                 return values;
             }
             function polyfill(value) {
-                var output = this.compile();
-                if (isDeepValue(output)) {
-                    output.polyfill(value);
+                var i = 0;
+                var j = arguments.length;
+
+                if (j === 0) {
+
                 } else {
-                    throw new TypeError(
-                        'feature.polyfill must be called on a feature compiled to deepValue'
-                    );
+                    var output = this.compile();
+                    if (isDeepValue(output)) {
+                        var lastArg;
+                        if (j === 1) {
+                            lastArg = arguments[i];
+                        } else {
+                            var lastIndex = j - 1;
+                            while (i < lastIndex) {
+                                // on fait rien de spéc av les arg pour le moment
+                                i++;
+                            }
+                            lastArg = arguments[lastIndex];
+                        }
+                        if (typeof lastArg === 'function') {
+                            value = lastArg.apply(this, this.dependencies);
+                        } else {
+                            value = lastArg;
+                        }
+                        output.polyfill(value);
+                    } else {
+                        throw new TypeError(
+                            'feature.polyfill must be called on a feature compiled to deepValue'
+                        );
+                    }
                 }
             }
         })();
@@ -2269,11 +2295,15 @@ en fonction du résultat de ces tests
                     });
                     entriesUsingInlineSolution.forEach(function(entry) {
                         entry.feature.beforeTest = function() {
-                            this.polyfill(this.solution.value);
+                            this.polyfill(function() {
+                                return this.solution.value;
+                            });
                         };
                     });
                     entriesUsingFileSolution.forEach(function(entry) {
-                        entry.feature.beforeTest = entry.feature.solver;
+                        entry.feature.beforeTest = function() {
+                            entry.feature.solver(this);
+                        };
                     });
 
                     var featuresToTest = entriesToFix.map(function(entry) {
