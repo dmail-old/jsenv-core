@@ -6,11 +6,9 @@ with
 https://github.com/kangax/compat-table/blob/gh-pages/data-es5.js
 https://github.com/kangax/compat-table/blob/gh-pages/data-es6.js
 
-- les fix qu'on renvoit son pas bon
-il faut renvoyer le fix de la feature décrivant la solution
-exemple ac promise, si promise/unhandled-rejection ne marche pas il faut appliqué le fix
-de promise mais pas de promise/unhandled-rejection et relancer les tests de promise & promise/unhandled-rejection
--> normalement je viens de fix ça, faut tester
+- ne pas lire toutes le filesystem puis générer une entries en créant un eval géant
+au lieu de ça ->
+on sait ou sont les features, on les lit un par un
 
 - test-output.json
 missing
@@ -58,39 +56,17 @@ var createTranspiler = require('./transpiler.js');
 
 var api = {};
 
-api.getAllRecord = function() {
-    return getEntries();
+api.listFeatureNames = function() {
+    return readAllFeatureNamesOnFileSystem();
 };
-function getEntries() {
-    return createEntriesFromFileSystem().then(function(entries) {
-        jsenv.reviveFeatureEntries(entries);
-        return entries;
-    });
-}
-function createEntriesFromFileSystem() {
-    return recursivelyReadFolderFeatures(featuresFolderPath).then(function(features) {
-        var entries = features.map(function(feature) {
-            return createEntry(feature);
-        });
-        return readFeatureSourcesFromFolder(
-            entries,
-            featuresFolderPath,
-            createFeatureTranspiler()
-        ).then(function() {
-            return entries;
-        });
-    });
+function readAllFeatureNamesOnFileSystem() {
+    function recursivelyReadFolderFeaturesName(path) {
+        var featureNames = [];
 
-    function recursivelyReadFolderFeatures(path) {
-        var features = [];
-        return readFolderFeatures(null).then(function() {
-            return features;
-        });
-
-        function readFolderFeatures(parentFeature) {
+        function readFolderFeaturesName(parentName) {
             var featureFolderPath;
-            if (parentFeature) {
-                featureFolderPath = path + '/' + parentFeature.name;
+            if (parentName) {
+                featureFolderPath = path + '/' + parentName;
             } else {
                 featureFolderPath = path;
             }
@@ -105,18 +81,16 @@ function createEntriesFromFileSystem() {
                         if (stat.isDirectory()) {
                             if (ressourceName[0].match(/[a-z]/)) {
                                 var featureName;
-                                if (parentFeature) {
-                                    featureName = parentFeature.name + '/' + ressourceName;
+                                if (parentName) {
+                                    featureName = parentName + '/' + ressourceName;
                                 } else {
                                     featureName = ressourceName;
                                 }
-                                var feature = jsenv.createFeature(featureName);
 
-                                features.push(feature);
-                                return readFolderFeatures(feature);
+                                featureNames.push(featureName);
+                                return readFolderFeaturesName(featureName);
                             }
                         }
-                        return Thenable.resolve();
                     });
                 });
                 return Thenable.all(ressourcesPromise);
@@ -125,38 +99,72 @@ function createEntriesFromFileSystem() {
         function readFolder(path) {
             return fsAsync('readdir', path);
         }
+
+        return readFolderFeaturesName(null).then(function() {
+            return featureNames;
+        });
     }
-    function createEntry(feature) {
-        return {
-            feature: feature,
-            toJSON: function() {
-                var feature = this.feature;
 
-                var object = {};
-                var featureObject = {};
+    return recursivelyReadFolderFeaturesName(featuresFolderPath);
+}
+// api.listFeatureNames().then(function(names) {
+//     console.log('names', names);
+// }).catch(function(e) {
+//     setTimeout(function() {
+//         throw e;
+//     });
+// });
 
-                featureObject.name = feature.name;
+api.getAllFeature = function() {
+    var featureNames = Array.prototype.slice.call(arguments);
+    var registerer = jsenv.createFeatureRegisterer();
+    var transpiler = createFeatureTranspiler();
 
-                object.feature = featureObject;
+    function registerAll(names) {
+        var namesAndAncestorsNames = Iterable.reduce(names, function(previous, name) {
+            return previous.concat(splitFeatureName(name));
+        }, []);
+        var uniqNamesToRegister = Iterable.uniq(namesAndAncestorsNames);
 
-                var source = this.source || '';
-                if (this.solver) {
-                    source += '\n feature.solver = (' + this.solver.toString() + ');';
-                }
-                if (source) {
-                    object.source = source;
-                }
-                if (this.mustBeTested) {
-                    object.mustBeTested = true;
-                }
-                if (this.enabled) {
-                    object.enabled = this.enabled;
-                }
-
-                return object;
-            }
-        };
+        return Thenable.all(uniqNamesToRegister.map(register));
     }
+    function register(name) {
+        if (registerer.has(name) === false) {
+            return readFeatureFromFileSystem(name, transpiler).then(function(body) {
+                var constructor = createFeatureConstructorFromBodySource(body);
+                var feature = registerer.add(name, constructor);
+                feature.propertiesConstructor = constructor;
+
+                var possiblyUnhandledDependencies;
+                if (feature.parent) {
+                    possiblyUnhandledDependencies = feature.dependencies.slice(1);
+                } else {
+                    possiblyUnhandledDependencies = feature.dependencies;
+                }
+                return registerAll(possiblyUnhandledDependencies.map(function(dependency) {
+                    return dependency.name;
+                }));
+            });
+        }
+    }
+
+    registerer.open();
+    return registerAll(featureNames).then(function() {
+        return registerer.close();
+    }).then(function(features) {
+        return featureNames.map(function(name) {
+            return Iterable.find(features, function(feature) {
+                return feature.name === name;
+            });
+        });
+    });
+};
+function splitFeatureName(featureName) {
+    var parts = featureName.split('/');
+    var names = parts.map(function(name, index) {
+        return parts.slice(0, index + 1).join('/');
+    });
+    return names;
 }
 function createFeatureTranspiler() {
     return createTranspiler({
@@ -169,86 +177,78 @@ function createFeatureTranspiler() {
         ]
     });
 }
-function readFeatureSourcesFromFolder(entries, folderPath, transpiler) {
-    var paths = entries.map(function(entry) {
-        return folderPath + '/' + entry.feature.name + '/feature.js';
-    });
+function readFeatureFromFileSystem(featureName, transpiler) {
+    var featureFolderPath = featuresFolderPath + '/' + featureName;
 
-    return getSources(paths).then(function(sources) {
-        sources.forEach(function(source, index) {
-            var entry = entries[index];
-            entry.source = entry.feature.createRegisterCode(source);
-        });
-        return entries;
-    });
-
-    function getSources(paths) {
-        return Thenable.all(paths.map(function(path) {
-            return fsAsync('stat', path).then(
-                function(stat) {
-                    if (stat.isFile()) {
-                        return transpiler.transpileFile(path);
-                    }
-                },
-                function(e) {
-                    if (e && e.code === 'ENOENT') {
-                        return '';
-                    }
-                    return Thenable.reject(e);
-                }
+    return fsAsync('stat', featureFolderPath).then(
+        function(stat) {
+            if (stat.isDirectory() === false) {
+                throw new Error('directory expected at ' + featureFolderPath);
+            }
+            return readFeatureSourceFromFileSystem(
+                featureFolderPath + '/feature.js',
+                transpiler
             );
-        }));
-    }
+        },
+        function(e) {
+            if (e && e.code === 'ENOENT') {
+                throw new Error('the is no feature named ' + featureName);
+            }
+            return Thenable.reject(e);
+        }
+    );
 }
-
-api.getAllRecordEnabledByNames = function(featureNames) {
-    return api.getAllRecord().then(function(entries) {
-        var toEnable = featureNames.map(function(name) {
-            var entry = Iterable.find(entries, function(entry) {
-                return entry.feature.name === name;
-            });
-            if (!entry) {
-                throw new Error('no feature named ' + name);
+function readFeatureSourceFromFileSystem(path, transpiler) {
+    return fsAsync('stat', path).then(
+        function(stat) {
+            if (stat.isFile() === false) {
+                throw new Error('file expected at ' + path);
             }
-            return entry;
-        });
-        toEnable.forEach(function(entry) {
-            entry.feature.enable();
-        });
-
-        entries.forEach(function(entry) {
-            if (entry.feature.isEnabled()) {
-                entry.enabled = true;
+            return transpiler.transpileFile(path);
+        },
+        function(e) {
+            if (e && e.code === 'ENOENT') {
+                return '';
             }
-        });
-        return entries;
-    });
-};
+            return Thenable.reject(e);
+        }
+    );
+}
+function createFeatureConstructorFromBodySource(body) {
+    var constructor = new Function( // eslint-disable-line no-new-func
+        'feature',
+        'parent',
+        'expose',
+        'transpile',
+        body
+    );
+    return constructor;
+}
+// api.getAllFeature(
+//     'string/prototype/symbol-iterator'
+// ).then(function(features) {
+//     console.log('the feature', features);
+// }).catch(function(e) {
+//     setTimeout(function() {
+//         throw e;
+//     });
+// });
 
 api.getAllRequiredTest = function(featureNames, agent) {
-    return api.getAllRecordEnabledByNames(featureNames).then(function(entries) {
-        var enabledEntries = entries.filter(entryIsEnabled);
-        return updateAllRecordTestMark(enabledEntries, agent).then(function(meta) {
+    return api.getAllFeature.apply(null, featureNames).then(function(features) {
+        return readAllOutputFromFileSystem(
+            features,
+            agent,
+            'test'
+        ).then(function() {
+            var featuresWithoutTestOutput = features.filter(featureTestIsMissing);
             return {
-                entries: entries,
-                meta: meta
+                features: featuresWithoutTestOutput
             };
-        });
+        }).then(encodeClient);
     });
 };
-function entryIsEnabled(entry) {
-    return entry.enabled;
-}
-function updateAllRecordTestMark(entries, agent) {
-    return readAllOutputFromFileSystem(entries, agent, 'test').then(function() {
-        var entriesWithoutTestOutput = entries.filter(entryTestIsMissing);
-        if (entriesWithoutTestOutput.length) {
-            entriesWithoutTestOutput.forEach(markEntryTestAsRequired);
-            cleanDormant(entries, entriesWithoutTestOutput);
-        }
-    });
-}
-function readAllOutputFromFileSystem(entries, agent, type) {
+function readAllOutputFromFileSystem(features, agent, type) {
     var createProperties;
     if (type === 'test') {
         createProperties = createTestOutputProperties;
@@ -256,17 +256,17 @@ function readAllOutputFromFileSystem(entries, agent, type) {
         createProperties = createFixOutputProperties;
     }
 
-    var promises = entries.map(function(entry) {
+    var featuresReady = features.map(function(feature) {
         return readOutputFromFileSystem(
-            entry.feature,
+            feature,
             agent,
             createProperties
         ).then(function(output) {
             var propertyName = type + 'Output';
-            entry[propertyName] = output;
+            feature[propertyName] = output;
         });
     });
-    return Thenable.all(promises);
+    return Thenable.all(featuresReady);
 }
 function createTestOutputProperties(feature, agent) {
     var agentString = agent.toString();
@@ -361,70 +361,101 @@ function getFeatureAgentCache(feature, agent, createProperties) {
     var properties = createProperties(feature, agent);
     return store.fileSystemEntry(properties);
 }
-function entryTestIsMissing(entry) {
-    return entry.testOutput === undefined;
+function featureTestIsMissing(feature) {
+    return feature.testOutput === undefined;
 }
-function markEntryTestAsRequired(entry) {
-    entry.mustBeTested = true;
-}
-function cleanDormant(entries, filteredEntries) {
-    // the code below is just for pef
-    var dormantEntries;
-    if (filteredEntries) {
-        dormantEntries = entries.filter(function(entry) {
-            // si la feature n'est pas dans ce groupe et que ce n'est pas une dépendance
-            return (
-                Iterable.includes(filteredEntries, entry) === false &&
-                filteredEntries.every(function(filteredEntry) {
-                    return entry.feature.isDependentOf(filteredEntry.feature) === false;
-                })
-            );
-        });
-    } else {
-        dormantEntries = entries;
-    }
-    dormantEntries.forEach(function(entry) {
-        delete entry.source;
+function encodeClient(data) {
+    var concernedFeatures = data.features;
+    var dependencies = collectAllDependencies(concernedFeatures);
+    var features = concernedFeatures.concat(dependencies);
+
+    // generer un code à évaluer pour une liste de feature
+    // c'est le gender de truc qu'on pourra mettre en cache en plus ;)
+    var registerFeaturesHead = 'jsenv.registerFeatures(function(registerFeature) {';
+    var registerFeaturesBody = features.map(function(feature) {
+        var featureNameSource = "'" + feature.name + "'";
+        var featurePropertiesConstructorSource = '(' + feature.propertiesConstructor.toString() + ')';
+        return (
+            'registerFeature(' +
+            featureNameSource +
+            ', ' +
+            featurePropertiesConstructorSource +
+            ');'
+        );
     });
+    var registerFeaturesFoot = '});';
+    var registerFeaturesSource = (
+        '\n' +
+        registerFeaturesHead +
+        '\n\t' +
+        registerFeaturesBody.join('\n\t\n\t') +
+        '\n' +
+        registerFeaturesFoot +
+        '\n'
+    );
+
+    return {
+        featuresSource: registerFeaturesSource,
+        mustBeTested: concernedFeatures.map(function(feature) {
+            return feature.name;
+        }),
+        meta: data.meta || {}
+    };
 }
+function collectAllDependencies(features) {
+    var dependencies = [];
+    function visit(feature) {
+        feature.dependencies.forEach(function(dependency) {
+            if (Iterable.includes(dependencies, dependency) === false) {
+                dependencies.push(dependency);
+                visit(dependency);
+            }
+        });
+    }
+    features.forEach(visit);
+    return dependencies;
+}
+// api.getAllRequiredTest(['let'], jsenv.agent).then(function(data) {
+//     console.log('required test data', data);
+// }).catch(function(e) {
+//     setTimeout(function() {
+//         throw e;
+//     });
+// });
 
 api.setAllTestRecord = function(records, agent) {
-    return api.getAllRecord().then(function(entries) {
+    var featureNames = records.map(function(record) {
+        return record.name;
+    });
+
+    return api.getAllFeature.apply(null, featureNames).then(function(features) {
         return writeAllOutputToFileSystem(
-            entries,
+            features,
             agent,
             'test',
             records
         );
     });
 };
-function writeAllOutputToFileSystem(entries, agent, type, records) {
-    var promises = records.map(function(record) {
-        var featureName = record.featureName;
-        var testOutput = record.output;
-        var entry = Iterable.find(entries, function(entry) {
-            return entry.feature.match(featureName);
-        });
-        if (entry) {
-            var createProperties;
-            if (type === 'test') {
-                createProperties = createTestOutputProperties;
-            } else {
-                createProperties = createFixOutputProperties;
-            }
-
-            return writeOutputToFileSystem(
-                entry.feature,
-                agent,
-                createProperties,
-                testOutput
-            ).then(function() {
-                return 200;
-            });
+function writeAllOutputToFileSystem(features, agent, type, records) {
+    var thenables = features.map(function(feature, index) {
+        var createProperties;
+        if (type === 'test') {
+            createProperties = createTestOutputProperties;
+        } else {
+            createProperties = createFixOutputProperties;
         }
-        return 404;
+
+        return writeOutputToFileSystem(
+            feature,
+            agent,
+            createProperties,
+            records[index]
+        ).then(function() {
+            return undefined;
+        });
     });
-    return Thenable.all(promises);
+    return Thenable.all(thenables);
 }
 function writeOutputToFileSystem(feature, agent, createProperties, output) {
     var cache = getFeatureAgentCache(feature, agent, createProperties);
@@ -432,79 +463,234 @@ function writeOutputToFileSystem(feature, agent, createProperties, output) {
 }
 
 api.getAllRequiredFix = function(featureNames, agent) {
-    return api.getAllRecordEnabledByNames(featureNames).then(function(entries) {
-        var enabledEntries = entries.filter(entryIsEnabled);
-        return updateAllRecordFixMark(enabledEntries, agent).then(function(meta) {
-            return {
-                entries: entries,
-                meta: meta
-            };
+    return api.getAllFeature.apply(null, featureNames).then(function(features) {
+        return readAllOutputFromFileSystem(
+            features,
+            agent,
+            'test'
+        ).then(function() {
+            var featuresWithoutTestOutput = features.filter(featureTestIsMissing);
+            if (featuresWithoutTestOutput.length) {
+                throw new Error('some test are missing: ' + featuresWithoutTestOutput.map(function(feature) {
+                    return feature.name;
+                }));
+            }
+            var featuresWithCrashedTest = features.filter(featureTestHasCrashed);
+            if (featuresWithCrashedTest.length) {
+                throw new Error('some test have crashed: ' + featuresWithCrashedTest.map(function(feature) {
+                    return feature.name;
+                }));
+            }
+
+            var featuresWithFailedTest = features.filter(featureTestHasFailed);
+            return featuresWithFailedTest;
+        });
+    }).then(function(features) {
+        var remainingFeatures = features;
+        function getFeaturesUsingSolution(solution) {
+            var half = Iterable.bisect(remainingFeatures, function(feature) {
+                return solution.match(feature);
+            });
+            remainingFeatures = half[1];
+            return half[0];
+        }
+        var featuresGroup = {
+            inline: getFeaturesUsingSolution(inlineSolution),
+            file: getFeaturesUsingSolution(fileSolution),
+            corejs: getFeaturesUsingSolution(coreJSSolution),
+            babel: getFeaturesUsingSolution(babelSolution),
+            none: getFeaturesUsingSolution(noSolution)
+        };
+        var featuresUsingInlineSolution = featuresGroup.inline;
+        var featuresUsingFileSolution = featuresGroup.file;
+        var featuresUsingCoreJSSolution = featuresGroup.corejs;
+        var featuresUsingBabelSolution = featuresGroup.babel;
+
+        return readAllOutputFromFileSystem(
+            features,
+            agent,
+            'fix'
+        ).then(function() {
+            function getSolutionOwner(feature) {
+                var featureOwningSolution = feature;
+                while (solutionIsInherited(featureOwningSolution)) {
+                    featureOwningSolution = featureOwningSolution.parent;
+                }
+                return featureOwningSolution;
+            }
+            function solutionIsInherited(feature) {
+                var parent = feature.parent;
+                return parent && feature.solution === parent.solution;
+            }
+
+            var inlineWithoutFixOutput = featuresUsingInlineSolution.filter(featureFixIsMissing);
+            var featuresOwningInlineSolutions = inlineWithoutFixOutput.map(getSolutionOwner);
+            var inlineSolver = inlineSolution.solve(featuresOwningInlineSolutions);
+            console.log('inline fix', featuresOwningInlineSolutions.length);
+
+            var fileWithoutFixOutput = featuresUsingFileSolution.filter(featureFixIsMissing);
+            var featuresOwningFileSolutions = fileWithoutFixOutput.map(getSolutionOwner);
+            var fileSolver = fileSolution.solve(featuresOwningFileSolutions);
+            console.log('file fix', featuresOwningFileSolutions.length);
+
+            var corejsWithoutFixOutput = featuresUsingCoreJSSolution.filter(featureFixIsMissing);
+            var featuresOwningCoreJSSolutions = corejsWithoutFixOutput.map(getSolutionOwner);
+            var coreJSSolver = coreJSSolution.solve(featuresOwningCoreJSSolutions);
+            console.log('corejs fix', featuresOwningCoreJSSolutions.length);
+
+            var babelWithoutFixOutput = featuresUsingBabelSolution.filter(featureFixIsMissing);
+            var featuresOwningAllBabelSolutions = featuresUsingBabelSolution.map(getSolutionOwner);
+            var babelSolver = Thenable.resolve(
+                babelSolution.solve(featuresOwningAllBabelSolutions)
+            ).then(function(transpiler) {
+                /*
+                it may be the most complex thing involved here so let me explain
+                we create a transpiler adapted to required features
+                then we create a babel plugin which transpile template literals using that transpiler
+                finally we create a transpiler which uses that plugin
+                */
+                var plugin = createTranspiler.transformTemplateLiteralsPlugin(function(code) {
+                    return transpiler.transpile(code, {
+                        as: 'code',
+                        filename: false,
+                        sourceMaps: false,
+                        soureURL: false,
+                        // disable cache to prevent race condition with the transpiler
+                        // that will use this plugin (it's the parent transpiler which is reponsible to cache)
+                        cache: false
+                    });
+                }, 'transpile');
+                var fixedFeatureTranspiler = createTranspiler({
+                    as: 'code',
+                    sourceMaps: false,
+                    soureURL: false,
+                    plugins: [
+                        plugin
+                    ]
+                });
+                // il faut modifier chaque feature.source qui a besoin d'être transpilé
+                // il faut modifier les features qui ont un test qui fail mais aussi
+                // leur dépendance car elles devront être rerun
+                // on cherche seulement à mettre à jour feature.propertiesConstructor
+                // en utilisant createFeatureConstructorFromBodySource
+                /*
+                je pense qu'il suffit de partir de babelWithoutFixOutput
+                d'apeller sur chaque readFeatureFromFileSystem puis
+                de faire feature.propertiesConstructor = createFeatureConstructorFromBodySource
+                depuis la source qu'on récupère
+
+                enfin il faut faire ça aussi sur toutes les dépendances qui doivent aussi
+                avoir une version transpilé
+                */
+
+                var dependencies = collectAllDependencies(babelWithoutFixOutput);
+                var featuresToTranspile = babelWithoutFixOutput.concat(dependencies);
+
+                return Thenable.all(featuresToTranspile.map(function(feature) {
+                    return readFeatureFromFileSystem(
+                        feature.name,
+                        fixedFeatureTranspiler
+                    ).then(function(source) {
+                        feature.propertiesConstructor = createFeatureConstructorFromBodySource(source);
+                    });
+                }));
+            });
+
+            return Thenable.all([
+                inlineSolver,
+                fileSolver,
+                coreJSSolver,
+                babelSolver
+            ]).then(function(data) {
+                return {
+                    features: [].concat(
+                        inlineWithoutFixOutput,
+                        fileWithoutFixOutput,
+                        corejsWithoutFixOutput,
+                        babelWithoutFixOutput
+                    ),
+                    meta: {
+                        fileSources: data[1],
+                        coreJSSource: data[2]
+                    }
+                };
+            }).then(encodeClient);
         });
     });
 };
 var noSolution = {
-    match: entryHasNoSolution
+    match: featureHasNoSolution
 };
 var inlineSolution = {
-    match: entryUseInlineSolution,
+    match: featureUseInlineSolution,
 
     solve: function() {
 
     }
 };
 var fileSolution = {
-    match: entryUseFileSolution,
+    match: featureUseFileSolution,
 
-    solve: function(entriesUsingFile) {
-        var files = Iterable.uniq(entriesUsingFile.map(function(entry) {
-            return require('path').resolve(
-                featuresFolderPath + '/' + entry.feature.name + '/feature.js',
-                entry.feature.solution.value.replace('${rootFolder}', rootFolder)
+    solve: function(features) {
+        var filePaths = [];
+        features.forEach(function(feature) {
+            var filePath = require('path').resolve(
+                featuresFolderPath + '/' + feature.name + '/feature.js',
+                feature.solution.value.replace('${rootFolder}', rootFolder)
             );
-        }));
-        var promises = Iterable.map(files, function(filePath, index) {
+            if (Iterable.includes(filePaths, filePath)) {
+                throw new Error(
+                    'two feature cannot share the same file solution ' + filePath
+                );
+            }
+            filePaths.push(filePath);
+        });
+        // if some feature use the same file we must throw
+        var promises = Iterable.map(filePaths, function(filePath) {
             console.log('fetch file solution', filePath);
 
             return fsAsync.getFileContent(filePath).then(function(content) {
                 return new Function('feature', content); // eslint-disable-line no-new-func
-            }).then(function(solver) {
-                entriesUsingFile[index].solver = solver;
             });
         });
         return Thenable.all(promises);
     }
 };
 var coreJSSolution = {
-    match: entryUseCoreJSSolution,
+    match: featureUseCoreJSSolution,
 
-    solve: function(entriesUsingCoreJS) {
-        var coreJSModules = Iterable.uniq(entriesUsingCoreJS.map(function(entry) {
-            return entry.feature.solution.value;
-        }));
+    solve: function(features) {
+        var moduleNames = [];
+        features.forEach(function(entry) {
+            var moduleName = entry.feature.solution.value;
+            if (Iterable.includes(moduleNames, moduleName)) {
+                throw new Error(
+                    'two feature cannot share the same corejs solution ' + moduleName
+                );
+            }
+            moduleNames.push(moduleName);
+        });
 
         function createCoreJSBuild() {
             var source = '';
-            // Iterable.forEach(requiredCoreJSModules, function(module) {
-            //     if (module.prefixCode) {
-            //         source += module.prefixCode;
-            //     }
-            // });
+            Iterable.forEach(features, function(feature) {
+                if (feature.solution.beforeFix) {
+                    source += '\n' + feature.solution.beforeFix;
+                }
+            });
             var sourcePromise = Thenable.resolve(source);
-            console.log('concat corejs modules', coreJSModules);
 
             return sourcePromise.then(function(source) {
-                if (coreJSModules.length) {
+                if (moduleNames.length) {
+                    console.log('concat corejs modules', moduleNames);
                     var buildCoreJS = require('core-js-builder');
                     var promise = buildCoreJS({
-                        modules: coreJSModules,
+                        modules: moduleNames,
                         librabry: false,
                         umd: true
                     });
                     return promise.then(function(polyfill) {
-                        if (source) {
-                            source += '\n';
-                        }
-                        source += polyfill;
+                        source += '\n' + polyfill;
 
                         return source;
                     });
@@ -515,7 +701,7 @@ var coreJSSolution = {
 
         var polyfillCache = store.fileSystemCache(corejsCacheFolder);
         return polyfillCache.match({
-            modules: coreJSModules
+            modules: moduleNames
         }).then(function(cacheBranch) {
             return memoize.async(
                 createCoreJSBuild,
@@ -527,12 +713,12 @@ var coreJSSolution = {
     }
 };
 var babelSolution = {
-    match: entryUseBabelSolution,
+    match: featureUseBabelSolution,
 
-    solve: function(entriesUsingBabel) {
+    solve: function(features) {
         var plugins = [];
-        entriesUsingBabel.forEach(function(entry) {
-            var solution = entry.feature.solution;
+        features.forEach(function(feature) {
+            var solution = feature.solution;
             var createOptions = function() {
                 var options = {};
                 if ('config' in solution) {
@@ -540,7 +726,7 @@ var babelSolution = {
                     if (typeof config === 'object') {
                         jsenv.assign(options, config);
                     } else if (typeof config === 'function') {
-                        jsenv.assign(options, config(entriesUsingBabel));
+                        jsenv.assign(options, config(features));
                     }
                 }
                 return options;
@@ -573,190 +759,53 @@ var babelSolution = {
         });
     }
 };
-function updateAllRecordFixMark(entries, agent) {
-    return readAllOutputFromFileSystem(
-        entries,
-        agent,
-        'test'
-    ).then(function() {
-        var entriesWithoutTestOutput = entries.filter(entryTestIsMissing);
-        if (entriesWithoutTestOutput.length) {
-            return fail('some-test-are-missing', entries);
-        }
-
-        var entriesWithCrashedTest = entries.filter(entryTestHasCrashed);
-        if (entriesWithCrashedTest.length) {
-            return fail('some-test-have-crashed', entries);
-        }
-
-        var entriesWithFailedTest = entries.filter(entryTestHasFailed);
-        var solutions = [
-            inlineSolution,
-            fileSolution,
-            coreJSSolution,
-            babelSolution,
-            noSolution
-        ];
-        var remainingEntriesWithFailedTest = entriesWithFailedTest;
-        var solutionsEntries = solutions.map(function(solution) {
-            var half = Iterable.bisect(remainingEntriesWithFailedTest, function(entry) {
-                return solution.match(entry);
-            });
-            remainingEntriesWithFailedTest = half[1];
-            return half[0];
-        });
-        var entriesUsingInlineSolution = solutionsEntries[0];
-        var entriesUsingFileSolution = solutionsEntries[1];
-        var entriesUsingCoreJSSolution = solutionsEntries[2];
-        var entriesUsingBabelSolution = solutionsEntries[3];
-
-        return readAllOutputFromFileSystem(
-            entriesWithFailedTest,
-            agent,
-            'fix'
-        ).then(function() {
-            var inlineWithoutFixOutput = entriesUsingInlineSolution.filter(entryFixIsMissing);
-            var entriesSolvingByInline = inlineWithoutFixOutput.map(markAndGetSolutionOwner);
-            var inlineSolver = inlineSolution.solve(entriesSolvingByInline);
-            console.log('byinlne', entriesSolvingByInline.length);
-
-            var fileWithoutFixOutput = entriesUsingFileSolution.filter(entryFixIsMissing);
-            var entriesSolvingByFile = fileWithoutFixOutput.map(markAndGetSolutionOwner);
-            var fileSolver = fileSolution.solve(entriesSolvingByFile);
-            console.log('byfile', entriesSolvingByFile.length);
-
-            var corejsWithoutFixOutput = entriesUsingCoreJSSolution.filter(entryFixIsMissing);
-            var entriesSolvingByCoreJS = corejsWithoutFixOutput.map(markAndGetSolutionOwner);
-            console.log('bycorejs', entriesSolvingByCoreJS.length);
-            var coreJSSolver = coreJSSolution.solve(entriesSolvingByCoreJS);
-
-            /*
-            it may be the most complex thing involved here so let me explain
-            we create a transpiler adapted to required features
-            then we create a babel plugin which transpile template literals using that transpiler
-            finally we create a transpiler which uses that plugin
-            */
-            var entriesSolvingByBabel = entriesUsingBabelSolution.map(getSolutionOwner);
-            var transpiler = babelSolution.solve(entriesSolvingByBabel);
-            var plugin = createTranspiler.transformTemplateLiteralsPlugin(function(code) {
-                return transpiler.transpile(code, {
-                    as: 'code',
-                    filename: false,
-                    sourceMaps: false,
-                    soureURL: false,
-                    // disable cache to prevent race condition with the transpiler
-                    // that will use this plugin (it's the parent transpiler which is reponsible to cache)
-                    cache: false
-                });
-            }, 'transpile');
-            var fixedFeatureTranspiler = createTranspiler({
-                as: 'code',
-                sourceMaps: false,
-                soureURL: false,
-                plugins: [
-                    plugin
-                ]
-            });
-            var babelWithoutFixOutput = entriesUsingBabelSolution.filter(entryFixIsMissing);
-            var entriesUsingBabelRequiringTranspilation = babelWithoutFixOutput.concat(
-                collectDependencies(babelWithoutFixOutput)
-            );
-            console.log('bybabel', entriesUsingBabelRequiringTranspilation.length);
-            entriesUsingBabelRequiringTranspilation.forEach(markEntryTestAsRequired);
-            var babelSolver = readFeatureSourcesFromFolder(
-                entriesUsingBabelRequiringTranspilation,
-                featuresFolderPath,
-                fixedFeatureTranspiler
-            );
-
-            function markAndGetSolutionOwner(entry) {
-                return getSolutionOwner(entry, true);
-            }
-            function getSolutionOwner(entry, mark) {
-                var featureOwningSolution = entry.feature;
-                var featureEntry = entry;
-                if (mark) {
-                    markEntryTestAsRequired(featureEntry);
-                }
-                while (solutionIsInherited(featureOwningSolution)) {
-                    featureOwningSolution = featureOwningSolution.parent;
-                    featureEntry = getFeatureEntry(featureOwningSolution);
-                    if (mark) {
-                        markEntryTestAsRequired(featureEntry);
-                    }
-                }
-                return featureEntry;
-            }
-            function solutionIsInherited(feature) {
-                var parent = feature.parent;
-                return parent && feature.solution === parent.solution;
-            }
-            function getFeatureEntry(feature) {
-                return Iterable.find(entries, function(entry) {
-                    return entry.feature === feature;
-                });
-            }
-            function collectDependencies(entries) {
-                var dependencies = [];
-                function visit(entry) {
-                    entry.dependencies.forEach(function(dependency) {
-                        if (Iterable.includes(dependencies, dependency) === false) {
-                            dependencies.push(dependency);
-                            visit(dependency);
-                        }
-                    });
-                }
-                entries.forEach(visit);
-                return dependencies;
-            }
-
-            return Thenable.all([
-                inlineSolver,
-                fileSolver,
-                coreJSSolver,
-                babelSolver
-            ]).then(function(data) {
-                return {
-                    coreJSBuildSource: data[2]
-                };
-            });
-        });
+function featureTestHasCrashed(feature) {
+    return feature.testOutput.status === 'crashed';
+}
+function featureTestHasFailed(feature) {
+    return feature.testOutput.detail.status === 'invalid';
+}
+function featureFixIsMissing(feature) {
+    return feature.fixOutput === undefined;
+}
+function featureHasNoSolution(feature) {
+    return feature.solution.type === 'none';
+}
+function featureUseInlineSolution(feature) {
+    return feature.solution.type === 'inline';
+}
+function featureUseFileSolution(feature) {
+    return feature.solution.type === 'file';
+}
+function featureUseCoreJSSolution(feature) {
+    return feature.solution.type === 'corejs';
+}
+function featureUseBabelSolution(feature) {
+    return feature.solution.type === 'babel';
+}
+api.getAllRequiredFix(
+    ['const/scoped'],
+    jsenv.agent
+).then(function(data) {
+    console.log('required fix data', data);
+}).catch(function(e) {
+    setTimeout(function() {
+        throw e;
     });
-}
-// function entryHasTestMark(entry) {
-//     return entry.mustBeTested;
-// }
-function fail(reason) {
-    return Thenable.reject(reason);
-}
-function entryTestHasCrashed(entry) {
-    return entry.testOutput.status === 'crashed';
-}
-function entryTestHasFailed(entry) {
-    return entry.testOutput.detail.status === 'invalid';
-}
-function entryFixIsMissing(entry) {
-    return entry.fixOutput === undefined;
-}
-function entryHasNoSolution(entry) {
-    return entry.feature.solution.type === 'none';
-}
-function entryUseInlineSolution(entry) {
-    return entry.feature.solution.type === 'inline';
-}
-function entryUseFileSolution(entry) {
-    return entry.feature.solution.type === 'file';
-}
-function entryUseCoreJSSolution(entry) {
-    return entry.feature.solution.type === 'corejs';
-}
-function entryUseBabelSolution(entry) {
-    return entry.feature.solution.type === 'babel';
-}
+});
 
 api.setAllFixRecord = function(records, agent) {
-    return api.getAllRecord().then(function(entries) {
-        return writeAllOutputToFileSystem(entries, agent, 'fix', records);
+    var featureNames = records.map(function(record) {
+        return record.name;
+    });
+
+    return api.getAllFeature.apply(null, featureNames).then(function(features) {
+        return writeAllOutputToFileSystem(
+            features,
+            agent,
+            'fix',
+            records
+        );
     });
 };
 
@@ -771,7 +820,7 @@ api.createOwnMediator = function(featureNames, agent) {
                     agent
                 ).then(function(data) {
                     var clientData = {};
-                    clientData.entries = getClientEntries(data.entries);
+                    clientData.features = getClientFeatures(data.featuresSource);
                     jsenv.assign(clientData, data.meta);
                     return clientData;
                 });
@@ -782,7 +831,7 @@ api.createOwnMediator = function(featureNames, agent) {
             if (action === 'getAllRequiredFix') {
                 return api.getAllRequiredFix(featureNames, agent).then(function(data) {
                     var clientData = {};
-                    clientData.entries = getClientEntries(data.entries);
+                    clientData.features = getClientFeatures(data.featuresSource);
                     jsenv.assign(clientData, data.meta);
                     return clientData;
                 });
@@ -793,15 +842,15 @@ api.createOwnMediator = function(featureNames, agent) {
         }
     };
 
-    function getClientEntries(serverEntries) {
-        var JSONSource = JSON.stringify(serverEntries);
-        var clientEntries = JSON.parse(JSONSource);
+    function getClientFeatures(featuresSource) {
+        var features;
         try {
-            jsenv.reviveFeatureEntries(clientEntries);
+            features = eval(featuresSource); // eslint-disable-line no-eval
         } catch (e) {
-            return fail('some-feature-source', e);
+            // some feature source lead to error
+            throw e;
         }
-        return clientEntries;
+        return features;
     }
 };
 
@@ -910,11 +959,11 @@ function createBrowserMediator(featureNames) {
         return object;
     }
     function getClientEntries(entries) {
-        try {
-            jsenv.reviveFeatureEntries(entries);
-        } catch (e) {
-            return fail('some-feature-source', e);
-        }
+        // try {
+        //     jsenv.reviveFeatureEntries(entries);
+        // } catch (e) {
+        //     return fail('some-feature-source', e);
+        // }
         return entries;
     }
 }
@@ -929,15 +978,13 @@ var ownMediator = api.createOwnMediator(
 api.client = jsenv.createImplementationClient(ownMediator);
 
 api.getFixSource = function(featureNames, agent) {
-    return api.getAllRecordEnabledByNames(featureNames).then(function(entries) {
-        var enabledEntries = entries.filter(entryIsEnabled);
-        var promises = enabledEntries.map(function(entry) {
-            return adaptAgentToCache(entry.feature, agent);
+    return api.getAllFeature.apply(null, featureNames).then(function(features) {
+        var promises = features.map(function(feature) {
+            return adaptAgentToCache(feature, agent);
         });
-        return Promise.all(promises).then(function() {
+        return Thenable.all(promises).then(function() {
             // got the cache path for all feature
             // now we can keep going
-
         });
     });
 };
@@ -1048,13 +1095,13 @@ function adaptAgentToCache(feature, agent) {
     });
 }
 
-api.client.scan().then(function() {
-    console.log('here', Math.DEG_PER_RAD);
-}).catch(function(e) {
-    setTimeout(function() {
-        throw e;
-    });
-});
+// api.client.scan().then(function() {
+//     console.log('here', Math.DEG_PER_RAD);
+// }).catch(function(e) {
+//     setTimeout(function() {
+//         throw e;
+//     });
+// });
 
 // adaptAgentToCache(
 //     {
