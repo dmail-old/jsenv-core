@@ -1,0 +1,1 @@
+babel test.js --out-file test-compiled.js --source-maps inline --plugins=transform-es2015-template-literals
