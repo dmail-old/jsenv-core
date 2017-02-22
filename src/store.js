@@ -11,9 +11,46 @@ cache/before-fix/jkljkjkjkljkl/file.js#content
 -> data
 */
 
+require('./jsenv.js');
 var cuid = require('cuid');
 var fsAsync = require('./fs-async.js');
 var Path = require('path');
+
+// if two function concurrently ask for a match on inexistent branch
+// we wait for the first function to create unatched branch before letting the second check
+// without this check they would both create a new branch (a duplicate) because none has matched
+var pendingOperations = [];
+function enqueue(path, fn) {
+    var existingOperation = jsenv.Iterable.find(pendingOperations, function(pendingOperation) {
+        return pendingOperation.path === path;
+    });
+    if (existingOperation) {
+        return existingOperation.thenable.then(
+            function() {
+                return enqueue(path, fn);
+            },
+            function() {
+                return enqueue(path, fn);
+            }
+        );
+    }
+
+    var thenable = fn();
+    var operation = {
+        path: path,
+        thenable: thenable
+    };
+    thenable.then(
+        function() {
+            jsenv.Iterable.remove(pendingOperations, operation);
+        },
+        function() {
+            jsenv.Iterable.remove(pendingOperations, operation);
+        }
+    );
+    pendingOperations.push(operation);
+    return thenable;
+}
 
 var createFileSystemCache = (function() {
     function FileSystemCache(folderPath, options) {
@@ -29,66 +66,10 @@ var createFileSystemCache = (function() {
     FileSystemCache.prototype = {
         constructor: FileSystemCache,
 
-        revive: function() {
-            var self = this;
-            var path = this.branchesPath;
-
-            return fsAsync.getFileContent(this.branchesPath, '[]').then(function(content) {
-                try {
-                    return JSON.parse(content);
-                } catch (e) {
-                    console.error('malformed json at', path, 'got', content);
-                    return Promise.reject(e);
-                }
-            }).then(function(branches) {
-                self.branches = branches.map(function(branchProperties) {
-                    return self.branch(branchProperties);
-                });
-                return self;
-            });
-        },
-
         branch: function(properties) {
             properties.path = this.path + '/' + properties.name;
             var branch = createFileSystemCacheBranch(properties);
             return branch;
-        },
-
-        find: function(branchMeta) {
-            branchMeta = branchMeta || {};
-            var branch;
-            var branches = this.branches;
-            var i = 0;
-            var j = branches.length;
-            while (i < j) {
-                branch = branches[i];
-                if (this.matchBranch(branch, branchMeta)) {
-                    break;
-                } else {
-                    branch = null;
-                }
-                i++;
-            }
-
-            if (branch) {
-                branch.matchCount = 'matchCount' in branch ? branch.matchCount + 1 : 1;
-                branch.lastMatch = Number(Date.now());
-                this.update();
-                return branch;
-            }
-
-            branch = this.branch({
-                name: this.createBranchName(branchMeta),
-                meta: branchMeta,
-                matchCount: 1,
-                firstMatch: Number(Date.now()),
-                lastMatch: Number(Date.now())
-            });
-            branches.push(branch);
-
-            return this.update().then(function() {
-                return branch;
-            });
         },
 
         matchBranch: function(branch, meta) {
@@ -100,19 +81,71 @@ var createFileSystemCache = (function() {
         },
 
         match: function(meta) {
-            var self = this;
-            return this.revive().then(function() {
-                return self.find(meta);
-            });
-        },
+            meta = meta || {};
+            var cache = this;
+            var path = cache.branchesPath;
 
-        update: function() {
-            var branches = this.branches.sort(compareBranch);
-            var branchesSource = JSON.stringify(branches, null, '\t');
-            this.branches = branches;
+            function revive() {
+                return fsAsync.getFileContent(path, '[]').then(function(content) {
+                    try {
+                        return JSON.parse(content);
+                    } catch (e) {
+                        console.error('malformed json at', path, 'got', content);
+                        return Promise.reject(e);
+                    }
+                }).then(function(branches) {
+                    return branches.map(function(branchProperties) {
+                        return cache.branch(branchProperties);
+                    });
+                });
+            }
+            function find(branches) {
+                var branch;
+                var i = 0;
+                var j = branches.length;
+                while (i < j) {
+                    branch = branches[i];
+                    if (cache.matchBranch(branch, meta)) {
+                        break;
+                    } else {
+                        branch = null;
+                    }
+                    i++;
+                }
 
-            return fsAsync.setFileContent(this.branchesPath, branchesSource).then(function() {
-                return branches;
+                if (branch) {
+                    branch.matchCount = 'matchCount' in branch ? branch.matchCount + 1 : 1;
+                    branch.lastMatch = Number(Date.now());
+                    update(branches);
+                    return branch;
+                }
+
+                branch = cache.branch({
+                    name: cache.createBranchName(meta),
+                    meta: meta,
+                    matchCount: 1,
+                    firstMatch: Number(Date.now()),
+                    lastMatch: Number(Date.now())
+                });
+                branches.push(branch);
+
+                return update(branches).then(function() {
+                    return branch;
+                });
+            }
+            function update(branches) {
+                var sortedBranches = branches.sort(compareBranch);
+                var branchesSource = JSON.stringify(sortedBranches, null, '\t');
+
+                return fsAsync.setFileContent(path, branchesSource).then(function() {
+                    return branches;
+                });
+            }
+
+            return enqueue(path, function() {
+                return revive().then(
+                    find
+                );
             });
         }
     };
