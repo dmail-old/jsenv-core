@@ -13,13 +13,13 @@ expose(
         solution: {
             type: 'babel',
             value: 'transform-regenerator',
-            config: function(entries) {
+            config: function(features) {
                 var config = {};
-                config.generators = jsenv.Iterable.some(entries, function(entry) {
-                    return entry.feature.match('function/generator');
+                config.generators = jsenv.Iterable.some(features, function(feature) {
+                    return feature.match('function/generator');
                 });
-                config.async = jsenv.Iterable.some(entries, function(entry) {
-                    return entry.feature.match('function/async');
+                config.async = jsenv.Iterable.some(features, function(feature) {
+                    return feature.match('function/async');
                 });
                 config.asyncGenerators = config.async;
                 return config;
