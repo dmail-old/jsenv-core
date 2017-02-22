@@ -1,0 +1,16 @@
+{
+	"sources": [
+		{
+			"path": "../../../../feature.js",
+			"eTag": "\"f1-j0FvGU/ouW1sLwDzVe3p/bkdE9s\""
+		}
+	],
+	"value": {
+		"status": "completed",
+		"reason": "test-result",
+		"detail": {
+			"status": "valid",
+			"reason": "present"
+		}
+	}
+}

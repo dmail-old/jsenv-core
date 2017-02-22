@@ -1,38 +1,44 @@
 expose(
     {
-        maxTestDuration: 1000,
-        pass: function(Promise, settle) {
+        pass: function(output, settle) {
+            var Promise = output.value;
             var promiseRejectionEvent;
-            var rejectionHandled = function(e) {
+            var unhandledRejection = function(e) {
                 promiseRejectionEvent = e;
             };
 
             if (jsenv.isBrowser()) {
-                if ('onrejectionhandled' in window === false) {
-                    return settle(false);
+                if ('onunhandledrejection' in window === false) {
+                    return settle(false, 'missing-window-onunhandledrejection');
                 }
-                window.onrejectionhandled = rejectionHandled;
+                window.onunhandledrejection = unhandledRejection;
             } else if (jsenv.isNode()) {
-                process.on('rejectionHandled', function(promise) {
-                    rejectionHandled({promise: promise});
+                process.on('unhandledRejection', function(value, promise) {
+                    unhandledRejection({
+                        promise: promise,
+                        reason: value
+                    });
                 });
             } else {
-                return settle(false);
+                return settle(false, 'unsupported-platform');
             }
 
-            var promise = Promise.reject('foo');
+            Promise.reject('foo');
             setTimeout(function() {
-                promise.catch(function() {});
-                setTimeout(function() {
-                    settle(
-                        promiseRejectionEvent &&
-                        promiseRejectionEvent.promise === promise
-                    );
-                    // node event emit the value
-                    // so we can't check for
-                    // promiseRejectionEvent.reason === 'foo'
-                }, 500); // engine has 10ms to trigger the event
-            });
+                if (promiseRejectionEvent) {
+                    if (promiseRejectionEvent.reason === 'foo') {
+                        settle(true, 'event-ok');
+                    } else {
+                        settle(false, 'event-mismatch');
+                    }
+                } else {
+                    settle(false, 'missing-event');
+                }
+                // to be fully compliant we shoudl ensure
+                // promiseRejectionEvent.promise === the promise rejected above
+                // BUT it seems corejs dos not behave that way
+                // and I'm not 100% sure what is the expected promise object here
+            }, 10); // engine has 10ms to trigger the event
         }
     }
 );

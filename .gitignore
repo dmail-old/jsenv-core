@@ -47,10 +47,8 @@ Temporary Items
 node_modules/
 coverage-final.json
 
-cache/features.js
 !cache/readme.md
-!cache/scan
-cache/polyfill/*
-!cache/polyfill/readme.md
 cache/transpiler/*
 !cache/transpiler/readme.md
+cache/polyfill/*
+!cache/polyfill/readme.md

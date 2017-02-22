@@ -62,14 +62,10 @@ api.getAllRecord = function() {
     return getEntries();
 };
 function getEntries() {
-    return getEntriesFromFileSystem().then(function(entries) {
+    return createEntriesFromFileSystem().then(function(entries) {
         jsenv.reviveFeatureEntries(entries);
         return entries;
     });
-}
-var entriesStore = store.memoryEntry();
-function getEntriesFromFileSystem() {
-    return memoize.async(createEntriesFromFileSystem, entriesStore)();
 }
 function createEntriesFromFileSystem() {
     return recursivelyReadFolderFeatures(featuresFolderPath).then(function(features) {
@@ -206,20 +202,16 @@ function readFeatureSourcesFromFolder(entries, folderPath, transpiler) {
 }
 
 api.getAllRecordEnabledByNames = function(featureNames) {
-    function filterEnabledEntryFromFeatureNames(entry) {
-        return jsenv.Iterable.some(featureNames, function(name) {
-            return entry.feature.match(name);
-        });
-    }
-
     return api.getAllRecord().then(function(entries) {
-        var half = Iterable.bisect(entries, filterEnabledEntryFromFeatureNames);
-        var toEnable = half[0];
-        // var toDisable = half[1];
-
-        // toDisable.forEach(function(entry) {
-        //     entry.feature.disable();
-        // });
+        var toEnable = featureNames.map(function(name) {
+            var entry = Iterable.find(entries, function(entry) {
+                return entry.feature.name === name;
+            });
+            if (!entry) {
+                throw new Error('no feature named ' + name);
+            }
+            return entry;
+        });
         toEnable.forEach(function(entry) {
             entry.feature.enable();
         });
@@ -410,7 +402,7 @@ function writeAllOutputToFileSystem(entries, agent, type, records) {
     var promises = records.map(function(record) {
         var featureName = record.featureName;
         var testOutput = record.output;
-        var entry = entries.find(function(entry) {
+        var entry = Iterable.find(entries, function(entry) {
             return entry.feature.match(featureName);
         });
         if (entry) {
@@ -626,13 +618,16 @@ function updateAllRecordFixMark(entries, agent) {
             var inlineWithoutFixOutput = entriesUsingInlineSolution.filter(entryFixIsMissing);
             var entriesSolvingByInline = inlineWithoutFixOutput.map(markAndGetSolutionOwner);
             var inlineSolver = inlineSolution.solve(entriesSolvingByInline);
+            console.log('byinlne', entriesSolvingByInline.length);
 
             var fileWithoutFixOutput = entriesUsingFileSolution.filter(entryFixIsMissing);
             var entriesSolvingByFile = fileWithoutFixOutput.map(markAndGetSolutionOwner);
             var fileSolver = fileSolution.solve(entriesSolvingByFile);
+            console.log('byfile', entriesSolvingByFile.length);
 
             var corejsWithoutFixOutput = entriesUsingCoreJSSolution.filter(entryFixIsMissing);
             var entriesSolvingByCoreJS = corejsWithoutFixOutput.map(markAndGetSolutionOwner);
+            console.log('bycorejs', entriesSolvingByCoreJS.length);
             var coreJSSolver = coreJSSolution.solve(entriesSolvingByCoreJS);
 
             /*
@@ -666,6 +661,7 @@ function updateAllRecordFixMark(entries, agent) {
             var entriesUsingBabelRequiringTranspilation = babelWithoutFixOutput.concat(
                 collectDependencies(babelWithoutFixOutput)
             );
+            console.log('bybabel', entriesUsingBabelRequiringTranspilation.length);
             entriesUsingBabelRequiringTranspilation.forEach(markEntryTestAsRequired);
             var babelSolver = readFeatureSourcesFromFolder(
                 entriesUsingBabelRequiringTranspilation,
@@ -683,7 +679,7 @@ function updateAllRecordFixMark(entries, agent) {
                     markEntryTestAsRequired(featureEntry);
                 }
                 while (solutionIsInherited(featureOwningSolution)) {
-                    featureOwningSolution = feature.parent;
+                    featureOwningSolution = featureOwningSolution.parent;
                     featureEntry = getFeatureEntry(featureOwningSolution);
                     if (mark) {
                         markEntryTestAsRequired(featureEntry);
@@ -696,7 +692,7 @@ function updateAllRecordFixMark(entries, agent) {
                 return parent && feature.solution === parent.solution;
             }
             function getFeatureEntry(feature) {
-                return entries.find(function(entry) {
+                return Iterable.find(entries, function(entry) {
                     return entry.feature === feature;
                 });
             }
@@ -727,6 +723,9 @@ function updateAllRecordFixMark(entries, agent) {
         });
     });
 }
+// function entryHasTestMark(entry) {
+//     return entry.mustBeTested;
+// }
 function fail(reason) {
     return Thenable.reject(reason);
 }
@@ -923,7 +922,7 @@ api.createBrowserMediator = createBrowserMediator;
 
 var ownMediator = api.createOwnMediator(
     [
-        'math/deg-per-rad'
+        'promise/unhandled-rejection'
     ],
     String(jsenv.agent)
 );
@@ -1049,13 +1048,13 @@ function adaptAgentToCache(feature, agent) {
     });
 }
 
-// api.client.scan().then(function() {
-//     console.log('here', Math.DEG_PER_RAD);
-// }).catch(function(e) {
-//     setTimeout(function() {
-//         throw e;
-//     });
-// });
+api.client.scan().then(function() {
+    console.log('here', Math.DEG_PER_RAD);
+}).catch(function(e) {
+    setTimeout(function() {
+        throw e;
+    });
+});
 
 // adaptAgentToCache(
 //     {

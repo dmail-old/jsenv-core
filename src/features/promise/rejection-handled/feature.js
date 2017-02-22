@@ -1,39 +1,44 @@
 expose(
     {
-        pass: function(Promise, settle) {
+        maxTestDuration: 1000,
+        pass: function(output, settle) {
+            var Promise = output.value;
             var promiseRejectionEvent;
-            var unhandledRejection = function(e) {
+            var rejectionHandled = function(e) {
                 promiseRejectionEvent = e;
             };
 
             if (jsenv.isBrowser()) {
-                if ('onunhandledrejection' in window === false) {
-                    return settle(false);
+                if ('onrejectionhandled' in window === false) {
+                    return settle(false, 'missing-window-onrejectionhandled');
                 }
-                window.onunhandledrejection = unhandledRejection;
+                window.onrejectionhandled = rejectionHandled;
             } else if (jsenv.isNode()) {
-                process.on('unhandledRejection', function(value, promise) {
-                    unhandledRejection({
-                        promise: promise,
-                        reason: value
-                    });
+                process.on('rejectionHandled', function(promise) {
+                    rejectionHandled({promise: promise});
                 });
             } else {
-                return settle(false);
+                return settle(false, 'unkown-platform');
             }
 
-            Promise.reject('foo');
+            var promise = Promise.reject('foo');
             setTimeout(function() {
-                var valid = (
-                    promiseRejectionEvent &&
-                    promiseRejectionEvent.reason === 'foo'
-                );
-                // to be fully compliant we shoudl ensure
-                // promiseRejectionEvent.promise === the promise rejected above
-                // BUT it seems corejs dos not behave that way
-                // and I'm not 100% sure what is the expected promise object here
-                settle(valid);
-            }, 10); // engine has 10ms to trigger the event
+                promise.catch(function() {});
+                setTimeout(function() {
+                    if (promiseRejectionEvent) {
+                        if (promiseRejectionEvent.promise === promise) {
+                            settle(true, 'event-ok');
+                        } else {
+                            settle(false, 'event-promise-mismatch');
+                        }
+                    } else {
+                        settle(false, 'event-not-triggered');
+                    }
+                    // node event emit the value
+                    // so we can't check for
+                    // promiseRejectionEvent.reason === 'foo'
+                }, 500); // engine has 10ms to trigger the event
+            });
         }
     }
 );

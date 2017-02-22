@@ -2059,10 +2059,12 @@ en fonction du résultat de ces tests
                     registerFeaturesFoot +
                     '\n'
                 );
+                // require('fs').writeFileSync('./feature-output.js', registerFeaturesSource);
 
                 var features = eval(registerFeaturesSource); // eslint-disable-line no-eval
+
                 features.forEach(function(feature) {
-                    var entry = entries.find(function(entry) {
+                    var entry = Iterable.find(entries, function(entry) {
                         return feature.match(entry.feature.name);
                     });
                     entry.feature = feature;
@@ -2082,8 +2084,10 @@ en fonction du résultat de ces tests
             var results = [];
             var readyCount = 0;
             var groups = groupNodesByDependencyDepth(features);
+            var group;
             var groupIndex = -1;
             var groupCount = groups.length;
+            var groupReadyCount = 0;
             var done;
             var thenable = new Thenable(function(resolve) {
                 done = function() {
@@ -2091,6 +2095,42 @@ en fonction du résultat de ces tests
                 };
             });
 
+            function handleResult(result) {
+                var feature = this; // callback is async, this is the right feature object we want
+                var featureIndex = features.indexOf(feature);
+                results[featureIndex] = result;
+                readyCount++;
+
+                if (progressCallback) {
+                    var progressEvent = {
+                        type: 'progress',
+                        target: feature,
+                        detail: result,
+                        lengthComputable: true,
+                        total: features.length,
+                        loaded: readyCount
+                    };
+                    progressCallback(progressEvent);
+                }
+                groupReadyCount++;
+                if (groupReadyCount === group.length) {
+                    nextGroup();
+                }
+            }
+            function isInvalid(feature) {
+                var featureIndex = features.indexOf(feature);
+                if (featureIndex in results === false) {
+                    return false;
+                }
+                var result = results[featureIndex];
+                return result.status === 'invalid';
+            }
+            function dependencyIsInvalid(dependency) {
+                return (
+                    dependency.isParameterOf(this) === false &&
+                    isInvalid(dependency)
+                );
+            }
             function nextGroup() {
                 groupIndex++;
                 if (groupIndex === groupCount) {
@@ -2099,50 +2139,13 @@ en fonction du résultat de ces tests
                     // être throw par done ou le callback
                     setTimeout(done);
                 } else {
-                    var group = groups[groupIndex];
+                    group = groups[groupIndex];
                     var i = 0;
                     var j = group.length;
-                    var groupReadyCount = 0;
-                    var handleResult = function(result) {
-                        var feature = this; // callback is async, this is the right feature object we want
-                        var featureIndex = features.indexOf(feature);
-                        results[featureIndex] = result;
-                        readyCount++;
-
-                        if (progressCallback) {
-                            var progressEvent = {
-                                type: 'progress',
-                                target: feature,
-                                detail: result,
-                                lengthComputable: true,
-                                total: features.length,
-                                loaded: readyCount
-                            };
-                            progressCallback(progressEvent);
-                        }
-                        groupReadyCount++;
-                        if (groupReadyCount === j) {
-                            nextGroup();
-                        }
-                    };
-                    var isInvalid = function(feature) {
-                        var featureIndex = features.indexOf(feature);
-                        if (featureIndex in results === false) {
-                            return false;
-                        }
-                        var result = results[featureIndex];
-                        return result.status === 'invalid';
-                    };
-                    var dependencyIsInvalid = function(dependency) {
-                        return (
-                            dependency.isParameterOf(this) === false &&
-                            isInvalid(dependency)
-                        );
-                    };
+                    groupReadyCount = 0;
 
                     while (i < j) {
                         var feature = group[i];
-
                         var dependencies = feature.dependencies;
                         var invalidDependency = Iterable.find(dependencies, dependencyIsInvalid, feature);
                         if (invalidDependency) {

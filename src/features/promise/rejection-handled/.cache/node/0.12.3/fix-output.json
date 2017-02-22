@@ -1,0 +1,16 @@
+{
+	"sources": [
+		{
+			"path": "../../../../feature.js",
+			"eTag": "\"678-XO6R7172JP6VlhhMvpodOA3+MZ4\""
+		}
+	],
+	"value": {
+		"status": "completed",
+		"reason": "test-result",
+		"detail": {
+			"status": "invalid",
+			"reason": "event-not-triggered"
+		}
+	}
+}
