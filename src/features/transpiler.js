@@ -14,9 +14,9 @@ function assign(destination, source) {
     return destination;
 }
 function normalizePlugins(pluginsOption) {
-    return pluginsOption.map(function(pluginOption) {
+    var normalizedPluginsOption = pluginsOption.map(function(pluginOption) {
         var plugin;
-        if (typeof pluginOption === 'string') {
+        if (typeof pluginOption === 'string' || typeof pluginOption === 'function') {
             plugin = [pluginOption, {}];
         } else {
             plugin = pluginOption;
@@ -31,6 +31,8 @@ function normalizePlugins(pluginsOption) {
         }
         return [pluginFunction, pluginOptions];
     });
+    // console.log('normalize', pluginsOption, '->', normalizedPluginsOption);
+    return normalizedPluginsOption;
 }
 
 function createTranspiler(transpilerOptions) {
