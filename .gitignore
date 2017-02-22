@@ -51,5 +51,6 @@ coverage-final.json
 cache/transpiler/*
 !cache/transpiler/readme.md
 cache/corejs/*
+!cache/corejs/readme.md
 cache/polyfill/*
 !cache/polyfill/readme.md
