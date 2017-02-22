@@ -836,6 +836,41 @@ ainsi que quelques utilitaires comme assign, Iterable et Predicate
         Iterable.flatten = function flatten(iterable) {
             return [].concat.apply([], iterable);
         };
+        Iterable.reduce = function reduce(iterable, callback) {
+            // https://developer.mozilla.org/fr/docs/Web/JavaScript/Reference/Objets_globaux/Array/reduce
+            if (iterable === null) {
+                throw new TypeError('Array.prototype.reduce called on null or undefined');
+            }
+            if (typeof callback !== 'function') {
+                throw new TypeError(callback + ' is not a function');
+            }
+
+            var o = Object(iterable);
+            var len = o.length >>> 0;
+            var k = 0;
+            var value;
+
+            if (arguments.length === 3) {
+                value = arguments[2];
+            } else {
+                while (k < len && !(k in o)) {
+                    k++;
+                }
+                if (k >= len) {
+                    throw new TypeError('Reduce of empty array with no initial value');
+                }
+                value = o[k++];
+            }
+
+            while (k < len) {
+                if (k in o) {
+                    value = callback(value, o[k], k, o);
+                }
+
+                k++;
+            }
+            return value;
+        };
         return Iterable;
     })();
     provide('Iterable', Iterable);
@@ -1183,30 +1218,36 @@ ainsi que quelques utilitaires comme assign, Iterable et Predicate
         };
         Thenable.all = function all(iterable) {
             return new this(function allExecutor(resolve, reject) {
-                var index = 0;
-                var length = 0;
+                var callCount = 0;
+                var resolvedCount = 0;
                 var values = [];
                 var resolveOne = function(value, index) {
-                    if (isThenable(value)) {
-                        callThenable(value, function(value) {
-                            resolveOne(value, index);
-                        }, reject);
-                    } else {
-                        values[index] = value;
-                        length--;
-                        if (length === 0) {
-                            resolve(values);
+                    try {
+                        if (isThenable(value)) {
+                            callThenable(value, function(value) {
+                                resolveOne(value, index);
+                            }, reject);
+                        } else {
+                            values[index] = value;
+                            resolvedCount++;
+                            if (resolvedCount === callCount) {
+                                resolve(values);
+                            }
                         }
+                    } catch (e) {
+                        reject(e);
                     }
                 };
 
+                var index = 0;
                 forOf(iterable, function(value) {
-                    length++;
                     resolveOne(value, index);
+                    callCount++;
                     index++;
                 });
 
-                if (length === 0) {
+                if (resolvedCount === callCount) {
+                    // ne peut se produire que si aucun valeur n'est thenable
                     resolve(values);
                 }
             });
@@ -1863,13 +1904,13 @@ en fonction du résultat de ces tests
         };
     });
 
-    jsenv.provide(function registerFeatures() {
+    jsenv.provide(function createFeatureRegisterer() {
         var Iterable = jsenv.Iterable;
 
-        function registerFeatures(fn) {
+        function createFeatureRegisterer() {
             var concreteVersions = [];
             var abstractVersions = [];
-            fn(registerFeature, jsenv.transpile);
+            var opened = false;
 
             function concrete(featureName) {
                 var feature;
@@ -1924,20 +1965,66 @@ en fonction du résultat de ces tests
                 }
                 return feature;
             }
-
-            function registerFeature(name, propertiesConstructor) {
-                var feature = concrete(name);
-                var properties = {};
-                var lastSlashIndex = name.lastIndexOf('/');
-                var parent;
-
-                if (lastSlashIndex > -1) {
-                    var parentName = name.slice(0, lastSlashIndex);
-                    parent = abstract(parentName, feature);
-                    feature.addDependency(parent, {as: 'parent'});
+            function checkProperty(feature, properties, propertyName, parent) {
+                if (propertyName in properties) {
+                    assignProperty(feature, properties[propertyName], propertyName);
+                } else if (parent) {
+                    assignProperty(feature, parent[propertyName], propertyName);
                 }
+            }
+            function assignProperty(feature, propertyValue, propertyName) {
+                if (propertyName === 'solution' && propertyValue === 'none') {
+                    propertyValue = {
+                        type: 'none',
+                        value: undefined
+                    };
+                }
+                feature[propertyName] = propertyValue;
+            }
 
-                if (propertiesConstructor) {
+            return {
+                open: function() {
+                    if (opened) {
+                        throw new Error('registerer already opened');
+                    }
+                    opened = true;
+                },
+
+                has: function(name) {
+                    return Iterable.some(concreteVersions, function(concrete) {
+                        return concrete.feature.name === name;
+                    });
+                },
+
+                add: function(name, propertiesConstructor) {
+                    if (opened === false) {
+                        throw new Error('cannot add to a closed closed registerer');
+                    }
+                    if (typeof name !== 'string') {
+                        throw new TypeError('registerer.add first arg must be a string');
+                    }
+
+                    var feature = concrete(name);
+                    var properties = {};
+                    var lastSlashIndex = name.lastIndexOf('/');
+                    var parent;
+
+                    if (lastSlashIndex > -1) {
+                        var parentName = name.slice(0, lastSlashIndex);
+                        parent = abstract(parentName, feature);
+                        feature.addDependency(parent, {as: 'parent'});
+                    }
+                    propertiesConstructor = propertiesConstructor || function(feature, parent, expose) {
+                        expose(
+                            {
+                                run: function() {},
+                                pass: function(settle) {
+                                    settle(true, 'skipped');
+                                }
+                            }
+                        );
+                    };
+
                     // sort of module.exports
                     feature.expose = function() {
                         var dependencies = [];
@@ -1975,65 +2062,63 @@ en fonction du résultat de ces tests
                         jsenv.assign(properties, pojo);
                     };
 
-                    propertiesConstructor.call(properties,
+                    propertiesConstructor(
                         feature,
                         feature.parent,
-                        feature.expose
+                        feature.expose,
+                        jsenv.transpile
                     );
-                } else {
-                    // un dossier vide a un code et un pass qui réussi par défaut
-                    properties.run = function() {};
-                    properties.pass = function() {
-                        return true;
-                    };
+
+                    checkProperty(feature, properties, 'run', parent);
+                    checkProperty(feature, properties, 'pass');
+                    checkProperty(feature, properties, 'fail');
+                    checkProperty(feature, properties, 'maxTestDuration');
+                    checkProperty(feature, properties, 'solution', parent);
+
+                    return feature;
+                },
+
+                close: function() {
+                    if (opened === false) {
+                        throw new Error('cannot close an already closed registerer');
+                    }
+
+                    var concreteFeatures = concreteVersions.map(function(concreteVersion) {
+                        return concreteVersion.feature;
+                    });
+
+                    if (abstractVersions.length) {
+                        // to get a simple error message we'll just throw with
+                        // one abstractVersion which was expected to become concrete
+                        var abstractVersion = abstractVersions[0];
+                        var abstractFeature = abstractVersion.feature;
+                        var dependentNames = abstractVersion.dependents.map(function(dependent) {
+                            return dependent.name;
+                        });
+                        // console.log('the concrete feature names', concreteFeatures.map(function(feature) {
+                        //     return feature.name;
+                        // }));
+                        throw new Error(
+                            abstractFeature.name + ' is required by ' + dependentNames + ' but is not registered'
+                        );
+                    }
+
+                    return concreteFeatures;
                 }
+            };
+        }
 
-                checkProperty(feature, properties, 'run', parent);
-                checkProperty(feature, properties, 'pass');
-                checkProperty(feature, properties, 'fail');
-                checkProperty(feature, properties, 'maxTestDuration');
-                checkProperty(feature, properties, 'solution', parent);
+        return {
+            createFeatureRegisterer: createFeatureRegisterer
+        };
+    });
 
-                return feature;
-            }
-            function checkProperty(feature, properties, propertyName, parent) {
-                if (propertyName in properties) {
-                    assignProperty(feature, properties[propertyName], propertyName);
-                } else if (parent) {
-                    assignProperty(feature, parent[propertyName], propertyName);
-                }
-            }
-            function assignProperty(feature, propertyValue, propertyName) {
-                if (propertyName === 'solution' && propertyValue === 'none') {
-                    propertyValue = {
-                        type: 'none',
-                        value: undefined
-                    };
-                }
-                feature[propertyName] = propertyValue;
-            }
-
-            var concreteFeatures = concreteVersions.map(function(concreteVersion) {
-                return concreteVersion.feature;
-            });
-
-            if (abstractVersions.length) {
-                // to get a simple error message we'll just throw with
-                // one abstractVersion which was expected to become concrete
-                var abstractVersion = abstractVersions[0];
-                var abstractFeature = abstractVersion.feature;
-                var dependentNames = abstractVersion.dependents.map(function(dependent) {
-                    return dependent.name;
-                });
-                // console.log('the concrete feature names', concreteFeatures.map(function(feature) {
-                //     return feature.name;
-                // }));
-                throw new Error(
-                    abstractFeature.name + ' is required by ' + dependentNames + ' but is not registered'
-                );
-            }
-
-            return concreteFeatures;
+    jsenv.provide(function registerFeatures() {
+        function registerFeatures(fn) {
+            var registerer = jsenv.createFeatureRegisterer();
+            registerer.open();
+            fn(registerer.add, jsenv.tranpsile);
+            return registerer.close();
         }
 
         return {
@@ -2224,10 +2309,12 @@ en fonction du résultat de ces tests
         function createImplementationClient(mediator) {
             function testImplementation() {
                 return mediator.send('getAllRequiredTest').then(function(data) {
-                    var entries = data.entries;
-                    var entriesToTest = entries.filter(entryHasTestMark);
-                    var featuresToTest = entriesToTest.map(function(entry) {
-                        return entry.feature;
+                    var features = data.features;
+                    var mustBeTested = data.mustBeTested;
+                    var featuresToTest = mustBeTested.map(function(featureName) {
+                        return Iterable.find(features, function(feature) {
+                            return feature.name === featureName;
+                        });
                     });
                     var testRecords = createRecords();
 
@@ -2258,81 +2345,101 @@ en fonction du résultat de ces tests
             }
             function fixImplementation() {
                 return mediator.send('getAllRequiredFix').then(function(data) {
-                    var entries = data.entries;
-                    var fixRecords = createRecords();
-                    var coreJSBuildSource = data.coreJSBuildSource;
-                    var entriesToFix = entries.filter(entryHasTestMark);
-                    var entriesUsingInlineSolution = entriesToFix.filter(entryUseInlineSolution);
-                    var entriesUsingFileSolution = entriesToFix.filter(entryUseFileSolution);
-                    var entriesUsingCoreJSSolution = entriesToFix.filter(entryUseCoreJSSolution);
+                    var features = data.features;
 
+                    var mustBeFixed = data.mustBeFixed;
+                    var featuresToFix = mustBeFixed.map(function(featureName) {
+                        return Iterable.find(features, function(feature) {
+                            return feature.name === featureName;
+                        });
+                    });
+
+                    var featuresUsingCoreJSSolution = featuresToFix.filter(featureUseCoreJSSolution);
+                    var coreJSSource = data.coreJSSource;
+                    var applyCoreJSSolution = createConcatenedSolver(coreJSSource);
                     function createConcatenedSolver(source) {
-                        var output = {status: 'pending'};
+                        var called = false;
+                        var status;
+                        var value;
 
                         return function() {
-                            if (output.status === 'pending') {
+                            if (called === false) {
+                                called = true;
                                 try {
-                                    var value = eval(source); // eslint-disable-line no-eval
-
-                                    output.status = 'completed';
-                                    output.reason = 'fixed';
-                                    output.detail = value;
+                                    value = eval(source); // eslint-disable-line no-eval
+                                    status = 'returned';
                                 } catch (e) {
-                                    output.status = 'crashed';
-                                    output.reason = 'some-source';
-                                    output.detail = e;
+                                    status = 'throwed';
+                                    value = e;
                                 }
                             }
 
-                            if (output.status === 'completed') {
-                                return output.detail;
+                            if (status === 'returned') {
+                                return value;
                             }
-                            if (output.status === 'crashed') {
-                                throw output.detail;
+                            if (status === 'throwed') {
+                                throw value;
                             }
                         };
                     }
-                    var coreJSSolver = createConcatenedSolver(coreJSBuildSource);
-                    entriesUsingCoreJSSolution.forEach(function(entry) {
-                        entry.feature.beforeTest = coreJSSolver;
-                    });
-                    entriesUsingInlineSolution.forEach(function(entry) {
+                    featuresUsingCoreJSSolution.forEach(function(entry) {
                         entry.feature.beforeTest = function() {
-                            this.polyfill(function() {
-                                return this.solution.value;
-                            });
-                        };
-                    });
-                    entriesUsingFileSolution.forEach(function(entry) {
-                        entry.feature.beforeTest = function() {
-                            entry.feature.solver(this);
+                            applyCoreJSSolution(this);
                         };
                     });
 
-                    var featuresToTest = entriesToFix.map(function(entry) {
-                        return entry.feature;
+                    var featuresUsingInlineSolution = featuresToFix.filter(featureUseInlineSolution);
+                    function applyInlineSolution(feature) {
+                        feature.polyfill(function() {
+                            return feature.solution.value;
+                        });
+                    }
+                    featuresUsingInlineSolution.forEach(function(feature) {
+                        feature.beforeTest = function() {
+                            applyInlineSolution(this);
+                        };
                     });
-                    return testFeatures(featuresToTest, fixRecords).then(function() {
+
+                    var featuresUsingFileSolution = featuresToFix.filter(featureUseFileSolution);
+                    var fileSolutions = data.fileSolutions;
+                    function applyFileSolution(feature) {
+                        var solution = Iterable.find(fileSolutions, function(fileSolution) {
+                            return fileSolution.feature === feature.name;
+                        });
+                        if (solution) {
+                            var solutionFn = new Function( // eslint-disable-line no-new-func
+                                'feature',
+                                solution.source
+                            );
+                            solutionFn(feature);
+                        }
+                        throw new Error('missing file solution source for ' + feature.name);
+                    }
+                    featuresUsingFileSolution.forEach(function(entry) {
+                        entry.feature.beforeTest = function() {
+                            applyFileSolution(this);
+                        };
+                    });
+
+                    var fixRecords = createRecords();
+                    return testFeatures(featuresToFix, fixRecords).then(function() {
                         return mediator.send('setAllFixRecord', fixRecords);
                     });
                 });
             }
-            function entryUseInlineSolution(entry) {
+            function featureUseInlineSolution(entry) {
                 return entry.feature.solution.type === 'inline';
             }
-            function entryUseFileSolution(entry) {
+            function featureUseFileSolution(entry) {
                 return entry.feature.solution.type === 'file';
             }
-            function entryUseCoreJSSolution(entry) {
+            function featureUseCoreJSSolution(entry) {
                 return entry.feature.solution.type === 'corejs';
             }
             function scanImplementation() {
                 return testImplementation().then(function() {
                     return fixImplementation();
                 });
-            }
-            function entryHasTestMark(entry) {
-                return entry.mustBeTested;
             }
 
             return {
