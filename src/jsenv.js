@@ -1687,12 +1687,13 @@ en fonction du résultat de ces tests
                 if (isDeepValue(output)) {
                     if (output.reached) {
                         settle(true, 'present');
-                    } else {
-                        settle(false, 'missing');
+                        return true;
                     }
-                } else {
-                    settle(false, 'output-must-be-deep-value', output);
+                    settle(false, 'missing');
+                    return false;
                 }
+                settle(false, 'output-must-be-deep-value', output);
+                return false;
             }
             function createIterableObject(arr, methods) {
                 var j = arr.length;
@@ -2094,6 +2095,7 @@ en fonction du résultat de ces tests
                     checkProperty(feature, properties, 'run', true);
                     checkProperty(feature, properties, 'pass');
                     checkProperty(feature, properties, 'fail');
+                    checkProperty(feature, properties, 'meta', true);
                     checkProperty(feature, properties, 'maxTestDuration');
                     checkProperty(feature, properties, 'solution', true);
 
