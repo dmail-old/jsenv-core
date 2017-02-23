@@ -6,14 +6,6 @@ with
 https://github.com/kangax/compat-table/blob/gh-pages/data-es5.js
 https://github.com/kangax/compat-table/blob/gh-pages/data-es6.js
 
-- ne pas lire toutes le filesystem puis générer une entries en créant un eval géant
-au lieu de ça ->
-on sait ou sont les features, on les lit un par un
-
-- c'est surement pas bon de ne pas tester les dependencies parce que
-dependency-is-invalid ne fonctionnera pas et en plus si jamais le code de la dependency
-a un jour un impact sur le dependent on sera ken
-
 - test-output.json
 missing
 -> renvoyer la solution sinon "espérer" que ça marcheras
@@ -246,9 +238,8 @@ api.getAllRequiredTest = function(featureNames, agent) {
             agent,
             'test'
         ).then(function() {
-            var featuresWithoutTestOutput = features.filter(featureTestIsMissing);
             return {
-                features: featuresWithoutTestOutput
+                features: filterPreservingDependencies(features, featureTestIsMissing)
             };
         }).then(encodeClient);
     });
@@ -372,10 +363,33 @@ function getFeatureAgentCache(feature, agent, createProperties) {
 function featureTestIsMissing(feature) {
     return feature.testOutput === undefined;
 }
+function filterPreservingDependencies(features, fn) {
+    var filteredFeatures = features.filter(fn);
+    return appendDependencies(filteredFeatures);
+}
+function appendDependencies(features) {
+    features.push.apply(features, collectAllDependencies(features));
+    return features;
+}
+function collectAllDependencies(features) {
+    var dependencies = [];
+    function visit(feature) {
+        feature.dependencies.forEach(function(dependency) {
+            if (Iterable.includes(features, dependency)) {
+                return;
+            }
+            if (Iterable.includes(dependencies, dependency)) {
+                return;
+            }
+            dependencies.push(dependency);
+            visit(dependency);
+        });
+    }
+    features.forEach(visit);
+    return dependencies;
+}
 function encodeClient(data) {
-    var concernedFeatures = data.features;
-    var dependencies = collectAllDependencies(concernedFeatures);
-    var features = concernedFeatures.concat(dependencies);
+    var features = data.features;
 
     var registerFeaturesHead = 'jsenv.registerFeatures(function(registerFeature) {';
     var registerFeaturesBody = features.map(function(feature) {
@@ -398,9 +412,9 @@ function encodeClient(data) {
         registerFeaturesFoot
     );
     var meta = {};
-    meta.enabled = concernedFeatures.map(function(feature) {
-        return feature.name;
-    });
+    // meta.enabled = concernedFeatures.map(function(feature) {
+    //     return feature.name;
+    // });
     jsenv.assign(meta, data.meta || {});
 
     var metaSource = uneval(meta);
@@ -410,19 +424,6 @@ function encodeClient(data) {
     source += '\n\tmeta:' + metaSource;
     source += '\n})';
     return source;
-}
-function collectAllDependencies(features) {
-    var dependencies = [];
-    function visit(feature) {
-        feature.dependencies.forEach(function(dependency) {
-            if (Iterable.includes(dependencies, dependency) === false) {
-                dependencies.push(dependency);
-                visit(dependency);
-            }
-        });
-    }
-    features.forEach(visit);
-    return dependencies;
 }
 // api.getAllRequiredTest(['let'], jsenv.agent).then(function(data) {
 //     console.log('required test data', data);
@@ -493,66 +494,80 @@ api.getAllRequiredFix = function(featureNames, agent) {
                 }));
             }
 
-            var featuresWithFailedTest = features.filter(featureTestHasFailed);
-            return featuresWithFailedTest;
+            return filterPreservingDependencies(features, featureTestHasFailed);
         });
     }).then(function(features) {
-        var remainingFeatures = features;
-        function getFeaturesUsingSolution(solution) {
-            var half = Iterable.bisect(remainingFeatures, function(feature) {
-                return solution.match(feature);
-            });
-            remainingFeatures = half[1];
-            return half[0];
-        }
-        var featuresGroup = {
-            inline: getFeaturesUsingSolution(inlineSolution),
-            file: getFeaturesUsingSolution(fileSolution),
-            corejs: getFeaturesUsingSolution(coreJSSolution),
-            babel: getFeaturesUsingSolution(babelSolution),
-            none: getFeaturesUsingSolution(noSolution)
-        };
-        var featuresUsingInlineSolution = featuresGroup.inline;
-        var featuresUsingFileSolution = featuresGroup.file;
-        var featuresUsingCoreJSSolution = featuresGroup.corejs;
-        var featuresUsingBabelSolution = featuresGroup.babel;
-
         return readAllOutputFromFileSystem(
             features,
             agent,
             'fix'
         ).then(function() {
-            function getSolutionOwner(feature) {
-                var featureOwningSolution = feature;
-                while (solutionIsInherited(featureOwningSolution)) {
-                    featureOwningSolution = featureOwningSolution.parent;
-                }
-                return featureOwningSolution;
+            var remainingFeatures = features;
+            function getFeaturesUsingSolution(solution) {
+                var half = Iterable.bisect(remainingFeatures, function(feature) {
+                    return solution.match(feature);
+                });
+                remainingFeatures = half[1];
+                return half[0];
             }
-            function solutionIsInherited(feature) {
-                var parent = feature.parent;
-                return parent && feature.solution === parent.solution;
+            var featuresGroup = {
+                inline: getFeaturesUsingSolution(inlineSolution),
+                file: getFeaturesUsingSolution(fileSolution),
+                corejs: getFeaturesUsingSolution(coreJSSolution),
+                babel: getFeaturesUsingSolution(babelSolution),
+                none: getFeaturesUsingSolution(noSolution)
+            };
+            return featuresGroup;
+        }).then(function(featuresGroup) {
+            var featuresUsingInlineSolution = featuresGroup.inline;
+            var featuresUsingFileSolution = featuresGroup.file;
+            var featuresUsingCoreJSSolution = featuresGroup.corejs;
+            var featuresUsingBabelSolution = featuresGroup.babel;
+
+            function featureIsSolutionOwner(feature) {
+                return (
+                    Boolean(feature.parent) === false ||
+                    feature.solution !== feature.parent.solution
+                );
+            }
+            function getUniqSolutionOwners(features) {
+                return Iterable.uniq(
+                    features.filter(featureIsSolutionOwner)
+                );
             }
 
-            var inlineWithoutFixOutput = featuresUsingInlineSolution.filter(featureFixIsMissing);
-            var featuresOwningInlineSolutions = Iterable.uniq(inlineWithoutFixOutput.map(getSolutionOwner));
+            var inlineWithoutFixOutput = filterPreservingDependencies(
+                featuresUsingInlineSolution,
+                featureFixIsMissing
+            );
+            var featuresOwningInlineSolutions = getUniqSolutionOwners(inlineWithoutFixOutput);
             var inlineSolver = inlineSolution.solve(featuresOwningInlineSolutions);
             console.log('inline fix', featuresOwningInlineSolutions.length);
 
-            var fileWithoutFixOutput = featuresUsingFileSolution.filter(featureFixIsMissing);
-            var featuresOwningFileSolutions = Iterable.uniq(fileWithoutFixOutput.map(getSolutionOwner));
+            var fileWithoutFixOutput = filterPreservingDependencies(
+                featuresUsingFileSolution,
+                featureFixIsMissing
+            );
+            var featuresOwningFileSolutions = getUniqSolutionOwners(fileWithoutFixOutput);
             var fileSolver = fileSolution.solve(featuresOwningFileSolutions);
             console.log('file fix', featuresOwningFileSolutions.length);
 
-            var corejsWithoutFixOutput = featuresUsingCoreJSSolution.filter(featureFixIsMissing);
-            var featuresOwningCoreJSSolutions = Iterable.uniq(corejsWithoutFixOutput.map(getSolutionOwner));
+            var corejsWithoutFixOutput = filterPreservingDependencies(
+                featuresUsingCoreJSSolution,
+                featureFixIsMissing,
+                true
+            );
+            var featuresOwningCoreJSSolutions = getUniqSolutionOwners(corejsWithoutFixOutput);
             var coreJSSolver = coreJSSolution.solve(featuresOwningCoreJSSolutions);
             console.log('corejs fix', featuresOwningCoreJSSolutions.length);
 
-            var babelWithoutFixOutput = featuresUsingBabelSolution.filter(featureFixIsMissing);
-            var featuresOwningAllBabelSolutions = Iterable.uniq(featuresUsingBabelSolution.map(getSolutionOwner));
+            var babelWithoutFixOutput = filterPreservingDependencies(
+                featuresUsingBabelSolution,
+                featureFixIsMissing
+            );
+            var featuresOwningBabelSolutions = getUniqSolutionOwners(babelWithoutFixOutput);
             var babelSolver = Thenable.resolve(
-                babelSolution.solve(featuresOwningAllBabelSolutions)
+                babelSolution.solve(featuresOwningBabelSolutions)
             ).then(function(transpiler) {
                 /*
                 it may be the most complex thing involved here so let me explain
@@ -580,10 +595,7 @@ api.getAllRequiredFix = function(featureNames, agent) {
                     ]
                 });
 
-                var dependencies = collectAllDependencies(babelWithoutFixOutput);
-                var featuresToTranspile = babelWithoutFixOutput.concat(dependencies);
-
-                return Thenable.all(featuresToTranspile.map(function(feature) {
+                return Thenable.all(babelWithoutFixOutput.map(function(feature) {
                     return readFeatureFromFileSystem(
                         feature.name,
                         fixedFeatureTranspiler
