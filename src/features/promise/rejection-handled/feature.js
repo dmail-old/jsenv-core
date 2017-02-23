@@ -1,6 +1,6 @@
 expose(
     {
-        maxTestDuration: 1000,
+        maxTestDuration: 150,
         pass: function(output, settle) {
             var Promise = output.value;
             var promiseRejectionEvent;
@@ -40,8 +40,8 @@ expose(
                     // node event emit the value
                     // so we can't check for
                     // promiseRejectionEvent.reason === 'foo'
-                }, 500); // engine has 500ms to trigger the event
-            });
+                }, 100); // engine has 500ms to trigger the event
+            }, 2);
         }
     }
 );
