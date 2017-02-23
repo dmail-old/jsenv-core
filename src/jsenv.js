@@ -2314,14 +2314,8 @@ en fonction du résultat de ces tests
             function fixImplementation() {
                 return mediator.send('getAllRequiredFix').then(function(data) {
                     var features = data.features;
-                    var enabledFeatureNames = data.meta.enabled;
-                    var featuresToFix = enabledFeatureNames.map(function(featureName) {
-                        return Iterable.find(features, function(feature) {
-                            return feature.name === featureName;
-                        });
-                    });
 
-                    var featuresUsingCoreJSSolution = featuresToFix.filter(featureUseCoreJSSolution);
+                    var featuresUsingCoreJSSolution = features.filter(featureUseCoreJSSolution);
                     var coreJSSolver = data.meta.coreJSSolver;
                     var applyCoreJSSolution = createConcatenedSolver(coreJSSolver);
                     function createConcatenedSolver(solver) {
@@ -2355,7 +2349,7 @@ en fonction du résultat de ces tests
                         };
                     });
 
-                    var featuresUsingInlineSolution = featuresToFix.filter(featureUseInlineSolution);
+                    var featuresUsingInlineSolution = features.filter(featureUseInlineSolution);
                     function applyInlineSolution(feature) {
                         feature.polyfill(function() {
                             return feature.solution.value;
@@ -2367,7 +2361,7 @@ en fonction du résultat de ces tests
                         };
                     });
 
-                    var featuresUsingFileSolution = featuresToFix.filter(featureUseFileSolution);
+                    var featuresUsingFileSolution = features.filter(featureUseFileSolution);
                     var fileSources = data.meta.fileSources;
                     function applyFileSolution(feature) {
                         var fileSource = Iterable.find(fileSources, function(fileSource) {
