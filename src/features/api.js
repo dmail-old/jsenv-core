@@ -48,6 +48,7 @@ var Agent = require('../agent/agent.js');
 var fsAsync = require('../fs-async.js');
 var store = require('../store.js');
 var memoize = require('../memoize.js');
+var uneval = require('../uneval.js');
 var rootFolder = path.resolve(__dirname, '../..').replace(/\\/g, '/');
 var cacheFolder = rootFolder + '/cache';
 var featuresFolderPath = rootFolder + '/src/features';
@@ -370,7 +371,7 @@ function encodeClient(data) {
     var features = concernedFeatures.concat(dependencies);
 
     // generer un code à évaluer pour une liste de feature
-    // c'est le gender de truc qu'on pourra mettre en cache en plus ;)
+    // c'est le genre de truc qu'on pourra mettre en cache en plus ;)
     var registerFeaturesHead = 'jsenv.registerFeatures(function(registerFeature) {';
     var registerFeaturesBody = features.map(function(feature) {
         var featureNameSource = "'" + feature.name + "'";
@@ -383,24 +384,26 @@ function encodeClient(data) {
             ');'
         );
     });
-    var registerFeaturesFoot = '});';
+    var registerFeaturesFoot = '})';
     var registerFeaturesSource = (
-        '\n' +
         registerFeaturesHead +
         '\n\t' +
         registerFeaturesBody.join('\n\t\n\t') +
         '\n' +
-        registerFeaturesFoot +
-        '\n'
+        registerFeaturesFoot
     );
-
-    return {
-        featuresSource: registerFeaturesSource,
+    var metaSource = uneval({
         mustBeTested: concernedFeatures.map(function(feature) {
             return feature.name;
-        }),
-        meta: data.meta || {}
-    };
+        })
+    });
+
+    var source = '';
+    source += '({';
+    source += '\n\tfeatures: ' + registerFeaturesSource + ',';
+    source += '\n\tmeta:' + metaSource;
+    source += '\n})';
+    return source;
 }
 function collectAllDependencies(features) {
     var dependencies = [];
@@ -424,8 +427,10 @@ function collectAllDependencies(features) {
 // });
 
 api.setAllTestRecord = function(records, agent) {
+    var outputs = [];
     var featureNames = records.map(function(record) {
-        return record.name;
+        outputs.push(record.output);
+        return record.featureName;
     });
 
     return api.getAllFeature.apply(null, featureNames).then(function(features) {
@@ -433,11 +438,11 @@ api.setAllTestRecord = function(records, agent) {
             features,
             agent,
             'test',
-            records
+            outputs
         );
     });
 };
-function writeAllOutputToFileSystem(features, agent, type, records) {
+function writeAllOutputToFileSystem(features, agent, type, outputs) {
     var thenables = features.map(function(feature, index) {
         var createProperties;
         if (type === 'test') {
@@ -450,7 +455,7 @@ function writeAllOutputToFileSystem(features, agent, type, records) {
             feature,
             agent,
             createProperties,
-            records[index]
+            outputs[index]
         ).then(function() {
             return undefined;
         });
@@ -568,20 +573,6 @@ api.getAllRequiredFix = function(featureNames, agent) {
                         plugin
                     ]
                 });
-                // il faut modifier chaque feature.source qui a besoin d'être transpilé
-                // il faut modifier les features qui ont un test qui fail mais aussi
-                // leur dépendance car elles devront être rerun
-                // on cherche seulement à mettre à jour feature.propertiesConstructor
-                // en utilisant createFeatureConstructorFromBodySource
-                /*
-                je pense qu'il suffit de partir de babelWithoutFixOutput
-                d'apeller sur chaque readFeatureFromFileSystem puis
-                de faire feature.propertiesConstructor = createFeatureConstructorFromBodySource
-                depuis la source qu'on récupère
-
-                enfin il faut faire ça aussi sur toutes les dépendances qui doivent aussi
-                avoir une version transpilé
-                */
 
                 var dependencies = collectAllDependencies(babelWithoutFixOutput);
                 var featuresToTranspile = babelWithoutFixOutput.concat(dependencies);
@@ -795,8 +786,10 @@ api.getAllRequiredFix(
 });
 
 api.setAllFixRecord = function(records, agent) {
+    var outputs = [];
     var featureNames = records.map(function(record) {
-        return record.name;
+        outputs.push(record.output);
+        return record.featureName;
     });
 
     return api.getAllFeature.apply(null, featureNames).then(function(features) {
@@ -804,7 +797,7 @@ api.setAllFixRecord = function(records, agent) {
             features,
             agent,
             'fix',
-            records
+            outputs
         );
     });
 };
@@ -815,26 +808,13 @@ api.createOwnMediator = function(featureNames, agent) {
     return {
         send: function(action, value) {
             if (action === 'getAllRequiredTest') {
-                return api.getAllRequiredTest(
-                    featureNames,
-                    agent
-                ).then(function(data) {
-                    var clientData = {};
-                    clientData.features = getClientFeatures(data.featuresSource);
-                    jsenv.assign(clientData, data.meta);
-                    return clientData;
-                });
+                return api.getAllRequiredTest(featureNames, agent).then(fromServer);
             }
             if (action === 'setAllTestRecord') {
                 return api.setAllTestRecord(value, agent);
             }
             if (action === 'getAllRequiredFix') {
-                return api.getAllRequiredFix(featureNames, agent).then(function(data) {
-                    var clientData = {};
-                    clientData.features = getClientFeatures(data.featuresSource);
-                    jsenv.assign(clientData, data.meta);
-                    return clientData;
-                });
+                return api.getAllRequiredFix(featureNames, agent).then(fromServer);
             }
             if (action === 'setAllFixRecord') {
                 return api.setAllFixRecord(value, agent);
@@ -842,15 +822,15 @@ api.createOwnMediator = function(featureNames, agent) {
         }
     };
 
-    function getClientFeatures(featuresSource) {
-        var features;
+    function fromServer(source) {
+        var data;
         try {
-            features = eval(featuresSource); // eslint-disable-line no-eval
+            data = eval(source); // eslint-disable-line no-eval
         } catch (e) {
             // some feature source lead to error
             throw e;
         }
-        return features;
+        return data;
     }
 };
 
@@ -977,18 +957,7 @@ var ownMediator = api.createOwnMediator(
 );
 api.client = jsenv.createImplementationClient(ownMediator);
 
-api.getFixSource = function(featureNames, agent) {
-    return api.getAllFeature.apply(null, featureNames).then(function(features) {
-        var promises = features.map(function(feature) {
-            return adaptAgentToCache(feature, agent);
-        });
-        return Thenable.all(promises).then(function() {
-            // got the cache path for all feature
-            // now we can keep going
-        });
-    });
-};
-function adaptAgentToCache(feature, agent) {
+api.getClosestAgentForFeature = function(agent, feature) {
     var featureFolderPath = featuresFolderPath + '/' + feature.name;
     var featureCachePath = featureFolderPath + '/.cache';
 
@@ -1071,9 +1040,9 @@ function adaptAgentToCache(feature, agent) {
         );
     }
 
-    var adaptedAgent = jsenv.createAgent(agent.name, agent.version);
+    var closestAgent = jsenv.createAgent(agent.name, agent.version);
     return adaptAgentName(
-        adaptedAgent,
+        closestAgent,
         featureCachePath
     ).catch(function(e) {
         if (e && e.code === 'ENOENT') {
@@ -1082,8 +1051,8 @@ function adaptAgentToCache(feature, agent) {
         return Promise.reject(e);
     }).then(function() {
         return adaptVersion(
-            adaptedAgent.version,
-            featureCachePath + '/' + adaptedAgent.name
+            closestAgent.version,
+            featureCachePath + '/' + closestAgent.name
         ).catch(function(e) {
             if (e && e.code === 'ENOENT') {
                 throw new Error(feature.name + ' feature has no cache for ' + agent);
@@ -1091,19 +1060,10 @@ function adaptAgentToCache(feature, agent) {
             return Promise.reject(e);
         });
     }).then(function() {
-        return adaptedAgent;
+        return closestAgent;
     });
-}
-
-// api.client.scan().then(function() {
-//     console.log('here', Math.DEG_PER_RAD);
-// }).catch(function(e) {
-//     setTimeout(function() {
-//         throw e;
-//     });
-// });
-
-// adaptAgentToCache(
+};
+// api.getClosestAgentForFeature(
 //     {
 //         name: 'const'
 //     },
@@ -1112,6 +1072,26 @@ function adaptAgentToCache(feature, agent) {
 //     console.log('agent', agent.toString());
 // }).catch(function(e) {
 //     console.log('rejected with', e);
+// });
+
+api.getFixSource = function(featureNames, agent) {
+    return api.getAllFeature.apply(null, featureNames).then(function(features) {
+        var promises = features.map(function(feature) {
+            return api.getClosestAgentForFeature(agent, feature);
+        });
+        return Thenable.all(promises).then(function() {
+            // got the cache path for all feature
+            // now we can keep going
+        });
+    });
+};
+
+// api.client.scan().then(function() {
+//     console.log('here', Math.DEG_PER_RAD);
+// }).catch(function(e) {
+//     setTimeout(function() {
+//         throw e;
+//     });
 // });
 
 module.exports = api;
