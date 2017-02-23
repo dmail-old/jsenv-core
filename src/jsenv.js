@@ -2126,42 +2126,6 @@ en fonction du résultat de ces tests
         };
     });
 
-    jsenv.provide(function reviveFeatureEntries() {
-        return {
-            reviveFeatureEntries: function(entries) {
-                var registerFeaturesHead = 'jsenv.registerFeatures(function(registerFeature, transpile) {';
-                var registerFeaturesBody = entries.map(function(entry) {
-                    return entry.source;
-                });
-                var registerFeaturesFoot = '});';
-                var registerFeaturesSource;
-                registerFeaturesSource = (
-                    '\n' +
-                    registerFeaturesHead +
-                    '\n\t' +
-                    registerFeaturesBody.join('\n\t\n\t') +
-                    '\n' +
-                    registerFeaturesFoot +
-                    '\n'
-                );
-                // require('fs').writeFileSync('./feature-output.js', registerFeaturesSource);
-
-                var features = eval(registerFeaturesSource); // eslint-disable-line no-eval
-
-                features.forEach(function(feature) {
-                    var entry = Iterable.find(entries, function(entry) {
-                        return feature.match(entry.feature.name);
-                    });
-                    entry.feature = feature;
-                    if (entry.enabled) {
-                        feature.enable();
-                    }
-                });
-                return entries;
-            }
-        };
-    });
-
     jsenv.provide(function testFeatures() {
         var Iterable = jsenv.Iterable;
 
@@ -2169,39 +2133,7 @@ en fonction du résultat de ces tests
             var results = [];
             var readyCount = 0;
             var groups = groupNodesByDependencyDepth(features);
-            var group;
-            var groupIndex = -1;
-            var groupCount = groups.length;
-            var groupReadyCount = 0;
-            var done;
-            var thenable = new Thenable(function(resolve) {
-                done = function() {
-                    resolve(results);
-                };
-            });
 
-            function handleResult(result) {
-                var feature = this; // callback is async, this is the right feature object we want
-                var featureIndex = features.indexOf(feature);
-                results[featureIndex] = result;
-                readyCount++;
-
-                if (progressCallback) {
-                    var progressEvent = {
-                        type: 'progress',
-                        target: feature,
-                        detail: result,
-                        lengthComputable: true,
-                        total: features.length,
-                        loaded: readyCount
-                    };
-                    progressCallback(progressEvent);
-                }
-                groupReadyCount++;
-                if (groupReadyCount === group.length) {
-                    nextGroup();
-                }
-            }
             function isInvalid(feature) {
                 var featureIndex = features.indexOf(feature);
                 if (featureIndex in results === false) {
@@ -2216,48 +2148,69 @@ en fonction du résultat de ces tests
                     isInvalid(dependency)
                 );
             }
-            function nextGroup() {
-                groupIndex++;
-                if (groupIndex === groupCount) {
-                    // il faut faire setTimeout sur done
-                    // je ne sais pas trop pourquoi sinon nodejs cache les erreurs qui pourraient
-                    // être throw par done ou le callback
-                    setTimeout(done);
-                } else {
-                    group = groups[groupIndex];
-                    var i = 0;
-                    var j = group.length;
-                    groupReadyCount = 0;
+            function reduceAsync(iterable, fn, firstValue) {
+                var i = 0;
+                var j = iterable.length;
+                var values = [];
+                function next(previousValue) {
+                    if (i === j) {
+                        return values;
+                    }
+                    if (i > 0) {
+                        values[i - 1] = previousValue;
+                    }
 
-                    while (i < j) {
-                        var feature = group[i];
+                    var value = iterable[i];
+                    i++;
+                    var returnValue = fn(value, i, iterable);
+                    return Thenable.resolve(returnValue).then(next);
+                }
+
+                return Thenable.resolve(firstValue).then(next);
+            }
+
+            return reduceAsync(groups, function(group) {
+                return Thenable.all(group.map(function(feature) {
+                    return new Thenable(function(resolve) {
                         var dependencies = feature.dependencies;
                         var invalidDependency = Iterable.find(dependencies, dependencyIsInvalid, feature);
                         if (invalidDependency) {
-                            handleResult.call(feature, {
+                            resolve({
                                 status: 'invalid',
                                 reason: 'dependency-is-invalid',
                                 detail: invalidDependency.name
                             });
                         } else {
-                            try {
-                                feature.test(handleResult);
-                            } catch (e) {
-                                handleResult.call(feature, {
-                                    status: 'invalid',
-                                    reason: 'throw',
-                                    detail: e
-                                });
-                            }
+                            feature.test(resolve);
                         }
-                        i++;
-                    }
-                }
-            }
-            nextGroup();
-            return thenable;
+                    }).catch(function(e) {
+                        return {
+                            status: 'invalid',
+                            reason: 'throw',
+                            detail: e
+                        };
+                    }).then(function(result) {
+                        readyCount++;
+                        var featureIndex = features.indexOf(feature);
+                        results[featureIndex] = result;
+                        if (progressCallback) {
+                            var progressEvent = {
+                                type: 'progress',
+                                target: feature,
+                                detail: result,
+                                lengthComputable: true,
+                                total: features.length,
+                                loaded: readyCount
+                            };
+                            progressCallback(progressEvent);
+                        }
+                        return result;
+                    });
+                }));
+            }).then(function() {
+                return results;
+            });
         }
-
         function groupNodesByDependencyDepth(nodes) {
             var unresolvedNodes = nodes.slice();
             var i = 0;
@@ -2317,7 +2270,6 @@ en fonction du résultat de ces tests
                         });
                     });
                     var testRecords = createRecords();
-
                     return testFeatures(
                         featuresToTest,
                         testRecords
@@ -2427,14 +2379,14 @@ en fonction du résultat de ces tests
                     });
                 });
             }
-            function featureUseInlineSolution(entry) {
-                return entry.feature.solution.type === 'inline';
+            function featureUseInlineSolution(feature) {
+                return feature.solution.type === 'inline';
             }
-            function featureUseFileSolution(entry) {
-                return entry.feature.solution.type === 'file';
+            function featureUseFileSolution(feature) {
+                return feature.solution.type === 'file';
             }
-            function featureUseCoreJSSolution(entry) {
-                return entry.feature.solution.type === 'corejs';
+            function featureUseCoreJSSolution(feature) {
+                return feature.solution.type === 'corejs';
             }
             function scanImplementation() {
                 return testImplementation().then(function() {
