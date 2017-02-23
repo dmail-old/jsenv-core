@@ -12,6 +12,7 @@ cache/before-fix/jkljkjkjkljkl/file.js#content
 */
 
 require('./jsenv.js');
+var Thenable = jsenv.Thenable;
 var cuid = require('cuid');
 var fsAsync = require('./fs-async.js');
 var Path = require('path');
@@ -424,14 +425,7 @@ var createFileSystemCacheBranchEntry = (function() {
                 return Promise.resolve(data);
             }
 
-            return fsAsync.visible(path).catch(function() {
-                data.valid = false;
-                data.reason = 'file-not-found';
-                data.detail = {
-                    path: path
-                };
-                return Promise.reject(data);
-            }).then(function() {
+            return Thenable.resolve().then(function() {
                 return entry.prevalidate();
             }).then(function() {
                 if (data.valid === false) {
@@ -458,6 +452,14 @@ var createFileSystemCacheBranchEntry = (function() {
                 return data;
             }).catch(function(value) {
                 if (value === data) {
+                    return data;
+                }
+                if (value && value.code === 'ENOENT') {
+                    data.valid = false;
+                    data.reason = 'file-not-found';
+                    data.detail = {
+                        path: path
+                    };
                     return data;
                 }
                 return Promise.reject(value);
