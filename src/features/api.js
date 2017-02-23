@@ -851,14 +851,14 @@ var ownMediator = api.createOwnMediator(
     String(jsenv.agent)
 );
 api.client = jsenv.createImplementationClient(ownMediator);
-api.client.scan().then(function() {
-    console.log('here');
-    // console.log(Math.DEG_PER_RAD);
-}).catch(function(e) {
-    setTimeout(function() {
-        throw e;
-    });
-});
+// api.client.scan().then(function() {
+//     console.log('here');
+//     // console.log(Math.DEG_PER_RAD);
+// }).catch(function(e) {
+//     setTimeout(function() {
+//         throw e;
+//     });
+// });
 
 api.getClosestAgentForFeature = function(agent, feature) {
     var featureFolderPath = featuresFolderPath + '/' + feature.name;
