@@ -6,26 +6,7 @@ with
 https://github.com/kangax/compat-table/blob/gh-pages/data-es5.js
 https://github.com/kangax/compat-table/blob/gh-pages/data-es6.js
 
-- test-output.json
-missing
--> renvoyer la solution sinon "espérer" que ça marcheras
-crashed
--> même chose qu'au dessus
-failed
--> si une solution, regarde fix-output.jsn
-    missing
-    -> renvoyer la solution et espérer que ça passe
-    crashed
-    -> même chose qu'au dessus
-    failed
-    -> renvoyer un code d'erreur comme quoi la solution pour cette feature ne marche pas
-    completed
-    -> renvoyer la solution
-sinon renvoyer un code d'erreur comme quoi la feature n'a pas de solution
-
-dans les cas "espérer" que ça marchera, le client pourra émétter un warning genre
-cette feature pourrait ne pas marcher puisque:
-    j'applique la solution sans tester OU je n'ai pas testé
+- appliquer l'algo pour fix en production
 
 - chaque polyfill pourrait lui aussi définir des dépendances
 pour le moment comme si le polyfill était toujours standalone
@@ -961,6 +942,23 @@ api.getClosestAgentForFeature = function(agent, feature) {
             }
         );
     }
+    function missingAgent() {
+        var missing = {
+            code: 'missing-agent',
+            featureName: feature.name,
+            agentName: agent.name
+        };
+        return missing;
+    }
+    function missingVersion() {
+        var missing = {
+            code: 'missing-version',
+            featureName: feature.name,
+            agentName: agent.name,
+            agentVersion: agent.version.toString()
+        };
+        return missing;
+    }
 
     var closestAgent = jsenv.createAgent(agent.name, agent.version);
     return adaptAgentName(
@@ -968,7 +966,7 @@ api.getClosestAgentForFeature = function(agent, feature) {
         featureCachePath
     ).catch(function(e) {
         if (e && e.code === 'ENOENT') {
-            throw new Error(feature.name + ' feature has no cache for agent ' + agent.name);
+            return missingAgent();
         }
         return Promise.reject(e);
     }).then(function() {
@@ -977,7 +975,7 @@ api.getClosestAgentForFeature = function(agent, feature) {
             featureCachePath + '/' + closestAgent.name
         ).catch(function(e) {
             if (e && e.code === 'ENOENT') {
-                throw new Error(feature.name + ' feature has no cache for ' + agent);
+                return missingVersion();
             }
             return Promise.reject(e);
         });
@@ -1001,9 +999,50 @@ api.getFixSource = function(featureNames, agent) {
         var promises = features.map(function(feature) {
             return api.getClosestAgentForFeature(agent, feature);
         });
-        return Thenable.all(promises).then(function() {
-            // got the cache path for all feature
-            // now we can keep going
+        return Thenable.all(promises).then(function(/* featureAgents */) {
+            // en se basant sur le pseud-code ci dessous
+            // on peut comprendre ce que le client doit faire selon le cas dans lequel on se trouve
+
+            /*
+            if (testIsMissing || testIsCrashed) {
+                if (featureHasSolution) {
+                    return {
+                        instruction: 'fix',
+                        reason: 'test-missing-or-crashed',
+                        detail: getFeatureSolution()
+                    };
+                }
+                return {
+                    instruction: 'do-nothing',
+                    reason: 'test-missing-or-crashed-and-no-solution'
+                };
+            } else if (testIsFailed) {
+                if (featureHasSolution) {
+                    var featureFix = getFeatureFix();
+                    if (featureFixIsMissing || featureFixIsCrashed) {
+                        return {
+                            instruction: 'fix',
+                            reason: 'test-invalid-and-fix-missing-or-crashed',
+                            detail: getFeatureSolution()
+                        };
+                    }
+                    if (featureFixIsFailed) {
+                        return {
+                            instruction: 'fail',
+                            reason: 'test-invalid-and-fix-invalid'
+                        };
+                    }
+                    return {
+                        instruction: 'fix',
+                        reason: 'test-invalid'
+                    };
+                }
+                return {
+                    instruction: 'fail',
+                    reason: 'test-invalid-and-no-solution'
+                };
+            }
+            */
         });
     });
 };
