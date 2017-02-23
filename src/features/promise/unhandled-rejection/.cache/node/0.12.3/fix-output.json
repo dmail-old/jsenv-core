@@ -2,15 +2,15 @@
 	"sources": [
 		{
 			"path": "../../../../feature.js",
-			"eTag": "\"699-WBBFKAqR8Si8ZfHzmeqpWXOt9x0\""
+			"eTag": "\"810-JBUrXhNvx3eA4Y65nM6/nAdbZ64\""
 		}
 	],
 	"value": {
 		"status": "completed",
 		"reason": "test-result",
 		"detail": {
-			"status": "invalid",
-			"reason": "missing-event"
+			"status": "valid",
+			"reason": "event-ok"
 		}
 	}
 }

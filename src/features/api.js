@@ -10,6 +10,10 @@ https://github.com/kangax/compat-table/blob/gh-pages/data-es6.js
 au lieu de ça ->
 on sait ou sont les features, on les lit un par un
 
+- c'est surement pas bon de ne pas tester les dependencies parce que
+dependency-is-invalid ne fonctionnera pas et en plus si jamais le code de la dependency
+a un jour un impact sur le dependent on sera ken
+
 - test-output.json
 missing
 -> renvoyer la solution sinon "espérer" que ça marcheras
@@ -193,7 +197,7 @@ function readFeatureFromFileSystem(featureName, transpiler) {
         },
         function(e) {
             if (e && e.code === 'ENOENT') {
-                throw new Error('the is no feature named ' + featureName);
+                throw new Error('no feature named ' + featureName);
             }
             return Thenable.reject(e);
         }
@@ -285,7 +289,9 @@ function createTestOutputProperties(feature, agent) {
                 path: featuresFolderPath + '/' + feature.name + '/feature.js',
                 strategy: 'eTag'
             }
-        ]
+        ],
+        // mode: 'write-only'
+        mode: 'default'
     };
     properties.path = featureAgentCachePath + '/' + properties.name;
     return properties;
@@ -319,7 +325,8 @@ function createFixOutputProperties(feature, agent) {
         encode: function(value) {
             return JSON.stringify(value, stringifyErrorReplacer, '\t');
         },
-        cacheMode: 'default',
+        mode: 'write-only',
+        // mode: 'default',
         sources: sources
     };
     properties.path = featureAgentCachePath + '/' + properties.name;
@@ -370,8 +377,6 @@ function encodeClient(data) {
     var dependencies = collectAllDependencies(concernedFeatures);
     var features = concernedFeatures.concat(dependencies);
 
-    // generer un code à évaluer pour une liste de feature
-    // c'est le genre de truc qu'on pourra mettre en cache en plus ;)
     var registerFeaturesHead = 'jsenv.registerFeatures(function(registerFeature) {';
     var registerFeaturesBody = features.map(function(feature) {
         var featureNameSource = "'" + feature.name + "'";
@@ -392,12 +397,13 @@ function encodeClient(data) {
         '\n' +
         registerFeaturesFoot
     );
-    var metaSource = uneval({
-        mustBeTested: concernedFeatures.map(function(feature) {
-            return feature.name;
-        })
+    var meta = {};
+    meta.enabled = concernedFeatures.map(function(feature) {
+        return feature.name;
     });
+    jsenv.assign(meta, data.meta || {});
 
+    var metaSource = uneval(meta);
     var source = '';
     source += '({';
     source += '\n\tfeatures: ' + registerFeaturesSource + ',';
@@ -529,22 +535,22 @@ api.getAllRequiredFix = function(featureNames, agent) {
             }
 
             var inlineWithoutFixOutput = featuresUsingInlineSolution.filter(featureFixIsMissing);
-            var featuresOwningInlineSolutions = inlineWithoutFixOutput.map(getSolutionOwner);
+            var featuresOwningInlineSolutions = Iterable.uniq(inlineWithoutFixOutput.map(getSolutionOwner));
             var inlineSolver = inlineSolution.solve(featuresOwningInlineSolutions);
             console.log('inline fix', featuresOwningInlineSolutions.length);
 
             var fileWithoutFixOutput = featuresUsingFileSolution.filter(featureFixIsMissing);
-            var featuresOwningFileSolutions = fileWithoutFixOutput.map(getSolutionOwner);
+            var featuresOwningFileSolutions = Iterable.uniq(fileWithoutFixOutput.map(getSolutionOwner));
             var fileSolver = fileSolution.solve(featuresOwningFileSolutions);
             console.log('file fix', featuresOwningFileSolutions.length);
 
             var corejsWithoutFixOutput = featuresUsingCoreJSSolution.filter(featureFixIsMissing);
-            var featuresOwningCoreJSSolutions = corejsWithoutFixOutput.map(getSolutionOwner);
+            var featuresOwningCoreJSSolutions = Iterable.uniq(corejsWithoutFixOutput.map(getSolutionOwner));
             var coreJSSolver = coreJSSolution.solve(featuresOwningCoreJSSolutions);
             console.log('corejs fix', featuresOwningCoreJSSolutions.length);
 
             var babelWithoutFixOutput = featuresUsingBabelSolution.filter(featureFixIsMissing);
-            var featuresOwningAllBabelSolutions = featuresUsingBabelSolution.map(getSolutionOwner);
+            var featuresOwningAllBabelSolutions = Iterable.uniq(featuresUsingBabelSolution.map(getSolutionOwner));
             var babelSolver = Thenable.resolve(
                 babelSolution.solve(featuresOwningAllBabelSolutions)
             ).then(function(transpiler) {
@@ -601,8 +607,13 @@ api.getAllRequiredFix = function(featureNames, agent) {
                         babelWithoutFixOutput
                     ),
                     meta: {
-                        fileSources: data[1],
-                        coreJSSource: data[2]
+                        fileSources: data[1].map(function(fileSolutionSource, index) {
+                            return {
+                                feature: featuresOwningFileSolutions[index].name,
+                                source: fileSolutionSource
+                            };
+                        }),
+                        coreJSSolver: data[2]
                     }
                 };
             }).then(encodeClient);
@@ -629,14 +640,15 @@ var fileSolution = {
                 featuresFolderPath + '/' + feature.name + '/feature.js',
                 feature.solution.value.replace('${rootFolder}', rootFolder)
             );
-            if (Iterable.includes(filePaths, filePath)) {
+            var index = filePaths.indexOf(filePath);
+            if (index > -1) {
                 throw new Error(
-                    'two feature cannot share the same file solution ' + filePath
+                    'conflict between ' + feature.name + ' and ' +
+                    features[index].name + ' on file solution ' + filePath
                 );
             }
             filePaths.push(filePath);
         });
-        // if some feature use the same file we must throw
         var promises = Iterable.map(filePaths, function(filePath) {
             console.log('fetch file solution', filePath);
 
@@ -652,11 +664,13 @@ var coreJSSolution = {
 
     solve: function(features) {
         var moduleNames = [];
-        features.forEach(function(entry) {
-            var moduleName = entry.feature.solution.value;
-            if (Iterable.includes(moduleNames, moduleName)) {
+        features.forEach(function(feature) {
+            var moduleName = feature.solution.value;
+            var index = moduleNames.indexOf(moduleName);
+            if (index > -1) {
                 throw new Error(
-                    'two feature cannot share the same corejs solution ' + moduleName
+                    'conflict between ' + feature.name + ' and ' +
+                    features[index].name + 'on corejs solution ' + moduleName
                 );
             }
             moduleNames.push(moduleName);
@@ -700,6 +714,8 @@ var coreJSSolution = {
                     name: 'build.js'
                 })
             )();
+        }).then(function(source) {
+            return new Function(source); // eslint-disable-line no-new-func
         });
     }
 };
@@ -725,12 +741,13 @@ var babelSolution = {
             var name = solution.value;
             var options = createOptions();
 
-            var existingPlugin = Iterable.find(plugins, function(plugin) {
+            var existingPluginIndex = Iterable.findIndex(plugins, function(plugin) {
                 return plugin.name === name;
             });
-            if (existingPlugin) {
+            if (existingPluginIndex > -1) {
                 throw new Error(
-                    'two feature cannot share the same babel solution ' + name
+                    'conflict between ' + feature.name + ' and ' +
+                    features[existingPluginIndex].name + 'on babel solution ' + name
                 );
             } else {
                 plugins.push({
@@ -774,16 +791,16 @@ function featureUseCoreJSSolution(feature) {
 function featureUseBabelSolution(feature) {
     return feature.solution.type === 'babel';
 }
-api.getAllRequiredFix(
-    ['const/scoped'],
-    jsenv.agent
-).then(function(data) {
-    console.log('required fix data', data);
-}).catch(function(e) {
-    setTimeout(function() {
-        throw e;
-    });
-});
+// api.getAllRequiredFix(
+//     ['const/scoped'],
+//     jsenv.agent
+// ).then(function(data) {
+//     console.log('required fix data', data);
+// }).catch(function(e) {
+//     setTimeout(function() {
+//         throw e;
+//     });
+// });
 
 api.setAllFixRecord = function(records, agent) {
     var outputs = [];
@@ -791,7 +808,6 @@ api.setAllFixRecord = function(records, agent) {
         outputs.push(record.output);
         return record.featureName;
     });
-
     return api.getAllFeature.apply(null, featureNames).then(function(features) {
         return writeAllOutputToFileSystem(
             features,
@@ -825,6 +841,7 @@ api.createOwnMediator = function(featureNames, agent) {
     function fromServer(source) {
         var data;
         try {
+            // console.log('evaluating', source);
             data = eval(source); // eslint-disable-line no-eval
         } catch (e) {
             // some feature source lead to error
@@ -833,129 +850,22 @@ api.createOwnMediator = function(featureNames, agent) {
         return data;
     }
 };
-
-function createBrowserMediator(featureNames) {
-    return {
-        send: function(action, value) {
-            if (action === 'getAllRequiredTest') {
-                return get(
-                    'test?features=' + featureNames.join(encodeURIComponent(','))
-                ).then(readBody);
-            }
-            if (action === 'setAllTestRecord') {
-                return postAsJSON(
-                    'test',
-                    value
-                );
-            }
-            if (action === 'getAllRequiredFix') {
-                return get(
-                    'fix?features=' + featureNames.join(encodeURIComponent(','))
-                ).then(readBody);
-            }
-            if (action === 'setAllFixRecord') {
-                return postAsJSON(
-                    'fix',
-                    value
-                );
-            }
-        }
-    };
-
-    function get(url) {
-        return sendRequest(
-            'GET',
-            url,
-            {},
-            null
-        ).then(checkStatus);
-    }
-    function postAsJSON(url, object) {
-        return sendRequest(
-            'POST',
-            url,
-            {
-                'content-type': 'application/json'
-            },
-            JSON.stringify(object)
-        ).then(checkStatus);
-    }
-    function checkStatus(response) {
-        if (response.status < 200 || response.status > 299) {
-            throw new Error(response.status);
-        }
-        return response;
-    }
-    function sendRequest(method, url, headers, body) {
-        var xhr = new XMLHttpRequest();
-
-        return new jsenv.Thenable(function(resolve, reject) {
-            var responseBody = {
-                data: '',
-                write: function(chunk) {
-                    this.data += chunk;
-                },
-                close: function() {}
-            };
-
-            xhr.onerror = function(e) {
-                reject(e);
-            };
-            var offset = 0;
-            xhr.onreadystatechange = function() {
-                if (xhr.readyState === 2) {
-                    resolve({
-                        status: xhr.status,
-                        headers: xhr.getAllResponseHeaders(),
-                        body: responseBody
-                    });
-                } else if (xhr.readyState === 3) {
-                    var data = xhr.responseText;
-                    if (offset) {
-                        data = data.slice(offset);
-                    }
-                    offset += data.length;
-                    responseBody.write(data);
-                } else if (xhr.readyState === 4) {
-                    responseBody.close();
-                }
-            };
-
-            xhr.open(method, url);
-            for (var headerName in headers) {
-                if (headers.hasOwnPorperty(headerName)) {
-                    xhr.setRequestHeader(headerName, headers[headerName]);
-                }
-            }
-            xhr.send(body || null);
-        });
-    }
-    function readBody(response) {
-        var body = response.body;
-        var object = JSON.parse(body);
-        object.entries = getClientEntries(object.entries);
-        jsenv.assign(object, body.meta);
-        delete object.meta;
-        return object;
-    }
-    function getClientEntries(entries) {
-        // try {
-        //     jsenv.reviveFeatureEntries(entries);
-        // } catch (e) {
-        //     return fail('some-feature-source', e);
-        // }
-        return entries;
-    }
-}
-api.createBrowserMediator = createBrowserMediator;
-
 var ownMediator = api.createOwnMediator(
     [
-        'promise/unhandled-rejection'
+        'promise/unhandled-rejection',
+        'promise/rejection-handled'
     ],
     String(jsenv.agent)
 );
 api.client = jsenv.createImplementationClient(ownMediator);
+api.client.scan().then(function() {
+    console.log('here');
+    // console.log(Math.DEG_PER_RAD);
+}).catch(function(e) {
+    setTimeout(function() {
+        throw e;
+    });
+});
 
 api.getClosestAgentForFeature = function(agent, feature) {
     var featureFolderPath = featuresFolderPath + '/' + feature.name;
@@ -1086,12 +996,119 @@ api.getFixSource = function(featureNames, agent) {
     });
 };
 
-// api.client.scan().then(function() {
-//     console.log('here', Math.DEG_PER_RAD);
-// }).catch(function(e) {
-//     setTimeout(function() {
-//         throw e;
-//     });
-// });
+function createBrowserMediator(featureNames) {
+    return {
+        send: function(action, value) {
+            if (action === 'getAllRequiredTest') {
+                return get(
+                    'test?features=' + featureNames.join(encodeURIComponent(','))
+                ).then(readBody);
+            }
+            if (action === 'setAllTestRecord') {
+                return postAsJSON(
+                    'test',
+                    value
+                );
+            }
+            if (action === 'getAllRequiredFix') {
+                return get(
+                    'fix?features=' + featureNames.join(encodeURIComponent(','))
+                ).then(readBody);
+            }
+            if (action === 'setAllFixRecord') {
+                return postAsJSON(
+                    'fix',
+                    value
+                );
+            }
+        }
+    };
+
+    function get(url) {
+        return sendRequest(
+            'GET',
+            url,
+            {},
+            null
+        ).then(checkStatus);
+    }
+    function postAsJSON(url, object) {
+        return sendRequest(
+            'POST',
+            url,
+            {
+                'content-type': 'application/json'
+            },
+            JSON.stringify(object)
+        ).then(checkStatus);
+    }
+    function checkStatus(response) {
+        if (response.status < 200 || response.status > 299) {
+            throw new Error(response.status);
+        }
+        return response;
+    }
+    function sendRequest(method, url, headers, body) {
+        var xhr = new XMLHttpRequest();
+
+        return new jsenv.Thenable(function(resolve, reject) {
+            var responseBody = {
+                data: '',
+                write: function(chunk) {
+                    this.data += chunk;
+                },
+                close: function() {}
+            };
+
+            xhr.onerror = function(e) {
+                reject(e);
+            };
+            var offset = 0;
+            xhr.onreadystatechange = function() {
+                if (xhr.readyState === 2) {
+                    resolve({
+                        status: xhr.status,
+                        headers: xhr.getAllResponseHeaders(),
+                        body: responseBody
+                    });
+                } else if (xhr.readyState === 3) {
+                    var data = xhr.responseText;
+                    if (offset) {
+                        data = data.slice(offset);
+                    }
+                    offset += data.length;
+                    responseBody.write(data);
+                } else if (xhr.readyState === 4) {
+                    responseBody.close();
+                }
+            };
+
+            xhr.open(method, url);
+            for (var headerName in headers) {
+                if (headers.hasOwnPorperty(headerName)) {
+                    xhr.setRequestHeader(headerName, headers[headerName]);
+                }
+            }
+            xhr.send(body || null);
+        });
+    }
+    function readBody(response) {
+        var body = response.body;
+        var object = JSON.parse(body);
+        object.entries = getClientEntries(object.entries);
+        jsenv.assign(object, body.meta);
+        delete object.meta;
+        return object;
+    }
+    function getClientEntries(entries) {
+        // try {
+        //     jsenv.reviveFeatureEntries(entries);
+        // } catch (e) {
+        //     return fail('some-feature-source', e);
+        // }
+        return entries;
+    }
+}
+api.createBrowserMediator = createBrowserMediator;
 
 module.exports = api;

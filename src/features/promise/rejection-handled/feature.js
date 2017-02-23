@@ -4,19 +4,22 @@ expose(
         pass: function(output, settle) {
             var Promise = output.value;
             var promiseRejectionEvent;
-            var rejectionHandled = function(e) {
-                promiseRejectionEvent = e;
-            };
 
             if (jsenv.isBrowser()) {
                 if ('onrejectionhandled' in window === false) {
                     return settle(false, 'missing-window-onrejectionhandled');
                 }
-                window.onrejectionhandled = rejectionHandled;
+                var browserListener = function(event) {
+                    window.removeEventListener('rejectionhandled', browserListener);
+                    promiseRejectionEvent = event;
+                };
+                window.addEventListener('rejectionhandled', browserListener);
             } else if (jsenv.isNode()) {
-                process.on('rejectionHandled', function(promise) {
-                    rejectionHandled({promise: promise});
-                });
+                var nodeListener = function(promise) {
+                    process.removeListener('rejectionHandled', nodeListener);
+                    promiseRejectionEvent = {promise: promise};
+                };
+                process.addListener('rejectionHandled', nodeListener);
             } else {
                 return settle(false, 'unkown-platform');
             }
@@ -37,7 +40,7 @@ expose(
                     // node event emit the value
                     // so we can't check for
                     // promiseRejectionEvent.reason === 'foo'
-                }, 500); // engine has 10ms to trigger the event
+                }, 500); // engine has 500ms to trigger the event
             });
         }
     }

@@ -997,19 +997,19 @@ ainsi que quelques utilitaires comme assign, Iterable et Predicate
         })();
         var triggerUnhandled = (function() {
             if (jsenv.isBrowser()) {
-                return function tiggerUnhandled(value, promise) {
+                return function triggerUnhandled(value, promise) {
                     if (window.onunhandledrejection) {
                         window.onunhandledrejection(value, promise);
                     } else {
                         // var mess = value instanceof Error ? value.stack : value;
-                        console.log('possibly unhandled rejection "' + value + '" for promise', promise);
+                        console.log('possibly unhandled rejection "' + value + '" for', promise);
                     }
                 };
             }
-            return function tiggerUnhandled(value, promise) {
+            return function triggerUnhandled(value, promise) {
                 if (process.listeners('unhandledRejection').length === 0) {
-                    var mess = value instanceof Error ? value.stack : value;
-                    console.log('possibly unhandled rejection "' + mess + '" for promise', promise);
+                    // var mess = value instanceof Error ? value.stack : value;
+                    console.log('possibly unhandled rejection "' + value + '" for', promise);
                 }
                 process.emit('unhandledRejection', value, promise);
             };
@@ -1154,7 +1154,7 @@ ainsi que quelques utilitaires comme assign, Iterable et Predicate
                     handle(thenable, pendingList[i]);
                     i++;
                 }
-                // on peut "supprimer" pendingList mais
+                // on peut "supprimer" pendingList
                 pendingList.length = 0;
             }
         }
@@ -1184,17 +1184,18 @@ ainsi que quelques utilitaires comme assign, Iterable et Predicate
                     if (callback !== null) {
                         try {
                             value = callback(value);
+                            isFulfilled = true;
                         } catch (e) {
                             isFulfilled = false;
                             value = e;
                         }
                     }
 
-                    var sourceThenable = handler.thenable;
+                    var handlerThenable = handler.thenable;
                     if (isFulfilled) {
-                        resolveThenable.call(sourceThenable, value);
+                        resolveThenable.call(handlerThenable, value);
                     } else {
-                        rejectThenable.call(sourceThenable, value);
+                        rejectThenable.call(handlerThenable, value);
                     }
                 });
             }
@@ -1965,11 +1966,32 @@ en fonction du résultat de ces tests
                 }
                 return feature;
             }
-            function checkProperty(feature, properties, propertyName, parent) {
+            function isConcrete(feature) {
+                return Boolean(findConcrete(feature.name));
+            }
+            function checkProperty(feature, properties, propertyName, inheritable) {
                 if (propertyName in properties) {
                     assignProperty(feature, properties[propertyName], propertyName);
-                } else if (parent) {
-                    assignProperty(feature, parent[propertyName], propertyName);
+                } else if (inheritable && feature.parent && isConcrete(feature.parent)) {
+                    // when parent feature is abstract, its properties are unknown (except name)
+                    // so children cannot inherit
+                    assignProperty(feature, feature.parent[propertyName], propertyName);
+                }
+
+                // when a feature is concretized, check if its children needs to inherit
+                // that property from it
+                if (inheritable) {
+                    var concreteDependentChildren = feature.dependents.filter(function(dependent) {
+                        return (
+                            dependent.parent === feature &&
+                            isConcrete(dependent)
+                        );
+                    });
+                    concreteDependentChildren.forEach(function(child) {
+                        if (child.hasOwnProperty(propertyName) === false) {
+                            assignProperty(child, feature[propertyName], propertyName);
+                        }
+                    });
                 }
             }
             function assignProperty(feature, propertyValue, propertyName) {
@@ -2069,11 +2091,11 @@ en fonction du résultat de ces tests
                         jsenv.transpile
                     );
 
-                    checkProperty(feature, properties, 'run', parent);
+                    checkProperty(feature, properties, 'run', true);
                     checkProperty(feature, properties, 'pass');
                     checkProperty(feature, properties, 'fail');
                     checkProperty(feature, properties, 'maxTestDuration');
-                    checkProperty(feature, properties, 'solution', parent);
+                    checkProperty(feature, properties, 'solution', true);
 
                     return feature;
                 },
@@ -2263,15 +2285,9 @@ en fonction du résultat de ces tests
             function testImplementation() {
                 return mediator.send('getAllRequiredTest').then(function(data) {
                     var features = data.features;
-                    var mustBeTested = data.mustBeTested;
-                    var featuresToTest = mustBeTested.map(function(featureName) {
-                        return Iterable.find(features, function(feature) {
-                            return feature.name === featureName;
-                        });
-                    });
                     var testRecords = createRecords();
                     return testFeatures(
-                        featuresToTest,
+                        features,
                         testRecords
                     ).then(function() {
                         return mediator.send('setAllTestRecord', testRecords);
@@ -2298,18 +2314,17 @@ en fonction du résultat de ces tests
             function fixImplementation() {
                 return mediator.send('getAllRequiredFix').then(function(data) {
                     var features = data.features;
-
-                    var mustBeFixed = data.mustBeFixed;
-                    var featuresToFix = mustBeFixed.map(function(featureName) {
+                    var enabledFeatureNames = data.meta.enabled;
+                    var featuresToFix = enabledFeatureNames.map(function(featureName) {
                         return Iterable.find(features, function(feature) {
                             return feature.name === featureName;
                         });
                     });
 
                     var featuresUsingCoreJSSolution = featuresToFix.filter(featureUseCoreJSSolution);
-                    var coreJSSource = data.coreJSSource;
-                    var applyCoreJSSolution = createConcatenedSolver(coreJSSource);
-                    function createConcatenedSolver(source) {
+                    var coreJSSolver = data.meta.coreJSSolver;
+                    var applyCoreJSSolution = createConcatenedSolver(coreJSSolver);
+                    function createConcatenedSolver(solver) {
                         var called = false;
                         var status;
                         var value;
@@ -2318,7 +2333,7 @@ en fonction du résultat de ces tests
                             if (called === false) {
                                 called = true;
                                 try {
-                                    value = eval(source); // eslint-disable-line no-eval
+                                    value = solver();
                                     status = 'returned';
                                 } catch (e) {
                                     status = 'throwed';
@@ -2334,8 +2349,8 @@ en fonction du résultat de ces tests
                             }
                         };
                     }
-                    featuresUsingCoreJSSolution.forEach(function(entry) {
-                        entry.feature.beforeTest = function() {
+                    featuresUsingCoreJSSolution.forEach(function(feature) {
+                        feature.beforeTest = function() {
                             applyCoreJSSolution(this);
                         };
                     });
@@ -2353,28 +2368,28 @@ en fonction du résultat de ces tests
                     });
 
                     var featuresUsingFileSolution = featuresToFix.filter(featureUseFileSolution);
-                    var fileSolutions = data.fileSolutions;
+                    var fileSources = data.meta.fileSources;
                     function applyFileSolution(feature) {
-                        var solution = Iterable.find(fileSolutions, function(fileSolution) {
-                            return fileSolution.feature === feature.name;
+                        var fileSource = Iterable.find(fileSources, function(fileSource) {
+                            return fileSource.feature === feature.name;
                         });
-                        if (solution) {
+                        if (fileSource) {
                             var solutionFn = new Function( // eslint-disable-line no-new-func
                                 'feature',
-                                solution.source
+                                fileSource.source
                             );
                             solutionFn(feature);
                         }
                         throw new Error('missing file solution source for ' + feature.name);
                     }
-                    featuresUsingFileSolution.forEach(function(entry) {
-                        entry.feature.beforeTest = function() {
+                    featuresUsingFileSolution.forEach(function(feature) {
+                        feature.beforeTest = function() {
                             applyFileSolution(this);
                         };
                     });
 
                     var fixRecords = createRecords();
-                    return testFeatures(featuresToFix, fixRecords).then(function() {
+                    return testFeatures(features, fixRecords).then(function() {
                         return mediator.send('setAllFixRecord', fixRecords);
                     });
                 });

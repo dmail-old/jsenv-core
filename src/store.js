@@ -419,7 +419,7 @@ var createFileSystemCacheBranchEntry = (function() {
             var path = entry.path;
             var data = entry.data;
 
-            if (this.mode === 'write-only') {
+            if (entry.mode === 'write-only') {
                 data.valid = false;
                 data.reason = 'write-only-mode';
                 return Promise.resolve(data);

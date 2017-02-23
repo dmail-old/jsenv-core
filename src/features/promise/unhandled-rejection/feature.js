@@ -3,22 +3,28 @@ expose(
         pass: function(output, settle) {
             var Promise = output.value;
             var promiseRejectionEvent;
-            var unhandledRejection = function(e) {
-                promiseRejectionEvent = e;
-            };
 
             if (jsenv.isBrowser()) {
                 if ('onunhandledrejection' in window === false) {
                     return settle(false, 'missing-window-onunhandledrejection');
                 }
-                window.onunhandledrejection = unhandledRejection;
+                var browserListener = function(event) {
+                    window.removeEventListener('onunhandledrejection', browserListener);
+                    promiseRejectionEvent = {
+                        reason: event.reason,
+                        promise: event.promise
+                    };
+                };
+                window.addEventListener('onunhandledrejection', browserListener);
             } else if (jsenv.isNode()) {
-                process.on('unhandledRejection', function(value, promise) {
-                    unhandledRejection({
-                        promise: promise,
-                        reason: value
-                    });
-                });
+                var nodeListener = function(value, promise) {
+                    process.removeListener('unhandledRejection', nodeListener);
+                    promiseRejectionEvent = {
+                        reason: value,
+                        promise: promise
+                    };
+                };
+                process.addListener('unhandledRejection', nodeListener);
             } else {
                 return settle(false, 'unsupported-platform');
             }

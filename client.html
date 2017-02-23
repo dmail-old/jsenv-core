@@ -5,19 +5,9 @@
     <meta charset="utf-8" />
 
     <script src="./src/jsenv.js"></script>
-    <script src="./cache/ciyij6vfu0000q04maawtshwq/features-after-flatten.js"></script>
     <script type="text/javascript">
         /* eslint-env browser */
-
-        window.jsenv.implementation.scan(
-            function(report) {
-                console.log('report invalids', report.invalids);
-                window.report = report;
-            },
-            function(progressEvent) {
-                console.log(progressEvent.target.name, progressEvent.target.status, progressEvent.loaded, '/', progressEvent.total);
-            }
-        );
+        var Thenable = jsenv.Thenable;
 
         // window.jsenv.import('http://localhost/polyfill.js').then(function() {
         //     console.log('here', arguments);
