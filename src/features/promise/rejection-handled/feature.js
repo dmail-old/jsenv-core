@@ -1,6 +1,5 @@
-import parent from '../feature.js';
 import {expect} from 'helper/detect.js';
-
+import parent from '../feature.js';
 const feature = {
     dependencies: [parent],
     run: parent.run,
