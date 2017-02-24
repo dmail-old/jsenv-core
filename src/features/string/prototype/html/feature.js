@@ -1,29 +1,27 @@
-expose(
-    {
-        meta: {
-            createHTML: createHTML,
-            testHTMLMethod: function(method, settle) {
-                var html = method.call('', '"');
-                if (html !== html.toLowerCase()) {
-                    settle(false, 'return-html-has-uppercase');
-                    return false;
-                }
-                if (html.split('"').length > 3) {
-                    settle(false);
-                    return false;
-                }
-                settle(true);
-                return true;
-            }
-        }
-    }
-);
+import parent from '../feature.js';
 
-var quoteRegexp = /"/g;
-function createHTML(firstArg, tag, attribute, value) {
-    if (firstArg === undefined) {
-        throw new TypeError("Can't call method on " + firstArg);
+const feature = {
+    dependencies: [parent],
+    run: parent.run
+};
+export default feature;
+
+function expectLowerCaseAndAttribute(method, pass, fail) {
+    var html = method.call('', '"');
+    if (html !== html.toLowerCase()) {
+        return fail('html-contains-uppercase');
     }
+    if (html.split('"').length > 3) {
+        return fail('html-incorrect');
+    }
+    return pass();
+}
+export {expectLowerCaseAndAttribute};
+
+import {objectIsCoercible} from 'helper/fix.js';
+const quoteRegexp = /"/g;
+function createHTML(firstArg, tag, attribute, value) {
+    objectIsCoercible(firstArg);
     var string = String(firstArg);
     var openingTag = tag;
     if (attribute) {
@@ -31,3 +29,4 @@ function createHTML(firstArg, tag, attribute, value) {
     }
     return '<' + openingTag + '>' + string + '</' + tag + '>';
 }
+export {createHTML};

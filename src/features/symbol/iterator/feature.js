@@ -1,5 +1,5 @@
 import {at} from 'helper/detect.js';
-import parent from '../../feature.js';
+import parent from '../feature.js';
 
 const path = 'iterator';
 const feature = {
