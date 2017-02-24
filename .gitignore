@@ -48,6 +48,8 @@ node_modules/
 coverage-final.json
 
 !cache/readme.md
+cache/builder/*
+!cache/builder/readme.md
 cache/transpiler/*
 !cache/transpiler/readme.md
 cache/corejs/*

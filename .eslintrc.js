@@ -16,7 +16,7 @@ module.exports = {
             "error",
             "as-needed",
             {
-                "keywords": true,
+                "keywords": false,
                 "numbers": true,
                 "unnecessary": false
             }
@@ -39,6 +39,9 @@ module.exports = {
         Considering all of this, I'm disabling "no-use-before-define".
         */
         "no-use-before-define": [
+            "off"
+        ],
+        "no-eval": [
             "off"
         ]
     }
