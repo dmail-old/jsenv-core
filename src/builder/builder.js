@@ -6,9 +6,7 @@ require('../jsenv.js');
 var rollup = require('rollup');
 var path = require('path');
 var store = require('../store.js');
-var fsAsync = require('../fs-async.js');
 var memoize = require('../memoize.js');
-var osTmpDir = require('os-tmpdir');
 var cuid = require('cuid');
 
 function normalizePath(path) {
@@ -19,7 +17,7 @@ var rootFolder = normalizePath(require('path').resolve(__dirname, '../../'));
 var cacheFolder = rootFolder + '/cache';
 var builderCacheFolder = cacheFolder + '/builder';
 var builderCache = store.fileSystemCache(builderCacheFolder);
-var builderFolder = rootFolder + '/src/builder';
+var cwd = normalizePath(process.cwd());
 
 function generateSourceImporting() {
     var importDescriptions = arguments;
@@ -49,7 +47,7 @@ function generateSourceImporting() {
         importSources.push(importSource);
 
         var collectorSource = '';
-        collectorSource += 'collector.push({';
+        collectorSource += 'collect({';
         collectorSource += importInstructions.map(function(importInstruction) {
             return '"' + importInstruction.name + '": ' + importInstruction.as;
         }).join(', ');
@@ -61,7 +59,10 @@ function generateSourceImporting() {
     return (
         importSources.join('\n') +
         '\n\n' +
-        'var collector = [];' +
+        'var collector = [];\n' +
+        'function collect(exports) {\n' +
+        '   collector.push(exports);\n' +
+        '}' +
         '\n' +
         collectorSources.join('\n') +
         '\n' +
@@ -99,63 +100,69 @@ function pickImports(importDescriptors, options) {
 
     function build() {
         var moduleSource = generateSourceImporting.apply(null, importDescriptors);
-        var temporaryFolderPath = normalizePath(osTmpDir());
-        var temporaryFilePath = temporaryFolderPath + '/' + cuid() + '.js';
-        return fsAsync.setFileContent(temporaryFilePath, moduleSource).then(function() {
-            return rollup.rollup({
-                entry: temporaryFilePath,
-                onwarn: function(warning) {
-                    if (
-                        warning.code === 'EVAL' &&
-                        normalizePath(warning.loc.file) === normalizePath(
-                            path.resolve(builderFolder, './helper/detect.js')
-                        )
-                    ) {
-                        return;
-                    }
-                    console.warn(warning.message);
-                },
-                plugins: [
-                    {
-                        name: 'name',
-                        resolveId: function(importee, importer) {
-                            // here is the logic
-                            // - `//${path}` -> rootFolder + path
-                            // - `./${path}` -> rootFoldr + path
-                            // - `${path}` -> builderFolder + path
-                            if (importee.slice(0, 2) === '//') {
-                                return path.resolve(rootFolder, importee.slice(2));
-                            }
-                            if (importee.slice(0, 2) === './' || importee.slice(0, 3) === '../') {
-                                if (importer) {
-                                    if (normalizePath(importer) === temporaryFilePath) {
-                                        return path.resolve(rootFolder, importee);
-                                    }
-                                    return path.resolve(importer, importee);
+        var entryId = cuid() + '.js';
+        var entryPath = cwd + '/' + entryId;
+        // var temporaryFolderPath = normalizePath(osTmpDir());
+        // var temporaryFilePath = temporaryFolderPath + '/' + cuid() + '.js';
+        return rollup.rollup({
+            entry: entryId,
+            onwarn: function(warning) {
+                if (
+                    warning.code === 'EVAL' &&
+                    normalizePath(warning.loc.file) === normalizePath(
+                        path.resolve(rootFolder, './helper/detect.js')
+                    )
+                ) {
+                    return;
+                }
+                console.warn(warning.message);
+            },
+            plugins: [
+                {
+                    name: 'name',
+                    load: function(id) {
+                        if (normalizePath(id) === entryPath) {
+                            return moduleSource;
+                        }
+                    },
+                    resolveId: function(importee, importer) {
+                        // here is the logic
+                        // - `//${path}` -> rootFolder + path
+                        // - `./${path}` -> rootFoldr + path
+                        // - `${path}` -> builderFolder + path
+                        if (importee.slice(0, 2) === '//') {
+                            return path.resolve(rootFolder, importee.slice(2));
+                        }
+                        if (importee.slice(0, 2) === './' || importee.slice(0, 3) === '../') {
+                            if (importer) {
+                                if (normalizePath(importer) === entryPath) {
+                                    return path.resolve(rootFolder, importee);
                                 }
-                                return importee;
+                                return path.resolve(path.dirname(importer), importee);
                             }
+                            return importee;
+                        }
 
-                            return path.resolve(builderFolder, importee);
-                        },
-                        transform: function(code, id) {
-                            if (transpiler) {
-                                var result = transpiler.transpile(code, {filename: normalizePath(id)});
-                                return {
-                                    code: result
-                                };
-                            }
+                        return path.resolve(rootFolder, importee);
+                    },
+                    transform: function(code, id) {
+                        if (transpiler) {
+                            var result = transpiler.transpile(code, {filename: normalizePath(id)});
+                            return {
+                                code: result
+                                // we should return ast & sourcemap
+                                // of the transpiler
+                            };
                         }
                     }
-                ]
-            }).then(function(bundle) {
-                return fsAsync('unlink', temporaryFilePath).then(function() {
-                    return bundle;
-                });
-            });
+                }
+            ]
         }).then(function(bundle) {
             var result = bundle.generate({
                 format: 'iife',
+                // because we can't be sure people will use 'use strict' so consider the worts scenario
+                // the one where they don't have use strict
+                useStrict: false,
                 moduleName: 'collector',
                 indent: true,
                 // banner: '"banner";',
