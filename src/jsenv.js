@@ -1422,121 +1422,9 @@ en fonction du résultat de ces tests
 
             beforeTest: function() {},
 
-            test: function(callback) {
-                var feature = this;
-                var settled = false;
-                var result = {};
-                var timeout;
-                var settle = function(valid, reason, detail) {
-                    if (settled === false) {
-                        settled = true;
-                        if (timeout) {
-                            clearTimeout(timeout);
-                            timeout = null;
-                        }
-                        var arity = arguments.length;
-
-                        if (arity === 0) {
-                            result.status = 'unspecified';
-                        } else {
-                            result.status = valid ? 'valid' : 'invalid';
-                            result.reason = reason;
-                            result.detail = detail;
-                        }
-
-                        callback.call(feature, result, feature);
-                    }
-                };
-
-                var beforeTestError;
-                try {
-                    this.beforeTest();
-                } catch (e) {
-                    beforeTestError = e;
-                }
-
-                if (beforeTestError) {
-                    settle(false, 'before-test-throw', beforeTestError);
-                } else {
-                    var output;
-                    var outputOrigin;
-                    try {
-                        output = this.compile();
-                        outputOrigin = 'return';
-                    } catch (e) {
-                        output = e;
-                        outputOrigin = 'throw';
-                    }
-
-                    var settler;
-                    var settlerPropertyName = outputOrigin === 'throw' ? 'fail' : 'pass';
-                    if (this.hasOwnProperty(settlerPropertyName)) {
-                        settler = this[settlerPropertyName];
-                        var type = typeof settler;
-                        if (type !== 'function') {
-                            throw new TypeError(
-                                'feature.' + settlerPropertyName +
-                                ' must be a function (not ' + type + ')'
-                            );
-                        }
-                        // ce throw au dessus fait que settle n'est jamais appelé
-                        // et bizarrement l'erreur n'est jamais log...
-
-                        var settlerArgs = [];
-                        settlerArgs.push(output);
-                        Iterable.forEach(this.parameters, function(parameter) {
-                            settlerArgs.push(parameter);
-                        });
-                        settlerArgs.push(settle);
-                        settler = convertToSettler(settler);
-
-                        try {
-                            settler.apply(
-                                this,
-                                settlerArgs
-                            );
-
-                            var maxDuration = feature.maxTestDuration;
-                            timeout = setTimeout(function() {
-                                settle(false, 'timeout', maxDuration);
-                            }, maxDuration);
-                        } catch (e) {
-                            settle(false, 'throwed', e);
-                        }
-                    } else {
-                        settle(false, 'unexpected-compilation-' + outputOrigin);
-                    }
-                }
-
-                return this;
-            },
-            run: undefined,
-            pass: function() {
-                return true;
-            },
             solution: {
                 type: 'none',
                 value: undefined
-            },
-            maxTestDuration: 100,
-            compile: function() {
-                var output;
-
-                if (this.hasOwnProperty('run')) {
-                    var run = this.run;
-
-                    if (jsenv.isSourceCode(run)) {
-                        output = run.compile();
-                    } else if (typeof run === 'function') {
-                        output = run.call(this);
-                    } else {
-                        output = run;
-                    }
-                } else {
-                    output = undefined;
-                }
-
-                return output;
             },
 
             toJSON: function() {
@@ -1552,21 +1440,21 @@ en fonction du résultat de ces tests
         };
         jsenv.makeVersionnable(VersionnedFeature);
 
-        function convertToSettler(fn) {
-            return function() {
-                var args = arguments;
-                var arity = args.length;
-                var fnArity = fn.length;
+        // function convertToSettler(fn) {
+        //     return function() {
+        //         var args = arguments;
+        //         var arity = args.length;
+        //         var fnArity = fn.length;
 
-                if (fnArity < arity) {
-                    var settle = args[arity - 1];
-                    var returnValue = fn.apply(this, args);
-                    settle(Boolean(returnValue), 'returned', returnValue);
-                } else {
-                    fn.apply(this, args);
-                }
-            };
-        }
+        //         if (fnArity < arity) {
+        //             var settle = args[arity - 1];
+        //             var returnValue = fn.apply(this, args);
+        //             settle(Boolean(returnValue), 'returned', returnValue);
+        //         } else {
+        //             fn.apply(this, args);
+        //         }
+        //     };
+        // }
 
         // feature testing helpers
         var helpers = (function() {
@@ -2012,28 +1900,151 @@ en fonction du résultat de ces tests
         };
     });
 
-    jsenv.provide(function testFeatures() {
+    jsenv.provide(function execAllTest() {
         var Iterable = jsenv.Iterable;
+        var defaultMaxDuration = 100;
 
-        function testFeatures(features, progressCallback) {
-            var results = [];
-            var readyCount = 0;
-            var groups = groupNodesByDependencyDepth(features);
+        var Output = (function() {
+            function Output(properties) {
+                jsenv.assign(this, properties);
+            }
 
-            function isInvalid(feature) {
-                var featureIndex = features.indexOf(feature);
-                if (featureIndex in results === false) {
-                    return false;
+            function createOutput(properties) {
+                return new Output(properties);
+            }
+            function isOutput(a) {
+                return a instanceof Output;
+            }
+
+            return {
+                create: createOutput,
+                is: isOutput,
+
+                pass: function pass(reason, detail) {
+                    return createOutput({
+                        status: 'passed',
+                        reason: reason,
+                        detail: detail
+                    });
+                },
+
+                fail: function fail(reason, detail) {
+                    return createOutput({
+                        status: 'failed',
+                        reason: reason,
+                        detail: detail
+                    });
                 }
-                var result = results[featureIndex];
-                return result.status === 'invalid';
+            };
+        })();
+        jsenv.Output = Output;
+
+        function compile(test) {
+            var value;
+            if (test.hasOwnProperty('run')) {
+                var run = test.run;
+                if (typeof run === 'object') {
+                    if (run === null) {
+                        value = run;
+                    } else if (typeof run.compile === 'function') {
+                        value = run.compile();
+                    } else {
+                        value = run;
+                    }
+                } else if (typeof run === 'function') {
+                    value = run.call(test);
+                } else {
+                    value = run;
+                }
             }
-            function dependencyIsInvalid(dependency) {
-                return (
-                    dependency.isParameterOf(this) === false &&
-                    isInvalid(dependency)
-                );
+            return value;
+        }
+        function exec(test) {
+            var compileResult;
+            var isCrashed;
+            try {
+                compileResult = compile(test);
+                isCrashed = false;
+            } catch (e) {
+                compileResult = e;
+                isCrashed = true;
             }
+            var toOutput = function(value) {
+                // allow fn to return true/false as a shortcut to calling pass/fail
+                if (value === true) {
+                    value = Output.pass('returned-true');
+                } else if (value === false) {
+                    value = Output.fail('returned-false');
+                }
+                return value;
+            };
+
+            var testReturnValue;
+            var testTransformer;
+            if (isCrashed === false) {
+                if (test.hasOwnProperty('complete')) {
+                    testTransformer = test.complete;
+                } else {
+                    testReturnValue = Output.fail('unexpected-compile-return', compileResult);
+                }
+            } else if (isCrashed === true) {
+                if (test.hasOwnProperty('crash')) {
+                    testTransformer = test.crash;
+                } else {
+                    testReturnValue = Output.fail('unexpected-compile-throw', compileResult);
+                }
+            }
+
+            if (testTransformer) {
+                try {
+                    testReturnValue = testTransformer(compileResult, Output.pass, Output.fail);
+                } catch (e) {
+                    testReturnValue = Output.fail('unexpected-test-throw', e);
+                }
+            }
+
+            var maxDuration = test.hasOwnProperty('maxDuration') ? test.maxDuration : defaultMaxDuration;
+            var timeout;
+            var clean = function() {
+                if (timeout) {
+                    clearTimeout(timeout);
+                    timeout = null;
+                }
+            };
+            return Thenable.race([
+                Thenable.resolve(testReturnValue).then(
+                    function(value) {
+                        clean();
+                        value = toOutput(value);
+                        if (Output.is(value)) {
+                            return value;
+                        }
+                        return Output.pass('resolved', value);
+                    },
+                    function(value) {
+                        clean();
+                        value = toOutput(value);
+                        if (Output.is(value)) {
+                            return value;
+                        }
+                        return Output.fail('rejected', value);
+                    }
+                ),
+                new Thenable(function(resolve) {
+                    timeout = setTimeout(function() {
+                        resolve(Output.fail('timeout', maxDuration));
+                    }, maxDuration);
+                })
+            ]);
+        }
+        function execAllTest(tests, progressCallback) {
+            var results = [];
+            var groups = groupByDependencyDepth(tests);
+            var readyCount = 0;
+            var totalCount = Iterable.reduce(groups, function(previous, group) {
+                return previous + group.length;
+            }, 0);
+
             function reduceAsync(iterable, fn, firstValue) {
                 var i = 0;
                 var j = iterable.length;
@@ -2054,38 +2065,43 @@ en fonction du résultat de ces tests
 
                 return Thenable.resolve(firstValue).then(next);
             }
+            function isInvalid(test) {
+                var result = Iterable.find(results, function(result) {
+                    return result.name === test.name;
+                });
+                return result && result.status === 'invalid';
+            }
+            function dependencyIsInvalid(dependency) {
+                return (
+                    // dependency.isParameterOf(this) === false &&
+                    isInvalid(dependency)
+                );
+            }
 
             return reduceAsync(groups, function(group) {
-                return Thenable.all(group.map(function(feature) {
-                    return new Thenable(function(resolve) {
-                        var dependencies = feature.dependencies;
-                        var invalidDependency = Iterable.find(dependencies, dependencyIsInvalid, feature);
-                        if (invalidDependency) {
-                            resolve({
-                                status: 'invalid',
-                                reason: 'dependency-is-invalid',
-                                detail: invalidDependency.name
-                            });
-                        } else {
-                            feature.test(resolve);
+                return Thenable.all(group.map(function(test) {
+                    return Thenable.resolve().then(function() {
+                        if ('dependencies' in test) {
+                            var dependencies = test.dependencies;
+                            var invalidDependency = Iterable.find(dependencies, dependencyIsInvalid, test);
+                            if (invalidDependency) {
+                                return Output.fail('dependency-is-invalid', invalidDependency.name);
+                            }
                         }
-                    }).catch(function(e) {
-                        return {
-                            status: 'invalid',
-                            reason: 'throw',
-                            detail: e
-                        };
+                        return exec(test);
                     }).then(function(result) {
                         readyCount++;
-                        var featureIndex = features.indexOf(feature);
-                        results[featureIndex] = result;
+                        results.push({
+                            name: test.name,
+                            data: result
+                        });
                         if (progressCallback) {
                             var progressEvent = {
                                 type: 'progress',
-                                target: feature,
+                                target: test,
                                 detail: result,
                                 lengthComputable: true,
-                                total: features.length,
+                                total: totalCount,
                                 loaded: readyCount
                             };
                             progressCallback(progressEvent);
@@ -2097,8 +2113,8 @@ en fonction du résultat de ces tests
                 return results;
             });
         }
-        function groupNodesByDependencyDepth(nodes) {
-            var unresolvedNodes = nodes.slice();
+        function groupByDependencyDepth(nodes) {
+            var unresolvedNodes = nodes.concat(collectDependencies(nodes));
             var i = 0;
             var j = unresolvedNodes.length;
             var resolvedNodes = [];
@@ -2108,8 +2124,8 @@ en fonction du résultat de ces tests
                 // un noeud est résolu s'il fait parties des resolvedNodes
                 // mais aussi s'il ne fait pas partie des noeud qu'on veut grouper
                 return (
-                    Iterable.includes(resolvedNodes, node) ||
-                    Iterable.includes(nodes, node) === false
+                    Iterable.includes(resolvedNodes, node)/* ||
+                    Iterable.includes(nodes, node) === false*/
                 );
             };
 
@@ -2118,7 +2134,13 @@ en fonction du résultat de ces tests
                 i = 0;
                 while (i < j) {
                     var unresolvedNode = unresolvedNodes[i];
-                    var everyDependencyIsResolved = Iterable.every(unresolvedNode.dependencies, isResolved);
+                    var everyDependencyIsResolved;
+                    if ('dependencies' in unresolvedNode) {
+                        everyDependencyIsResolved = Iterable.every(unresolvedNode.dependencies, isResolved);
+                    } else {
+                        everyDependencyIsResolved = true;
+                    }
+
                     if (everyDependencyIsResolved) {
                         group.push(unresolvedNode);
                         unresolvedNodes.splice(i, 1);
@@ -2138,40 +2160,51 @@ en fonction du résultat de ces tests
 
             return groups;
         }
+        function collectDependencies(nodes) {
+            var dependencies = [];
+            function visit(node) {
+                if ('dependencies' in node) {
+                    node.dependencies.forEach(function(dependency) {
+                        if (Iterable.includes(nodes, dependency)) {
+                            return;
+                        }
+                        if (Iterable.includes(dependencies, dependency)) {
+                            return;
+                        }
+                        dependencies.push(dependency);
+                        visit(dependency);
+                    });
+                }
+            }
+            nodes.forEach(visit);
+            return dependencies;
+        }
 
         return {
-            testFeatures: testFeatures
+            execAllTest: execAllTest
         };
     });
 
     jsenv.provide(function createImplementationClient() {
         function createImplementationClient(mediator) {
             function testImplementation() {
-                return mediator.send('getAllRequiredTest').then(function(data) {
-                    var features = data.features;
-                    var testRecords = createRecords();
-                    return testFeatures(
-                        features,
-                        testRecords
-                    ).then(function() {
+                return mediator.send('getAllRequiredTest').then(function(features) {
+                    var tests = features.map(function(feature) {
+                        return feature.test;
+                    });
+                    console.log('tests', tests);
+                    return test(tests).then(function(testRecords) {
                         return mediator.send('setAllTestRecord', testRecords);
                     });
                 });
             }
-            function createRecords() {
+            function test(tests) {
                 var records = [];
-                return records;
-            }
-            function testFeatures(features, records) {
-                return jsenv.testFeatures(features, function(event) {
+                return jsenv.execAllTest(tests, function(event) {
                     console.log('tested', event.target.name, '->', event.detail);
                     records.push({
-                        featureName: event.target.name,
-                        output: {
-                            status: 'completed',
-                            reason: 'test-result',
-                            detail: event.detail
-                        }
+                        name: event.target.name,
+                        data: event.detail
                     });
                 });
             }
@@ -2246,8 +2279,7 @@ en fonction du résultat de ces tests
                         };
                     });
 
-                    var fixRecords = createRecords();
-                    return testFeatures(features, fixRecords).then(function() {
+                    return test(features).then(function(fixRecords) {
                         return mediator.send('setAllFixRecord', fixRecords);
                     });
                 });

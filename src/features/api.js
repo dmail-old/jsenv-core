@@ -6,7 +6,6 @@ with
 https://github.com/kangax/compat-table/blob/gh-pages/data-es5.js
 https://github.com/kangax/compat-table/blob/gh-pages/data-es6.js
 
-- le cas ou il n'y a pas de feature.js dans le dossier que fait-on?
 - getFixSource qui doit retourner ce dont on a besoin pour fix en prod
 
 utiliser ça pour générer les bundle de features
@@ -83,6 +82,7 @@ function readAllFeatureNamesOnFileSystem() {
                         var ressourceName = ressourceNames[index];
                         if (stat.isDirectory()) {
                             if (ressourceName[0].match(/[a-z]/)) {
+                                var directoryPath = ressourcePath + '/' + ressourceName;
                                 var featureName;
                                 if (parentName) {
                                     featureName = parentName + '/' + ressourceName;
@@ -90,8 +90,25 @@ function readAllFeatureNamesOnFileSystem() {
                                     featureName = ressourceName;
                                 }
 
-                                featureNames.push(featureName);
-                                return readFolderFeaturesName(featureName);
+                                return Promise.all([
+                                    fsAsync(
+                                        'stat',
+                                        directoryPath + '/feature.js'
+                                    ).then(
+                                        function(stat) {
+                                            if (stat.isFile()) {
+                                                featureNames.push(featureName);
+                                            }
+                                        },
+                                        function(e) {
+                                            if (e && e.code === 'ENOENT') {
+                                                return;
+                                            }
+                                            return Promise.reject(e);
+                                        }
+                                    ),
+                                    readFolderFeaturesName(featureName)
+                                ]);
                             }
                         }
                     });
@@ -121,13 +138,14 @@ function readAllFeatureNamesOnFileSystem() {
 api.getAllFeature = function(featureNames) {
     return buildFeatures(
         featureNames,
-        featureTranspiler
+        featureTranspiler,
+        'fix'
     ).then(function(build) {
         return build.compile();
     });
 };
-function buildFeatures(featureNames, transpiler) {
-    var featureImports = createFeatureImports(featureNames);
+function buildFeatures(featureNames, transpiler, mode) {
+    var featureImports = createFeatureImports(featureNames, mode);
 
     return bundle(featureImports, {
         root: featuresFolderPath,
@@ -136,13 +154,7 @@ function buildFeatures(featureNames, transpiler) {
         return {
             source: source,
             compile: function() {
-                var collecteds = eval(source);
-                return collecteds.map(function(collected) {
-                    return collected.default;
-                }).map(function(feature, index) {
-                    feature.name = featureNames[index];
-                    return feature;
-                });
+                return eval(source);
             }
         };
     });
@@ -151,11 +163,22 @@ function createFeatureImports(featureNames, mode) {
     mode = mode || 'default';
 
     var featureImports = featureNames.map(function(feature) {
-        var importDescription = {
-            import: mode === 'default' ? 'default' : 'fix',
-            from: './' + feature + '/feature.js'
+        var what;
+        if (mode === 'test') {
+            what = 'name, test';
+        } else if (mode === 'fix') {
+            what = 'name, test, solution';
+        } else if (mode === 'solve') {
+            what = 'name, solution';
+        } else {
+            throw new Error('unknown mode ' + mode);
+        }
+        var from = './' + feature + '/feature.js';
+
+        return {
+            import: what,
+            from: from
         };
-        return importDescription;
     });
 
     return featureImports;
@@ -178,7 +201,8 @@ api.getAllRequiredTest = function(featureNames, agent) {
     ).then(function(records) {
         var invalidRecords = records.filter(recordIsInvalid);
         var featureNamesToTest = invalidRecords.map(getRecordFeatureName);
-        return buildFeatures(featureNamesToTest, featureTranspiler);
+        // console.log('records', records);
+        return buildFeatures(featureNamesToTest, featureTranspiler, 'test');
     }).then(function(build) {
         return build.source;
     });
@@ -209,8 +233,9 @@ function readAllRecordFromFileSystem(featureNames, agent, type) {
             var featureName = featureNames[index];
             if (data.valid) {
                 console.log('got valid data for', featureName);
+            } else {
+                console.log('no valid for', featureName, 'because', data.reason);
             }
-            console.log('no valid for', featureName, 'because', data.reason);
 
             return {
                 feature: featureName,
@@ -237,8 +262,8 @@ function createTestOutputProperties(featureName, agent) {
                 strategy: 'eTag'
             }
         ],
-        // mode: 'write-only'
-        mode: 'default'
+        mode: 'write-only'
+        // mode: 'default'
     };
     properties.path = featureAgentCachePath + '/' + properties.name;
     return properties;
@@ -298,7 +323,7 @@ function getFeatureAgentCache(featureName, agent, createProperties) {
     var properties = createProperties(featureName, agent);
     return store.fileSystemEntry(properties);
 }
-// api.getAllRequiredTest(['let'], jsenv.agent).then(function(data) {
+// api.getAllRequiredTest(['const/scoped'], jsenv.agent).then(function(data) {
 //     console.log('required test data', data);
 // }).catch(function(e) {
 //     setTimeout(function() {
@@ -323,7 +348,7 @@ function writeAllRecordToFileSystem(records, agent, type) {
         }
 
         return writeOutputToFileSystem(
-            record.feature,
+            record.name,
             agent,
             createProperties,
             record.data
@@ -363,7 +388,13 @@ api.getAllRequiredFix = function(featureNames, agent) {
                 agent,
                 'fix'
             ),
-            api.getAllFeatures(featureNamesToFix)
+            buildFeatures(
+                featureNamesToFix,
+                featureTranspiler,
+                'fix'
+            ).then(function(build) {
+                return build.compile();
+            })
         ]).then(function(data) {
             var fixRecords = data[0];
             var features = data[1];
@@ -455,7 +486,11 @@ api.getAllRequiredFix = function(featureNames, agent) {
                 ).map(function(feature) {
                     return feature.name;
                 });
-                return buildFeatures(featureNamesToFix, fixedFeatureTranspiler).then(function(build) {
+                return buildFeatures(
+                    featureNamesToFix,
+                    fixedFeatureTranspiler,
+                    'fix'
+                ).then(function(build) {
                     return build.source;
                     // renvoyer aussi au client le codeJSSolver
                     // à réfléchir car je ne sais pas comment je vais faire ça
@@ -469,7 +504,7 @@ function testRecordIsCrashed(record) {
     return record.data.value.status === 'crashed';
 }
 function testRecordIsFailed(record) {
-    return record.data.value.status === 'invalid';
+    return record.data.value.status === 'failed';
 }
 var noSolution = {
     match: featureHasNoSolution
@@ -651,20 +686,20 @@ api.createOwnMediator = function(featureNames, agent) {
 };
 var ownMediator = api.createOwnMediator(
     [
-        'promise/unhandled-rejection',
-        'promise/rejection-handled'
+        // 'promise/unhandled-rejection',
+        // 'promise/rejection-handled'
+        'const/scoped'
     ],
     String(jsenv.agent)
 );
 api.client = jsenv.createImplementationClient(ownMediator);
-// api.client.scan().then(function() {
-//     console.log('here');
-//     // console.log(Math.DEG_PER_RAD);
-// }).catch(function(e) {
-//     setTimeout(function() {
-//         throw e;
-//     });
-// });
+api.client.test().then(function() {
+    // console.log(Math.DEG_PER_RAD);
+}).catch(function(e) {
+    setTimeout(function() {
+        throw e;
+    });
+});
 
 api.getClosestAgentForFeature = function(agent, featureName) {
     var featureFolderPath = featuresFolderPath + '/' + featureName;
