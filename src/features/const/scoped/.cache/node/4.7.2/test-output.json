@@ -2,20 +2,16 @@
 	"sources": [
 		{
 			"path": "../../../../feature.js",
-			"eTag": "\"1b7-a4r52PUXBLJFFVCkXHJC4+Hx5sU\""
+			"eTag": "\"2a7-9tGf6UrpVXSjFMsdyuJaoGuwV5Q\""
 		}
 	],
 	"value": {
-		"status": "completed",
-		"reason": "test-result",
+		"status": "failed",
+		"reason": "unexpected-test-throw",
 		"detail": {
-			"status": "invalid",
-			"reason": "throwed",
-			"detail": {
-				"name": "SyntaxError",
-				"message": "Identifier 'a' has already been declared",
-				"stack": "SyntaxError: Identifier 'a' has already been declared\n    at eval (eval at <anonymous> (C:\\Users\\Damien\\Documents\\GitHub\\core\\src\\jsenv.js:1411:33), <anonymous>:1:10)\n    at VersionnedFeature.expose.pass (eval at <anonymous> (C:\\Users\\Damien\\Documents\\GitHub\\core\\src\\jsenv.js:1638:37), <anonymous>:392:27)\n    at VersionnedFeature.<anonymous> (C:\\Users\\Damien\\Documents\\GitHub\\core\\src\\jsenv.js:1170:42)\n    at VersionnedFeature.test (C:\\Users\\Damien\\Documents\\GitHub\\core\\src\\jsenv.js:1102:33)\n    at nextGroup (C:\\Users\\Damien\\Documents\\GitHub\\core\\src\\jsenv.js:1734:41)\n    at Object.testFeatures (C:\\Users\\Damien\\Documents\\GitHub\\core\\src\\jsenv.js:1747:13)\n    at C:\\Users\\Damien\\Documents\\GitHub\\core\\src\\features\\api.js:727:15\n    at testFeatures (C:\\Users\\Damien\\Documents\\GitHub\\core\\src\\features\\api.js:726:12)\n    at C:\\Users\\Damien\\Documents\\GitHub\\core\\src\\features\\api.js:710:16"
-			}
+			"name": "SyntaxError",
+			"message": "Identifier 'a' has already been declared",
+			"stack": "SyntaxError: Identifier 'a' has already been declared\n    at eval (eval at <anonymous> (eval at fromServer (C:\\Users\\Damien\\Documents\\GitHub\\core\\src\\features\\api.js:679:25)), <anonymous>:1:10)\n    at test$$1.complete (eval at fromServer (C:\\Users\\Damien\\Documents\\GitHub\\core\\src\\features\\api.js:679:25), <anonymous>:192:30)\n    at exec (C:\\Users\\Damien\\Documents\\GitHub\\core\\src\\jsenv.js:2000:39)\n    at C:\\Users\\Damien\\Documents\\GitHub\\core\\src\\jsenv.js:2091:32\n    at Immediate._onImmediate (C:\\Users\\Damien\\Documents\\GitHub\\core\\src\\jsenv.js:1186:37)\n    at processImmediate [as _immediateCallback] (timers.js:396:17)"
 		}
 	}
 }

@@ -2,16 +2,11 @@
 	"sources": [
 		{
 			"path": "../../../../feature.js",
-			"eTag": "\"163-J24rpcBOEWF3RhjS9WGvjDo7E6k\""
+			"eTag": "\"1cb-Z+QtOjuj9QMx8fI1u/NUbWYlPfk\""
 		}
 	],
 	"value": {
-		"status": "completed",
-		"reason": "test-result",
-		"detail": {
-			"status": "valid",
-			"reason": "returned",
-			"detail": true
-		}
+		"status": "passed",
+		"reason": "returned-true"
 	}
 }

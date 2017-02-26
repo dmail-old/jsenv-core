@@ -1,18 +1,23 @@
-import {transpile, expect} from 'helper/detect.js';
+const name = 'const';
+export {name};
 
-const feature = {
+import {transpile} from 'helper/detect.js';
+const test = {
+    name: name,
     run: transpile`(function(value) {
         const result = value;
         return result;
     })`,
-    test: expect(function(fn) {
+    complete: function(fn) {
         var value = 1;
-        return fn(value) === value;
-    }),
-    solution: {
-        type: 'babel',
-        value: 'transform-es2015-block-scoping'
+        var result = fn(value);
+        return result === value;
     }
 };
+export {test};
 
-export default feature;
+const solution = {
+    type: 'babel',
+    value: 'transform-es2015-block-scoping'
+};
+export {solution};

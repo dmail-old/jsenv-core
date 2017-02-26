@@ -1,6 +1,5 @@
 import {at, expect, present} from 'helper/detect.js';
 import parent from '../feature.js';
-
 const path = 'fromCodePoint';
 const feature = {
     dependencies: [parent],
@@ -16,6 +15,7 @@ const feature = {
         value: fix
     }
 };
+export default feature;
 
 const stringFromCharCode = String.fromCharCode;
 const floor = Math.floor;
@@ -56,11 +56,10 @@ function fromCodePoint(x) { // eslint-disable-line no-unused-vars
     }
     return result;
 }
+export {fromCodePoint};
 
 import {defineMethod} from 'helper/fix.js';
 function fix() {
     defineMethod(at(parent.run).value, path, fromCodePoint);
 }
-
-export default feature;
-export {fromCodePoint, fix};
+export {fix};

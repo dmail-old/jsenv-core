@@ -1,8 +1,11 @@
-import {transpile, expect} from 'helper/detect.js';
-import parent from '../feature.js';
+const name = 'const/scoped';
+export {name};
 
-const feature = {
-    dependencies: [parent],
+import {transpile} from 'helper/detect.js';
+import {test as constTest} from '../feature.js';
+const test = {
+    name: name,
+    dependencies: [constTest],
     run: transpile`(function(outsideValue, insideValue) {
         const a = outsideValue;
         {
@@ -10,13 +13,13 @@ const feature = {
         }
         return a;
     })`,
-    test: expect(function(fn) {
+    complete: function(fn) {
         var outsideValue = 0;
         var insideValue = 1;
         var returnValue = fn(outsideValue, insideValue);
         return returnValue === outsideValue;
-    }),
-    solution: parent.solution
+    }
 };
+export {test};
 
-export default feature;
+export {solution} from '../feature.js';
