@@ -9,6 +9,9 @@ var transpilerCache = store.fileSystemCache(transpilerCacheFolder);
 
 function assign(destination, source) {
     for (var key in source) { // eslint-disable-line guard-for-in
+        if (key === 'filename' && destination[key] === false) {
+            continue;
+        }
         destination[key] = source[key];
     }
     return destination;
