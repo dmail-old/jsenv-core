@@ -215,16 +215,19 @@ function expect() {
 }
 export {expect};
 
-function present(thenable, pass, fail, transform) {
-    return thenable.then(function(output) {
-        if (output.reached === false) {
-            return fail('missing');
+function present(target, pass, fail) {
+    if (Target.is(target)) {
+        if (target.reached) {
+            return pass('present');
         }
-        transform(output.value); // allow transformation, next expectation will use this value
-        return pass('present');
-    });
+        return fail('missing');
+    }
+    return fail('expecting-target-object');
 }
 export {present};
+
+const every = jsenv.Output.every;
+export {every};
 
 function collectKeys(value) {
     var keys = [];

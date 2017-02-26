@@ -2,29 +2,30 @@
 
 */
 
-require('../jsenv.js');
 var rollup = require('rollup');
 var path = require('path');
+var cuid = require('cuid');
+
+require('../jsenv.js');
 var store = require('../store.js');
 var memoize = require('../memoize.js');
-var cuid = require('cuid');
 
 function normalizePath(path) {
     return path.replace(/\\/g, '/');
 }
 
-var rootFolder = normalizePath(require('path').resolve(__dirname, '../../'));
+var rootFolder = normalizePath(path.resolve(__dirname, '../../'));
 var cacheFolder = rootFolder + '/cache';
 var builderCacheFolder = cacheFolder + '/builder';
 var builderCache = store.fileSystemCache(builderCacheFolder);
-var cwd = normalizePath(process.cwd());
+// var cwd = normalizePath(process.cwd());
 
-function generateSourceImporting() {
-    var importDescriptions = arguments;
+function generateSourceImporting(importDescriptions) {
     var i = 0;
     var j = importDescriptions.length;
     var importSources = [];
     var collectorSources = [];
+
     while (i < j) {
         var importDescription = importDescriptions[i];
         var importInstructions = importDescription.import.split(',').map(function(name) { // eslint-disable-line
@@ -71,12 +72,12 @@ function generateSourceImporting() {
 }
 function pickImports(importDescriptors, options) {
     options = options || {};
-    var rootFolder = options.root;
+    var root = options.root;
     var transpiler = options.transpiler;
 
     return builderCache.match({
         imports: importDescriptors,
-        root: rootFolder
+        root: root
     }).then(function(cacheBranch) {
         var entry = cacheBranch.entry({
             name: 'build.js',
@@ -99,9 +100,10 @@ function pickImports(importDescriptors, options) {
     // }
 
     function build() {
-        var moduleSource = generateSourceImporting.apply(null, importDescriptors);
+        var moduleSource = generateSourceImporting(importDescriptors, rootFolder);
+        // console.log('the source', moduleSource);
         var entryId = cuid() + '.js';
-        var entryPath = cwd + '/' + entryId;
+        var entryPath = root + '/' + entryId;
         // var temporaryFolderPath = normalizePath(osTmpDir());
         // var temporaryFilePath = temporaryFolderPath + '/' + cuid() + '.js';
         return rollup.rollup({
@@ -126,28 +128,30 @@ function pickImports(importDescriptors, options) {
                         }
                     },
                     resolveId: function(importee, importer) {
-                        // here is the logic
-                        // - `//${path}` -> rootFolder + path
-                        // - `./${path}` -> rootFoldr + path
-                        // - `${path}` -> builderFolder + path
                         if (importee.slice(0, 2) === '//') {
-                            return path.resolve(rootFolder, importee.slice(2));
+                            return path.resolve(root, importee.slice(2));
+                        }
+                        if (importee[0] === '/') {
+                            return path.resolve(root, importee.slice(1));
                         }
                         if (importee.slice(0, 2) === './' || importee.slice(0, 3) === '../') {
                             if (importer) {
                                 if (normalizePath(importer) === entryPath) {
-                                    return path.resolve(rootFolder, importee);
+                                    return path.resolve(root, importee);
                                 }
                                 return path.resolve(path.dirname(importer), importee);
                             }
                             return importee;
                         }
-
-                        return path.resolve(rootFolder, importee);
+                        return path.resolve(root, importee);
                     },
                     transform: function(code, id) {
-                        if (transpiler) {
-                            var result = transpiler.transpile(code, {filename: normalizePath(id)});
+                        var normalizedPath = normalizePath(id);
+                        if (transpiler && normalizedPath !== entryPath) {
+                            var result = transpiler.transpile(code, {
+                                filename: normalizedPath,
+                                sourceRoot: rootFolder
+                            });
                             return {
                                 code: result
                                 // we should return ast & sourcemap

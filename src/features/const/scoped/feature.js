@@ -1,10 +1,6 @@
-const name = 'const/scoped';
-export {name};
-
 import {transpile} from 'helper/detect.js';
 import {test as constTest} from '../feature.js';
 const test = {
-    name: name,
     dependencies: [constTest],
     run: transpile`(function(outsideValue, insideValue) {
         const a = outsideValue;

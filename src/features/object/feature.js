@@ -1,9 +1,11 @@
-import {at, expect, present} from 'helper/detect.js';
-
-const path = 'Object';
-const feature = {
-    run: at(path),
-    test: expect(present)
+import {at, present} from '/helper/detect.js';
+const constructorName = 'Object';
+const test = {
+    run: at(constructorName),
+    complete: present
 };
+export {test};
 
-export default feature;
+import {none} from '/helper/fix.js';
+const solution = none();
+export {solution};

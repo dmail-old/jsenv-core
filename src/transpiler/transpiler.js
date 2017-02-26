@@ -2,14 +2,14 @@ var store = require('../store.js');
 var memoize = require('../memoize.js');
 var fsAsync = require('../fs-async.js');
 
-var rootFolder = require('path').resolve(__dirname, '../..').replace(/\\/g, '/');
+var rootFolder = require('path').resolve(__dirname, '../../').replace(/\\/g, '/');
 var cacheFolder = rootFolder + '/cache';
 var transpilerCacheFolder = cacheFolder + '/transpiler';
 var transpilerCache = store.fileSystemCache(transpilerCacheFolder);
 
 function assign(destination, source) {
     for (var key in source) { // eslint-disable-line guard-for-in
-        if (key === 'filename' && destination[key] === false) {
+        if (key === 'sourceURL' && destination[key] === false) {
             continue;
         }
         destination[key] = source[key];
@@ -39,7 +39,7 @@ function normalizePlugins(pluginsOption) {
 }
 
 function createTranspiler(transpilerOptions) {
-    transpilerOptions = transpilerOptions || {};
+    transpilerOptions = transpilerOptions || {plugins: []};
     // console.log('required babel plugins', pluginsAsOptions.map(function(plugin) {
     //     return plugin[0];
     // }));
@@ -122,12 +122,16 @@ function createTranspiler(transpilerOptions) {
             // console.log('transpiling', code, 'for', sourceURL);
 
             var babelOptions = {};
+            babelOptions.filename = options.filename;
             babelOptions.plugins = options.plugins;
             babelOptions.ast = false;
             if ('sourceMaps' in options) {
                 babelOptions.sourceMaps = options.sourceMaps;
             } else {
                 babelOptions.sourceMaps = 'inline';
+            }
+            if (options.sourceRoot) {
+                babelOptions.sourceRoot = options.sourceRoot;
             }
 
             var babel = require('babel-core');
@@ -191,6 +195,7 @@ function createTranspiler(transpilerOptions) {
     var transpiler = {
         // plugins: pluginsAsOptions,
         transpile: transpile,
+        options: transpilerOptions,
         transpileFile: function(filePath, transpileFileOptions) {
             function createTranspiledCode(transpileCodeOptions) {
                 return fsAsync.getFileContent(transpileCodeOptions.filename).then(function(code) {
@@ -223,7 +228,7 @@ function createTranspiler(transpilerOptions) {
     return transpiler;
 }
 
-function createTransformTemplateLiteralsTaggedWithPlugin(transpile, TAG_NAME) {
+function transpileTemplateTaggedWith(transpile, TAG_NAME) {
     TAG_NAME = TAG_NAME || 'transpile';
 
     function transformTemplateLiteralsTaggedWithPlugin(babel) {
@@ -303,6 +308,57 @@ function createTransformTemplateLiteralsTaggedWithPlugin(transpile, TAG_NAME) {
 
     return transformTemplateLiteralsTaggedWithPlugin;
 }
-createTranspiler.transformTemplateLiteralsPlugin = createTransformTemplateLiteralsTaggedWithPlugin;
+createTranspiler.transpileTemplateTaggedWith = transpileTemplateTaggedWith;
+
+function generateExport() {
+    // https://github.com/babel/babel/blob/master/packages/babel-plugin-transform-es2015-modules-systemjs/src/index.js
+    function generateExportPlugin(babel) {
+        // console.log('babel', Object.keys(babel));
+        // var types = babel.types;
+
+        function visitProgram(path, state) {
+            var file = state.file;
+            var fileOptions = file.opts;
+            // var parserOptions = file.parserOpts;
+            // var node = path.node;
+            // console.log('visiting file', parserOptions);
+            // console.log('opts', fileOptions);
+
+            var filename = fileOptions.filename;
+            var sourceRoot = fileOptions.sourceRoot;
+            var shortFileName;
+
+            if (sourceRoot) {
+                shortFileName = require('path').relative(sourceRoot, filename).replace(/\\/g, '/');
+            } else {
+                shortFileName = filename;
+            }
+
+            var result = babel.transform(
+                'var filename = "' + shortFileName + '";\nexport {filename};\n\n',
+                {
+                    code: false,
+                    sourceMaps: false,
+                    sourceType: 'module',
+                    babelrc: false,
+                    ast: true,
+                    plugins: []
+                }
+            );
+            var ast = result.ast;
+            var body = ast.program.body;
+            path.unshiftContainer('body', body);
+        }
+
+        return {
+            visitor: {
+                Program: visitProgram
+            }
+        };
+    }
+
+    return generateExportPlugin;
+}
+createTranspiler.generateExport = generateExport;
 
 module.exports = createTranspiler;

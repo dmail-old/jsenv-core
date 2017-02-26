@@ -1,22 +1,15 @@
-import {at, expect, present} from 'helper/detect.js';
-import parent from '../feature.js';
+import {at, present} from '/helper/detect.js';
+import {test as objectTest} from '../feature.js';
 const methodName = 'create';
-const feature = {
-    dependencies: [parent],
-    run: at(parent.run, methodName),
-    test: expect(present)
+const test = {
+    dependencies: [objectTest],
+    run: at(objectTest.run, methodName),
+    complete: present
 };
-export default feature;
+export {test};
 
-import {assertObject, getSharedKey, nonEnumerableKeys} from 'helper/fix.js';
+import {assertObject, getSharedKey, nonEnumerableKeys, polyfill} from '/helper/fix.js';
 import {definePropertiesSolution} from '../define-properties/feature.js';
-const solution = {
-    dependencies: [definePropertiesSolution],
-    type: 'inline',
-    value: function() {
-        Object.create = create;
-    }
-};
 function createDict() {
     // Thrash, waste and sodomy: IE GC bug
     var iframe = document.createElement('iframe');
@@ -57,4 +50,6 @@ function create(object, properties) {
     }
     return result;
 }
+const solution = polyfill(Object, methodName, create);
+solution.dependencies = [definePropertiesSolution];
 export {solution};

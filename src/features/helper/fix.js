@@ -1,3 +1,27 @@
+function none(reason) {
+    return {
+        type: 'none',
+        reason: reason
+    };
+}
+export {none};
+
+function polyfill(object, propertyName, value) {
+    return {
+        type: 'inline',
+        value: function() {
+            object[propertyName] = value;
+        }
+    };
+}
+export {polyfill};
+
+const objectPropertyIsEnumerable = Object.prototype.propertyIsEnumerable;
+function isEnumerable(object, key) {
+    return objectPropertyIsEnumerable.call(object, key);
+}
+export {isEnumerable};
+
 const objectHasOwnProperty = Object.prototype.hasOwnProperty;
 function hasOwnProperty(object, key) {
     return objectHasOwnProperty.call(object, key);
@@ -72,6 +96,12 @@ function toPrimitive(object, hint) {
     throw new TypeError('invalid [[DefaultValue]] hint supplied');
 }
 export {toPrimitive};
+
+function toObject(value) {
+    objectIsCoercible(value);
+    return Object(value);
+}
+export {toObject};
 
 const toIterable = (function() {
     if (Object('z').propertyIsEnumerable(0)) {

@@ -1,9 +1,5 @@
-const name = 'const';
-export {name};
-
 import {transpile} from 'helper/detect.js';
 const test = {
-    name: name,
     run: transpile`(function(value) {
         const result = value;
         return result;

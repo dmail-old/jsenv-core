@@ -1,9 +1,11 @@
-import {at, expect, present} from 'helper/detect.js';
-import parent from '../feature.js';
+import {at, present, every} from 'helper/detect.js';
+import {test as objectTest} from '../feature.js';
 const methodName = 'defineProperty';
-const feature = {
-    run: at(parent.run, methodName),
-    test: expect(present, function(defineProperty) {
+const test = {
+    dependencies: [objectTest],
+    run: at(objectTest.run, methodName),
+    complete: every(present, function(target) {
+        const defineProperty = target.value;
         const object = {};
         const name = 'a';
         const value = 7;
@@ -19,9 +21,9 @@ const feature = {
         }
     })
 };
-export default feature;
+export {test};
 
-import {assertObject, toPrimitive} from 'helper/fix.js';
+import {assertObject, toPrimitive, polyfill} from 'helper/fix.js';
 function defineProperty(object, propertyName, attributes) {
     assertObject(object);
     propertyName = toPrimitive(propertyName, String);
@@ -34,10 +36,5 @@ function defineProperty(object, propertyName, attributes) {
     }
     return object;
 }
-export {defineProperty};
-
-import {defineMethod} from 'helper/fix.js';
-function fix() {
-    defineMethod(at(parent.run).value, methodName, defineProperty);
-}
-export {fix};
+const solution = polyfill(Object, methodName, defineProperty);
+export {solution};

@@ -2,7 +2,7 @@
 	"sources": [
 		{
 			"path": "../../../../feature.js",
-			"eTag": "\"2a7-9tGf6UrpVXSjFMsdyuJaoGuwV5Q\""
+			"eTag": "\"236-zqZ0KKotxCXk65n3bM4jdyBNV6M\""
 		}
 	],
 	"value": {
@@ -11,7 +11,7 @@
 		"detail": {
 			"name": "SyntaxError",
 			"message": "Identifier 'a' has already been declared",
-			"stack": "SyntaxError: Identifier 'a' has already been declared\n    at eval (eval at <anonymous> (eval at fromServer (C:\\Users\\Damien\\Documents\\GitHub\\core\\src\\features\\api.js:679:25)), <anonymous>:1:10)\n    at test$$1.complete (eval at fromServer (C:\\Users\\Damien\\Documents\\GitHub\\core\\src\\features\\api.js:679:25), <anonymous>:192:30)\n    at exec (C:\\Users\\Damien\\Documents\\GitHub\\core\\src\\jsenv.js:2000:39)\n    at C:\\Users\\Damien\\Documents\\GitHub\\core\\src\\jsenv.js:2091:32\n    at Immediate._onImmediate (C:\\Users\\Damien\\Documents\\GitHub\\core\\src\\jsenv.js:1186:37)\n    at processImmediate [as _immediateCallback] (timers.js:396:17)"
+			"stack": "SyntaxError: Identifier 'a' has already been declared\n    at eval (eval at <anonymous> (eval at fromServer (C:\\Users\\Damien\\Documents\\GitHub\\core\\src\\features\\api.js:683:25)), <anonymous>:1:10)\n    at test$$1.complete (eval at fromServer (C:\\Users\\Damien\\Documents\\GitHub\\core\\src\\features\\api.js:683:25), <anonymous>:187:30)\n    at exec (C:\\Users\\Damien\\Documents\\GitHub\\core\\src\\jsenv.js:2000:39)\n    at C:\\Users\\Damien\\Documents\\GitHub\\core\\src\\jsenv.js:2091:32\n    at Immediate._onImmediate (C:\\Users\\Damien\\Documents\\GitHub\\core\\src\\jsenv.js:1186:37)\n    at processImmediate [as _immediateCallback] (timers.js:396:17)"
 		}
 	}
 }

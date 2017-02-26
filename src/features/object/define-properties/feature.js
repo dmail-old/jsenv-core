@@ -1,23 +1,14 @@
-import {at, expect, present} from 'helper/detect.js';
-import parent from '../feature.js';
+import {at, present} from '/helper/detect.js';
+import {test as objectTest} from '../feature.js';
 const methodName = 'defineProperties';
-const feature = {
-    dependencies: [parent],
-    run: at(parent.run, methodName),
-    test: expect(present)
+const test = {
+    dependencies: [objectTest],
+    run: at(objectTest.run, methodName),
+    complete: present
 };
-export default feature;
+export {test};
 
-import {assertObject} from 'helper/fix.js';
-import {solution as keysSolution} from '../keys/feature.js';
-import {solution as definePropertySolution} from '//object/define-property/feature.js';
-const solution = {
-    dependencies: [keysSolution, definePropertySolution],
-    type: 'inline',
-    value: function() {
-        Object.defineProperties = defineProperties;
-    }
-};
+import {assertObject} from '/helper/fix.js';
 function defineProperties(object, properties) {
     assertObject(object);
     const names = Object.keys(object);
@@ -30,5 +21,9 @@ function defineProperties(object, properties) {
     }
     return object;
 }
+import {polyfill} from '/helper/fix.js';
+import {solution as keysSolution} from '../keys/feature.js';
+import {solution as definePropertySolution} from '../define-property/feature.js';
+const solution = polyfill(Object, methodName, defineProperties);
+solution.dependencies = [keysSolution, definePropertySolution];
 export {solution};
-

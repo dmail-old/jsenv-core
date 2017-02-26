@@ -871,6 +871,11 @@ ainsi que quelques utilitaires comme assign, Iterable et Predicate
             }
             return value;
         };
+        Iterable.filterBy = function(iterable, otherIterable, fn) {
+            return Iterable.filter(iterable, function(value, index) {
+                return fn(otherIterable[index], index, otherIterable);
+            });
+        };
         return Iterable;
     })();
     provide('Iterable', Iterable);
@@ -1900,146 +1905,79 @@ en fonction du résultat de ces tests
         };
     });
 
-    jsenv.provide(function execAllTest() {
-        var Iterable = jsenv.Iterable;
-        var defaultMaxDuration = 100;
-
-        var Output = (function() {
-            function Output(properties) {
-                jsenv.assign(this, properties);
-            }
-
-            function createOutput(properties) {
-                return new Output(properties);
-            }
-            function isOutput(a) {
-                return a instanceof Output;
-            }
-
-            return {
-                create: createOutput,
-                is: isOutput,
-
-                pass: function pass(reason, detail) {
-                    return createOutput({
-                        status: 'passed',
-                        reason: reason,
-                        detail: detail
-                    });
-                },
-
-                fail: function fail(reason, detail) {
-                    return createOutput({
-                        status: 'failed',
-                        reason: reason,
-                        detail: detail
-                    });
-                }
-            };
-        })();
-        jsenv.Output = Output;
-
-        function compile(test) {
-            var value;
-            if (test.hasOwnProperty('run')) {
-                var run = test.run;
-                if (typeof run === 'object') {
-                    if (run === null) {
-                        value = run;
-                    } else if (typeof run.compile === 'function') {
-                        value = run.compile();
-                    } else {
-                        value = run;
-                    }
-                } else if (typeof run === 'function') {
-                    value = run.call(test);
-                } else {
-                    value = run;
-                }
+    jsenv.provide('Output', (function() {
+        function Output(properties) {
+            jsenv.assign(this, properties);
+        }
+        function createOutput(properties) {
+            return new Output(properties);
+        }
+        function isOutput(a) {
+            return a instanceof Output;
+        }
+        function pass(reason, detail) {
+            return createOutput({
+                status: 'passed',
+                reason: reason,
+                detail: detail
+            });
+        }
+        function fail(reason, detail) {
+            return createOutput({
+                status: 'failed',
+                reason: reason,
+                detail: detail
+            });
+        }
+        function cast(value) {
+            // allow fn to return true/false as a shortcut to calling pass/fail
+            if (value === true) {
+                value = pass('returned-true');
+            } else if (value === false) {
+                value = fail('returned-false');
             }
             return value;
         }
-        function exec(test) {
-            var compileResult;
-            var isCrashed;
-            try {
-                compileResult = compile(test);
-                isCrashed = false;
-            } catch (e) {
-                compileResult = e;
-                isCrashed = true;
-            }
-            var toOutput = function(value) {
-                // allow fn to return true/false as a shortcut to calling pass/fail
-                if (value === true) {
-                    value = Output.pass('returned-true');
-                } else if (value === false) {
-                    value = Output.fail('returned-false');
-                }
-                return value;
-            };
-
-            var testReturnValue;
-            var testTransformer;
-            if (isCrashed === false) {
-                if (test.hasOwnProperty('complete')) {
-                    testTransformer = test.complete;
-                } else {
-                    testReturnValue = Output.fail('unexpected-compile-return', compileResult);
-                }
-            } else if (isCrashed === true) {
-                if (test.hasOwnProperty('crash')) {
-                    testTransformer = test.crash;
-                } else {
-                    testReturnValue = Output.fail('unexpected-compile-throw', compileResult);
-                }
-            }
-
-            if (testTransformer) {
-                try {
-                    testReturnValue = testTransformer(compileResult, Output.pass, Output.fail);
-                } catch (e) {
-                    testReturnValue = Output.fail('unexpected-test-throw', e);
-                }
-            }
-
-            var maxDuration = test.hasOwnProperty('maxDuration') ? test.maxDuration : defaultMaxDuration;
-            var timeout;
-            var clean = function() {
-                if (timeout) {
-                    clearTimeout(timeout);
-                    timeout = null;
-                }
-            };
-            return Thenable.race([
-                Thenable.resolve(testReturnValue).then(
-                    function(value) {
-                        clean();
-                        value = toOutput(value);
-                        if (Output.is(value)) {
-                            return value;
+        function every() {
+            var settlers = arguments;
+            return function() {
+                var i = 0;
+                var j = settlers.length;
+                var result;
+                while (i < j) {
+                    var settler = settlers[i];
+                    result = settler.apply(this, arguments);
+                    result = cast(result);
+                    if (isOutput(result)) {
+                        if (result.status === 'failed') {
+                            return result;
                         }
-                        return Output.pass('resolved', value);
-                    },
-                    function(value) {
-                        clean();
-                        value = toOutput(value);
-                        if (Output.is(value)) {
-                            return value;
-                        }
-                        return Output.fail('rejected', value);
                     }
-                ),
-                new Thenable(function(resolve) {
-                    timeout = setTimeout(function() {
-                        resolve(Output.fail('timeout', maxDuration));
-                    }, maxDuration);
-                })
-            ]);
+                    i++;
+                }
+                return result;
+            };
         }
-        function execAllTest(tests, progressCallback) {
+
+        return {
+            create: createOutput,
+            is: isOutput,
+            pass: pass,
+            fail: fail,
+            cast: cast,
+            every: every
+        };
+    })());
+
+    jsenv.provide('execGraph', (function() {
+        var Iterable = jsenv.Iterable;
+        var Output = jsenv.Output;
+        var pass = Output.pass;
+        var fail = Output.fail;
+
+        function execGraph(nodes, executor, progressCallback) {
             var results = [];
-            var groups = groupByDependencyDepth(tests);
+            var groups = groupByDependencyDepth(nodes);
             var readyCount = 0;
             var totalCount = Iterable.reduce(groups, function(previous, group) {
                 return previous + group.length;
@@ -2065,9 +2003,9 @@ en fonction du résultat de ces tests
 
                 return Thenable.resolve(firstValue).then(next);
             }
-            function isInvalid(test) {
+            function isInvalid(node) {
                 var result = Iterable.find(results, function(result) {
-                    return result.name === test.name;
+                    return result.node === node;
                 });
                 return result && result.status === 'invalid';
             }
@@ -2079,26 +2017,43 @@ en fonction du résultat de ces tests
             }
 
             return reduceAsync(groups, function(group) {
-                return Thenable.all(group.map(function(test) {
+                return Thenable.all(group.map(function(node) {
                     return Thenable.resolve().then(function() {
-                        if ('dependencies' in test) {
-                            var dependencies = test.dependencies;
-                            var invalidDependency = Iterable.find(dependencies, dependencyIsInvalid, test);
+                        if ('dependencies' in node) {
+                            var dependencies = node.dependencies;
+                            var invalidDependency = Iterable.find(dependencies, dependencyIsInvalid, node);
                             if (invalidDependency) {
-                                return Output.fail('dependency-is-invalid', invalidDependency.name);
+                                return fail('dependency-is-invalid', dependencies.indexOf(invalidDependency));
                             }
                         }
-                        return exec(test);
-                    }).then(function(result) {
+                        return executor(node, pass, fail);
+                    }).then(
+                        function(value) {
+                            value = Output.cast(value);
+                            if (Output.is(value)) {
+                                return value;
+                            }
+                            return pass('resolved', value);
+                        },
+                        function(value) {
+                            value = Output.cast(value);
+                            if (Output.is(value)) {
+                                return value;
+                            }
+                            return fail('rejected', value);
+                        }
+                    ).then(function(result) {
                         readyCount++;
                         results.push({
-                            name: test.name,
+                            node: node,
                             data: result
                         });
                         if (progressCallback) {
+                            var nodeIndex = nodes.indexOf(node);
                             var progressEvent = {
                                 type: 'progress',
-                                target: test,
+                                target: node,
+                                index: nodeIndex,
                                 detail: result,
                                 lengthComputable: true,
                                 total: totalCount,
@@ -2180,118 +2135,196 @@ en fonction du résultat de ces tests
             return dependencies;
         }
 
-        return {
-            execAllTest: execAllTest
-        };
-    });
+        return execGraph;
+    })());
+
+    jsenv.provide('execTest', (function() {
+        var defaultMaxDuration = 100;
+
+        function compileTest(test) {
+            var value;
+            if (test.hasOwnProperty('run')) {
+                var run = test.run;
+                if (typeof run === 'object') {
+                    if (run === null) {
+                        value = run;
+                    } else if (typeof run.compile === 'function') {
+                        value = run.compile();
+                    } else {
+                        value = run;
+                    }
+                } else if (typeof run === 'function') {
+                    value = run.call(test);
+                } else {
+                    value = run;
+                }
+            }
+            return value;
+        }
+        function execTest(test, pass, fail) {
+            var compileResult;
+            var isCrashed;
+            try {
+                compileResult = compileTest(test);
+                isCrashed = false;
+            } catch (e) {
+                compileResult = e;
+                isCrashed = true;
+            }
+
+            var testReturnValue;
+            var testTransformer;
+            if (isCrashed === false) {
+                if (test.hasOwnProperty('complete')) {
+                    testTransformer = test.complete;
+                } else {
+                    testReturnValue = fail('unexpected-compile-return', compileResult);
+                }
+            } else if (isCrashed === true) {
+                if (test.hasOwnProperty('crash')) {
+                    testTransformer = test.crash;
+                } else {
+                    testReturnValue = fail('unexpected-compile-throw', compileResult);
+                }
+            }
+
+            if (testTransformer) {
+                try {
+                    testReturnValue = testTransformer(compileResult, pass, fail);
+                } catch (e) {
+                    testReturnValue = fail('unexpected-test-throw', e);
+                }
+            }
+
+            var maxDuration = test.hasOwnProperty('maxDuration') ? test.maxDuration : defaultMaxDuration;
+            var timeout;
+            var clean = function() {
+                if (timeout) {
+                    clearTimeout(timeout);
+                    timeout = null;
+                }
+            };
+            return Thenable.race([
+                Thenable.resolve(testReturnValue).then(
+                    function(value) {
+                        clean();
+                        return value;
+                    },
+                    function(value) {
+                        clean();
+                        return value;
+                    }
+                ),
+                new Thenable(function(resolve) {
+                    timeout = setTimeout(function() {
+                        resolve(fail('timeout', maxDuration));
+                    }, maxDuration);
+                })
+            ]);
+        }
+
+        return execTest;
+    })());
+
+    jsenv.provide('execSolution', (function() {
+        function isInlineSolution(solution) {
+            return solution.type === 'inline';
+        }
+        function isBabelSolution(solution) {
+            return solution.type === 'babel';
+        }
+        function execSolution(solution, pass, fail) {
+            if (isInlineSolution(solution)) {
+                try {
+                    solution.value();
+                    return true;
+                } catch (e) {
+                    return fail('solution-crash', e);
+                }
+            }
+            if (isBabelSolution(solution)) {
+                return true;
+            }
+            return true;
+        }
+
+        return execSolution;
+    })());
 
     jsenv.provide(function createImplementationClient() {
         function createImplementationClient(mediator) {
+            function testFeatures(features) {
+                var records = [];
+                var tests = features.map(function(feature) {
+                    return feature.test;
+                });
+                return jsenv.execGraph(tests, jsenv.execTest, function(event) {
+                    var testIndex = event.index;
+                    if (testIndex === -1) {
+                        console.log('test dependency ->', event.detail);
+                    } else {
+                        var feature = features[testIndex];
+                        var featureName = jsenv.parentPath(feature.filename);
+                        console.log('tested', featureName, '->', event.detail);
+                        records.push({
+                            name: featureName,
+                            data: event.detail
+                        });
+                    }
+                }).then(function() {
+                    return records;
+                });
+            }
             function testImplementation() {
                 return mediator.send('getAllRequiredTest').then(function(features) {
-                    var tests = features.map(function(feature) {
-                        return feature.test;
-                    });
-                    console.log('tests', tests);
-                    return test(tests).then(function(testRecords) {
+                    return testFeatures(features).then(function(testRecords) {
                         return mediator.send('setAllTestRecord', testRecords);
                     });
                 });
             }
-            function test(tests) {
-                var records = [];
-                return jsenv.execAllTest(tests, function(event) {
-                    console.log('tested', event.target.name, '->', event.detail);
-                    records.push({
-                        name: event.target.name,
-                        data: event.detail
-                    });
-                });
-            }
             function fixImplementation() {
-                return mediator.send('getAllRequiredFix').then(function(data) {
-                    var features = data.features;
-
-                    var featuresUsingCoreJSSolution = features.filter(featureUseCoreJSSolution);
-                    var coreJSSolver = data.meta.coreJSSolver;
-                    var applyCoreJSSolution = createConcatenedSolver(coreJSSolver);
-                    function createConcatenedSolver(solver) {
-                        var called = false;
-                        var status;
-                        var value;
-
-                        return function() {
-                            if (called === false) {
-                                called = true;
-                                try {
-                                    value = solver();
-                                    status = 'returned';
-                                } catch (e) {
-                                    status = 'throwed';
-                                    value = e;
-                                }
-                            }
-
-                            if (status === 'returned') {
-                                return value;
-                            }
-                            if (status === 'throwed') {
-                                throw value;
-                            }
-                        };
-                    }
-                    featuresUsingCoreJSSolution.forEach(function(feature) {
-                        feature.beforeTest = function() {
-                            applyCoreJSSolution(this);
-                        };
+                return mediator.send('getAllRequiredFix').then(function(features) {
+                    var records = [];
+                    var solutions = features.map(function(feature) {
+                        return feature.solution;
                     });
-
-                    var featuresUsingInlineSolution = features.filter(featureUseInlineSolution);
-                    function applyInlineSolution(feature) {
-                        feature.polyfill(function() {
-                            return feature.solution.value;
-                        });
-                    }
-                    featuresUsingInlineSolution.forEach(function(feature) {
-                        feature.beforeTest = function() {
-                            applyInlineSolution(this);
-                        };
-                    });
-
-                    var featuresUsingFileSolution = features.filter(featureUseFileSolution);
-                    var fileSources = data.meta.fileSources;
-                    function applyFileSolution(feature) {
-                        var fileSource = Iterable.find(fileSources, function(fileSource) {
-                            return fileSource.feature === feature.name;
-                        });
-                        if (fileSource) {
-                            var solutionFn = new Function( // eslint-disable-line no-new-func
-                                'feature',
-                                fileSource.source
-                            );
-                            solutionFn(feature);
+                    return jsenv.execGraph(solutions, jsenv.execSolution, function(event) {
+                        var testIndex = event.index;
+                        if (testIndex === -1) {
+                            console.log('solve dependency ->', event.detail);
+                        } else {
+                            var feature = features[testIndex];
+                            var featureName = jsenv.parentPath(feature.filename);
+                            console.log('solve', featureName, '->', event.detail);
+                            records[testIndex] = {
+                                name: featureName,
+                                data: event.detail
+                            };
                         }
-                        throw new Error('missing file solution source for ' + feature.name);
-                    }
-                    featuresUsingFileSolution.forEach(function(feature) {
-                        feature.beforeTest = function() {
-                            applyFileSolution(this);
-                        };
-                    });
-
-                    return test(features).then(function(fixRecords) {
-                        return mediator.send('setAllFixRecord', fixRecords);
+                    }).then(function() {
+                        var recordsWithPassedTests = [];
+                        var tests = [];
+                        records.forEach(function(record, index) {
+                            if (record.data.status === 'passed') {
+                                recordsWithPassedTests.push(record);
+                                tests.push(features[index].test);
+                            }
+                        });
+                        return jsenv.execGraph(tests, jsenv.execTest, function(event) {
+                            var testIndex = event.index;
+                            if (testIndex === -1) {
+                                console.log('test solution dependency ->', event.detail);
+                            } else {
+                                var recordWithPassedTest = recordsWithPassedTests[testIndex];
+                                var featureName = recordWithPassedTest.name;
+                                console.log('test solution', featureName, '->', event.detail);
+                                recordsWithPassedTests[testIndex].data = event.detail;
+                            }
+                        });
+                    }).then(function() {
+                        return mediator.send('setAllFixRecord', records);
                     });
                 });
-            }
-            function featureUseInlineSolution(feature) {
-                return feature.solution.type === 'inline';
-            }
-            function featureUseFileSolution(feature) {
-                return feature.solution.type === 'file';
-            }
-            function featureUseCoreJSSolution(feature) {
-                return feature.solution.type === 'corejs';
             }
             function scanImplementation() {
                 return testImplementation().then(function() {
