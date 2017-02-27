@@ -6,8 +6,6 @@ with
 https://github.com/kangax/compat-table/blob/gh-pages/data-es5.js
 https://github.com/kangax/compat-table/blob/gh-pages/data-es6.js
 
-- tester fileSolution (qu'il est bien récup et éxécuté)
-
 - y'a un gros souci comme on peut le voir dans object/assign
 tester la présence et le bon comportement de object/assign ne dépend pas de la présence de Object.keys
 en revanche le fix lui dépend de la présence de Object.keys
@@ -15,8 +13,13 @@ en revanche le fix lui dépend de la présence de Object.keys
 de la même manière il n'est pas possible de dire que lorsque j'utilise spread je veux object/assign
 (actuellement en tous cas)
 
-le problème que ça pose c'est que si je polyfill object.assign
-alors je me retrouve à polyfill object.keys
+solution:
+
+dans le plugin rollup on détecte les imports concernant fix.js
+ces imports là sont résolu à un objet vide lorsque la feature correspondante est fixée
+comme resolveId ou load peut être une promesse c'est "facile" à détecter
+ensuite coté client il "suffira" de se rendre compte que dependencies vaut ce fameux object vide
+pour ne rien faire de spécial
 
 */
 
@@ -154,13 +157,13 @@ function readAllFeatureNamesOnFileSystem() {
 api.getAllFeature = function(featureNames) {
     return buildFeatures(featureNames, {
         transpiler: featureTranspiler,
-        names: 'filename, test, solution'
+        mode: 'test'
     }).then(function(build) {
         return build.compile();
     });
 };
 function buildFeatures(featureNames, options) {
-    var featureImports = createFeatureImports(featureNames, options.names);
+    var featureImports = createFeatureImports(featureNames, options.mode);
 
     return bundle(featureImports, {
         root: featuresFolderPath,
@@ -176,20 +179,46 @@ function buildFeatures(featureNames, options) {
         };
     });
 }
-function createFeatureImports(featureNames, names) {
+function createFeatureImports(featureNames, mode) {
     var featureImports = featureNames.map(function(feature) {
-        var from = './' + feature + '/feature.js';
-
-        return {
-            import: names,
-            from: from
-        };
+        if (mode === 'test') {
+            return {
+                detect: {
+                    name: 'default',
+                    from: './' + feature + '/detect.js'
+                },
+                filename: {
+                    name: 'filename',
+                    from: './' + feature + '/detect.js'
+                }
+            };
+        }
+        if (mode === 'fix') {
+            return {
+                detect: {
+                    name: 'default',
+                    from: './' + feature + '/detect.js'
+                },
+                filename: {
+                    name: 'filename',
+                    from: './' + feature + '/detect.js'
+                },
+                fix: {
+                    name: 'default',
+                    from: './' + feature + '/fix.js'
+                }
+            };
+        }
+        if (mode === 'polyfill') {
+            return {};
+        }
+        return {};
     });
 
     return featureImports;
 }
 // api.getAllFeature([
-//     'const'
+//     'object'
 // ]).then(function(features) {
 //     console.log('got features', features);
 // }).catch(function(e) {
@@ -205,9 +234,10 @@ api.getAllRequiredTest = function(featureNames, agent) {
         'test'
     ).then(function(records) {
         var featureNamesToTest = Iterable.filterBy(featureNames, records, recordIsInvalid);
+        // console.log('to test', featureNamesToTest);
         return buildFeatures(featureNamesToTest, {
             transpiler: featureTranspiler,
-            names: 'filename, test'
+            mode: 'test'
         });
     }).then(function(build) {
         return build.source;
@@ -327,7 +357,10 @@ function getFeatureAgentCache(featureName, agent, createProperties) {
     var properties = createProperties(featureName, agent);
     return store.fileSystemEntry(properties);
 }
-// api.getAllRequiredTest(['const/scoped'], jsenv.agent).then(function(data) {
+// api.getAllRequiredTest(
+//     ['object'],
+//     jsenv.agent
+// ).then(function(data) {
 //     console.log('required test data', data);
 // }).catch(function(e) {
 //     setTimeout(function() {
@@ -393,7 +426,7 @@ api.getAllRequiredFix = function(featureNames, agent) {
             ),
             buildFeatures(featureNamesToFix, {
                 transpiler: featureTranspiler,
-                names: 'filename, test, solution'
+                mode: 'fix'
             }).then(function(build) {
                 return build.compile();
             })
@@ -445,7 +478,7 @@ api.getAllRequiredFix = function(featureNames, agent) {
             var featuresUsingFileSolution = featuresGroup.file;
             var fileWithInvalidFix = retainInvalid(featuresUsingFileSolution);
             var fileSolutions = getUniqSolutions(fileWithInvalidFix);
-            var fileSolver = inlineSolution.solve(fileSolutions);
+            var fileSolver = fileSolution.solve(fileSolutions);
             console.log('file fix', fileSolutions.length);
 
             var featuresUsingCoreJSSolution = featuresGroup.corejs;
@@ -489,6 +522,7 @@ api.getAllRequiredFix = function(featureNames, agent) {
                 babelSolver
             ]).then(function(data) {
                 var fileFunctions = data[1];
+                console.log('fileFunctions', fileFunctions);
                 var namedFileFunctions = {};
                 fileSolutions.forEach(function(solution, index) {
                     namedFileFunctions[solution.value] = fileFunctions[index];
@@ -497,18 +531,19 @@ api.getAllRequiredFix = function(featureNames, agent) {
                 var fixedFeatureTranspiler = data[3];
                 var featureNamesToFix = [].concat(
                     inlineWithInvalidFix,
+                    fileWithInvalidFix,
                     corejsWithInvalidFix,
                     babelWithInvalidFix
                 ).map(function(feature) {
                     return jsenv.parentPath(feature.filename);
                 });
 
-                console.log('feature names to fix', featureNamesToFix);
+                // console.log('feature names to fix', featureNamesToFix);
                 return buildFeatures(
                     featureNamesToFix,
                     {
                         transpiler: fixedFeatureTranspiler,
-                        names: 'filename, test, solution',
+                        mode: 'fix',
                         meta: {
                             namedFileFunctions: namedFileFunctions
                         }
@@ -695,7 +730,7 @@ function featureUseBabelSolution(feature) {
     return feature.solution.type === 'babel';
 }
 // api.getAllRequiredFix(
-//     ['const/scoped'],
+//     ['object'],
 //     jsenv.agent
 // ).then(function(data) {
 //     console.log('required fix data', data);
@@ -755,13 +790,13 @@ var ownMediator = api.createOwnMediator(
     String(jsenv.agent)
 );
 api.client = jsenv.createImplementationClient(ownMediator);
-api.client.scan().then(function() {
-    // console.log(Math.DEG_PER_RAD);
-}).catch(function(e) {
-    setTimeout(function() {
-        throw e;
-    });
-});
+// api.client.scan().then(function() {
+//     // console.log(Math.DEG_PER_RAD);
+// }).catch(function(e) {
+//     setTimeout(function() {
+//         throw e;
+//     });
+// });
 
 api.getClosestAgentForFeature = function(agent, featureName) {
     var featureFolderPath = featuresFolderPath + '/' + featureName;
@@ -897,7 +932,7 @@ api.getClosestAgentForFeature = function(agent, featureName) {
 //     console.log('rejected with', e);
 // });
 
-api.getAllRequiredAdapt = function(featureNames, agent) {
+api.polyfill = function(agent, featureNames) {
     var promises = featureNames.map(function(featureName) {
         return api.getClosestAgentForFeature(agent, featureName);
     });
@@ -958,15 +993,15 @@ api.getAllRequiredAdapt = function(featureNames, agent) {
         });
         return buildFeatures(featureNamesToFix, {
             transpiler: featureTranspiler,
-            names: 'filename, solution'
+            mode: 'polyfill'
         }).then(function(build) {
             return build.source;
         });
     });
 };
-// api.getAllRequiredAdapt(
-//     ['const/scoped'],
-//     jsenv.agent
+// api.polyfill(
+//     jsenv.agent,
+//     ['const/scoped']
 // ).then(function(adapt) {
 //     console.log('adapt', adapt);
 // }).catch(function(e) {
@@ -974,6 +1009,8 @@ api.getAllRequiredAdapt = function(featureNames, agent) {
 //         throw e;
 //     });
 // });
+
+api.transpile = function() {};
 
 function createBrowserMediator(featureNames) {
     return {

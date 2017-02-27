@@ -1,0 +1,12 @@
+{
+	"sources": [
+		{
+			"path": "../../../../feature.js",
+			"eTag": "\"12a-/NzBspUqr1T8Fs0PhTsq1riD9ac\""
+		}
+	],
+	"value": {
+		"status": "passed",
+		"reason": "present"
+	}
+}

@@ -1,15 +1,5 @@
-import {at, present} from '/helper/detect.js';
-import {test as objectTest} from '../feature.js';
-const methodName = 'assign';
-const test = {
-    dependencies: [objectTest],
-    run: at(objectTest.run, methodName),
-    complete: present
-};
-export {test};
-
-import {toObject, toIterable, isEnumerable} from '/helper/fix.js';
-import {solution as keysSolution} from '../keys/feature.js';
+import objectKeysFix from '../keys/fix.js';
+import {toObject, toIterable, isEnumerable} from '/fix-helpers.js';
 const getOwnPropertySymbols = Object.getOwnPropertySymbols;
 function assign(target, source) { // eslint-disable-line no-unused-vars
     var object = toObject(target);
@@ -34,11 +24,11 @@ function assign(target, source) { // eslint-disable-line no-unused-vars
     }
     return object;
 }
-const solution = {
-    dependencies: [keysSolution],
+const fix = {
+    dependencies: [objectKeysFix],
     type: 'inline',
     value: function() {
-        Object[methodName] = assign;
+        Object.assign = assign;
     }
 };
-export {solution};
+export default fix;

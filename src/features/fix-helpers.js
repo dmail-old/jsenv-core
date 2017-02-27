@@ -1,21 +1,3 @@
-function none(reason) {
-    return {
-        type: 'none',
-        reason: reason
-    };
-}
-export {none};
-
-function polyfill(object, propertyName, value) {
-    return {
-        type: 'inline',
-        value: function() {
-            object[propertyName] = value;
-        }
-    };
-}
-export {polyfill};
-
 const objectPropertyIsEnumerable = Object.prototype.propertyIsEnumerable;
 function isEnumerable(object, key) {
     return objectPropertyIsEnumerable.call(object, key);
