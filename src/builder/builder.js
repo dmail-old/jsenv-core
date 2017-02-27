@@ -9,6 +9,7 @@ var cuid = require('cuid');
 require('../jsenv.js');
 var store = require('../store.js');
 var memoize = require('../memoize.js');
+var uneval = require('../uneval.js');
 
 function normalizePath(path) {
     return path.replace(/\\/g, '/');
@@ -61,8 +62,8 @@ function generateSourceImporting(importDescriptions) {
         importSources.join('\n') +
         '\n\n' +
         'var collector = [];\n' +
-        'function collect(exports) {\n' +
-        '   collector.push(exports);\n' +
+        'function collect(a) {\n' +
+        '   collector.push(a);\n' +
         '}' +
         '\n' +
         collectorSources.join('\n') +
@@ -74,6 +75,7 @@ function pickImports(importDescriptors, options) {
     options = options || {};
     var root = options.root;
     var transpiler = options.transpiler;
+    var mainExportName = options.mainExportName || 'default';
 
     return builderCache.match({
         imports: importDescriptors,
@@ -100,7 +102,7 @@ function pickImports(importDescriptors, options) {
     // }
 
     function build() {
-        var moduleSource = generateSourceImporting(importDescriptors, rootFolder);
+        var moduleSource = generateSourceImporting(importDescriptors, root);
         // console.log('the source', moduleSource);
         var entryId = cuid() + '.js';
         var entryPath = root + '/' + entryId;
@@ -112,11 +114,12 @@ function pickImports(importDescriptors, options) {
                 if (
                     warning.code === 'EVAL' &&
                     normalizePath(warning.loc.file) === normalizePath(
-                        path.resolve(rootFolder, './helper/detect.js')
+                        path.resolve(root, './helper/detect.js')
                     )
                 ) {
                     return;
                 }
+                console.log(warning.loc.file);
                 console.warn(warning.message);
             },
             plugins: [
@@ -150,7 +153,7 @@ function pickImports(importDescriptors, options) {
                         if (transpiler && normalizedPath !== entryPath) {
                             var result = transpiler.transpile(code, {
                                 filename: normalizedPath,
-                                sourceRoot: rootFolder
+                                sourceRoot: root
                             });
                             return {
                                 code: result
@@ -167,12 +170,16 @@ function pickImports(importDescriptors, options) {
                 // because we can't be sure people will use 'use strict' so consider the worts scenario
                 // the one where they don't have use strict
                 useStrict: false,
-                moduleName: 'collector',
+                moduleName: '__exports__',
                 indent: true,
-                // banner: '"banner";',
+                exports: 'named',
+                banner: 'var __exports__ = {};',
                 intro: '"intro";',
-                outro: '"outro";',
-                footer: 'collector;'
+                outro: (
+                    '__exports__[' + uneval(mainExportName) + '] = collector;\n' +
+                    '__exports__.meta = ' + uneval(options.meta || {}) + ';'
+                ),
+                footer: '__exports__;'
             });
             return result.code;
         });
