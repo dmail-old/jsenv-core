@@ -84,7 +84,10 @@ function createTranspiler(transpilerOptions) {
                 var entry = cacheBranch.entry({
                     name: entryName,
                     mode: options.cacheMode || 'default',
-                    sources: entrySources
+                    sources: entrySources,
+                    encode: function(result) {
+                        return result.code;
+                    }
                 });
                 return entry;
             });
@@ -110,11 +113,9 @@ function createTranspiler(transpilerOptions) {
         options.plugins = plugins;
         return options;
     }
-
-    var transpile = function(code, transpileCodeOptions) {
+    function transpile(code, transpileCodeOptions) {
         var options = getOptions(transpileCodeOptions);
-
-        var transpileSource = function(sourceURL) {
+        function transpileSource(sourceURL) {
             // https://babeljs.io/docs/core-packages/#options
             // inputSourceMap: null,
             // minified: false
@@ -124,12 +125,9 @@ function createTranspiler(transpilerOptions) {
             var babelOptions = {};
             babelOptions.filename = options.filename;
             babelOptions.plugins = options.plugins;
-            babelOptions.ast = false;
-            if ('sourceMaps' in options) {
-                babelOptions.sourceMaps = options.sourceMaps;
-            } else {
-                babelOptions.sourceMaps = 'inline';
-            }
+            babelOptions.ast = true;
+            babelOptions.sourceMaps = true;
+            // babelOptions.sourceType = 'module';
             if (options.sourceRoot) {
                 babelOptions.sourceRoot = options.sourceRoot;
             }
@@ -146,15 +144,15 @@ function createTranspiler(transpilerOptions) {
                 throw e;
             }
             var transpiledCode = result.code;
-
             if (sourceURL && options.sourceURL !== false) {
                 transpiledCode += '\n//# sourceURL=' + sourceURL;
             }
-            if (options.transform) {
-                transpiledCode = options.transform(transpiledCode);
-            }
-            return transpiledCode;
-        };
+            // if (options.transform) {
+            //     transpiledCode = options.transform(transpiledCode);
+            // }
+            result.code = transpiledCode;
+            return result;
+        }
 
         var sourceURL;
         if ('filename' in options) {
@@ -185,44 +183,43 @@ function createTranspiler(transpilerOptions) {
                 return transpileSource(sourceURL);
             });
         }
-
         if (sourceURL) {
             sourceURL += '!transpiled';
         }
         return transpileSource(sourceURL);
-    };
-
-    var transpiler = {
-        // plugins: pluginsAsOptions,
-        transpile: transpile,
-        options: transpilerOptions,
-        transpileFile: function(filePath, transpileFileOptions) {
-            function createTranspiledCode(transpileCodeOptions) {
-                return fsAsync.getFileContent(transpileCodeOptions.filename).then(function(code) {
-                    return transpiler.transpile(code, transpileCodeOptions);
-                });
-            }
-
-            // désactive le cache lorsque entry ne matche pas
-            // puisqu'on a déjà testé s'il existait un cache valide
-            var transpileCodeOptions = getOptions(transpileFileOptions);
-            transpileCodeOptions.filename = filePath;
-
-            return getFileEntry(transpileCodeOptions).then(function(entry) {
-                if (entry) {
-                    transpileCodeOptions.cache = false;
-                    // we don't need sourceURL because the file exists on the filesystem
-                    // or maybe it could be set to entry.path when sourceURL was not already false
-                    transpileCodeOptions.sourceURL = false;
-
-                    return memoize.async(
-                        createTranspiledCode,
-                        entry
-                    )(transpileCodeOptions);
-                }
-                return createTranspiledCode(transpileCodeOptions);
+    }
+    function transpileFile(filePath, transpileFileOptions) {
+        function createTranspiledCode(transpileCodeOptions) {
+            return fsAsync.getFileContent(transpileCodeOptions.filename).then(function(code) {
+                return transpiler.transpile(code, transpileCodeOptions);
             });
         }
+
+        // désactive le cache lorsque entry ne matche pas
+        // puisqu'on a déjà testé s'il existait un cache valide
+        var transpileCodeOptions = getOptions(transpileFileOptions);
+        transpileCodeOptions.filename = filePath;
+
+        return getFileEntry(transpileCodeOptions).then(function(entry) {
+            if (entry) {
+                transpileCodeOptions.cache = false;
+                // we don't need sourceURL because the file exists on the filesystem
+                // or maybe it could be set to entry.path when sourceURL was not already false
+                transpileCodeOptions.sourceURL = false;
+
+                return memoize.async(
+                    createTranspiledCode,
+                    entry
+                )(transpileCodeOptions);
+            }
+            return createTranspiledCode(transpileCodeOptions);
+        });
+    }
+
+    var transpiler = {
+        options: transpilerOptions,
+        transpile: transpile,
+        transpileFile: transpileFile
     };
 
     return transpiler;
@@ -250,7 +247,7 @@ function transpileTemplateTaggedWith(transpile, TAG_NAME) {
             }
 
             try {
-                return transpile(result);
+                return transpile(result).code;
             } catch (e) {
                 // if there is an error
                 // let test a chance to eval untranspiled string
