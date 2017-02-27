@@ -1,7 +1,7 @@
-import {at, present} from '/detect-helpers.js';
+import {at, present} from '/test-helpers.js';
 const constructorName = 'Object';
-const detect = {
+const test = {
     run: at(constructorName),
     complete: present
 };
-export default detect;
+export default test;

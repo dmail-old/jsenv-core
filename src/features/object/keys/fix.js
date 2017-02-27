@@ -13,7 +13,7 @@ function keys(object) {
 }
 const fix = {
     type: 'inline',
-    value() {
+    value: function fixObjectKeys() {
         Object.keys = keys;
     }
 };

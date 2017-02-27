@@ -13,14 +13,6 @@ en revanche le fix lui dépend de la présence de Object.keys
 de la même manière il n'est pas possible de dire que lorsque j'utilise spread je veux object/assign
 (actuellement en tous cas)
 
-solution:
-
-dans le plugin rollup on détecte les imports concernant fix.js
-ces imports là sont résolu à un objet vide lorsque la feature correspondante est fixée
-comme resolveId ou load peut être une promesse c'est "facile" à détecter
-ensuite coté client il "suffira" de se rendre compte que dependencies vaut ce fameux object vide
-pour ne rien faire de spécial
-
 */
 
 require('./jsenv.js');
@@ -112,7 +104,7 @@ function readAllFeatureNamesOnFileSystem() {
                                 return Promise.all([
                                     fsAsync(
                                         'stat',
-                                        directoryPath + '/feature.js'
+                                        directoryPath + '/test.js'
                                     ).then(
                                         function(stat) {
                                             if (stat.isFile()) {
@@ -169,7 +161,9 @@ function buildFeatures(featureNames, options) {
         root: featuresFolderPath,
         transpiler: options.transpiler,
         meta: options.meta,
-        mainExportName: 'features'
+        mainExportName: 'features',
+        exclude: options.exclude,
+        footer: options.footer
     }).then(function(source) {
         return {
             source: source,
@@ -183,34 +177,43 @@ function createFeatureImports(featureNames, mode) {
     var featureImports = featureNames.map(function(feature) {
         if (mode === 'test') {
             return {
-                detect: {
+                test: {
                     name: 'default',
-                    from: './' + feature + '/detect.js'
+                    from: './' + feature + '/test.js'
                 },
                 filename: {
                     name: 'filename',
-                    from: './' + feature + '/detect.js'
+                    from: './' + feature + '/test.js'
                 }
             };
         }
         if (mode === 'fix') {
             return {
-                detect: {
+                test: {
                     name: 'default',
-                    from: './' + feature + '/detect.js'
+                    from: './' + feature + '/test.js'
                 },
                 filename: {
                     name: 'filename',
-                    from: './' + feature + '/detect.js'
+                    from: './' + feature + '/test.js'
                 },
-                fix: {
+                solution: {
                     name: 'default',
                     from: './' + feature + '/fix.js'
                 }
             };
         }
         if (mode === 'polyfill') {
-            return {};
+            return {
+                filename: {
+                    name: 'filename',
+                    from: './' + feature + '/test.js'
+                },
+                solution: {
+                    name: 'default',
+                    from: './' + feature + '/fix.js'
+                }
+            };
         }
         return {};
     });
@@ -218,7 +221,7 @@ function createFeatureImports(featureNames, mode) {
     return featureImports;
 }
 // api.getAllFeature([
-//     'object'
+//     'object/assign'
 // ]).then(function(features) {
 //     console.log('got features', features);
 // }).catch(function(e) {
@@ -294,7 +297,7 @@ function createTestOutputProperties(featureName, agent) {
         encode: stringify,
         sources: [
             {
-                path: featuresFolderPath + '/' + featureName + '/feature.js',
+                path: featuresFolderPath + '/' + featureName + '/test.js',
                 strategy: 'eTag'
             }
         ],
@@ -310,7 +313,7 @@ function createFixOutputProperties(featureName, agent) {
     var featureCachePath = featureFolderPath + '/.cache';
     var featureAgentCachePath = featureCachePath + '/' + agentString;
 
-    var featureFilePath = featureFolderPath + '/feature.js';
+    var featureFilePath = featureFolderPath + '/fix.js';
     var sources = [
         {
             path: featureFilePath,
@@ -320,8 +323,8 @@ function createFixOutputProperties(featureName, agent) {
     var properties = {
         name: 'fix-output.json',
         encode: stringify,
-        // mode: 'write-only',
-        mode: 'default',
+        mode: 'write-only',
+        // mode: 'default',
         sources: sources
     };
     properties.path = featureAgentCachePath + '/' + properties.name;
@@ -785,13 +788,13 @@ var ownMediator = api.createOwnMediator(
         // 'promise/unhandled-rejection',
         // 'promise/rejection-handled'
         // 'const/scoped'
-        'regenerator-runtime'
+        'object/keys'
     ],
     String(jsenv.agent)
 );
 api.client = jsenv.createImplementationClient(ownMediator);
 // api.client.scan().then(function() {
-//     // console.log(Math.DEG_PER_RAD);
+//     console.log(Object.assign);
 // }).catch(function(e) {
 //     setTimeout(function() {
 //         throw e;
@@ -882,7 +885,7 @@ api.getClosestAgentForFeature = function(agent, featureName) {
     }
     function missingAgent() {
         var missing = {
-            code: 'missing-agent',
+            code: 'NO_AGENT',
             featureName: featureName,
             agentName: agent.name
         };
@@ -890,7 +893,7 @@ api.getClosestAgentForFeature = function(agent, featureName) {
     }
     function missingVersion() {
         var missing = {
-            code: 'missing-version',
+            code: 'NO_AGENT_VERSION',
             featureName: featureName,
             agentName: agent.name,
             agentVersion: agent.version.toString()
@@ -904,7 +907,7 @@ api.getClosestAgentForFeature = function(agent, featureName) {
         featureCachePath
     ).catch(function(e) {
         if (e && e.code === 'ENOENT') {
-            return missingAgent();
+            return Promise.reject(missingAgent());
         }
         return Promise.reject(e);
     }).then(function() {
@@ -913,7 +916,7 @@ api.getClosestAgentForFeature = function(agent, featureName) {
             featureCachePath + '/' + closestAgent.name
         ).catch(function(e) {
             if (e && e.code === 'ENOENT') {
-                return missingVersion();
+                return Promise.reject(missingVersion());
             }
             return Promise.reject(e);
         });
@@ -933,55 +936,76 @@ api.getClosestAgentForFeature = function(agent, featureName) {
 // });
 
 api.polyfill = function(agent, featureNames) {
-    var promises = featureNames.map(function(featureName) {
-        return api.getClosestAgentForFeature(agent, featureName);
-    });
-    return Promise.all(promises).then(function(agents) {
-        return Promise.all(featureNames.map(function(featureName, index) {
-            var featureAgent = agents[index];
-
-            return readRecordFromFileSystem(
-                featureName,
-                featureAgent,
-                'test'
-            ).then(function(testRecord) {
-                if (recordIsInvalid(testRecord)) {
-                    return {
-                        name: 'fix',
-                        reason: 'test-missing'
-                    };
-                }
-                if (recordIsFailed(testRecord)) {
-                    return readRecordFromFileSystem(
-                        featureName,
-                        featureAgent,
-                        'fix'
-                    ).then(function(fixRecord) {
-                        if (recordIsInvalid(fixRecord)) {
-                            return {
-                                name: 'fix',
-                                reason: 'test-failed-and-fix-missing'
-                            };
-                        }
-                        if (recordIsFailed(fixRecord)) {
-                            return {
-                                name: 'fail',
-                                reason: 'test-failed-and-fix-failed'
-                            };
-                        }
+    function getInstruction(featureName, agent) {
+        return api.getClosestAgentForFeature(agent, featureName).then(
+            function(featureAgent) {
+                return readRecordFromFileSystem(
+                    featureName,
+                    featureAgent,
+                    'test'
+                ).then(function(testRecord) {
+                    if (recordIsInvalid(testRecord)) {
                         return {
                             name: 'fix',
-                            reason: 'test-failed'
+                            reason: 'test-missing'
                         };
-                    });
+                    }
+                    if (recordIsFailed(testRecord)) {
+                        return readRecordFromFileSystem(
+                            featureName,
+                            featureAgent,
+                            'fix'
+                        ).then(function(fixRecord) {
+                            if (recordIsInvalid(fixRecord)) {
+                                return {
+                                    name: 'fix',
+                                    reason: 'test-failed-and-fix-missing'
+                                };
+                            }
+                            if (recordIsFailed(fixRecord)) {
+                                return {
+                                    name: 'fail',
+                                    reason: 'test-failed-and-fix-failed'
+                                };
+                            }
+                            return {
+                                name: 'fix',
+                                reason: 'test-failed'
+                            };
+                        });
+                    }
+                    return {
+                        name: 'noop',
+                        reason: 'test-passed'
+                    };
+                });
+            },
+            function(e) {
+                if (e) {
+                    if (e.code === 'NO_AGENT') {
+                        return {
+                            name: 'fix',
+                            reason: 'test-missing',
+                            detail: e
+                        };
+                    }
+                    if (e.code === 'NO_AGENT_VERSION') {
+                        return {
+                            name: 'fix',
+                            reason: 'test-missing',
+                            detail: e
+                        };
+                    }
                 }
-                return {
-                    name: 'noop',
-                    reason: 'test-passed'
-                };
-            });
-        }));
-    }).then(function(instructions) {
+                return Promise.reject(e);
+            }
+        );
+    }
+
+    return Promise.all(featureNames.map(function(featureName) {
+        return getInstruction(featureName, agent);
+    })).then(function(instructions) {
+        // console.log('instructions', instructions);
         var failingFeatureNames = Iterable.filterBy(featureNames, instructions, function(instruction) {
             return instruction.name === 'fail';
         });
@@ -991,24 +1015,49 @@ api.polyfill = function(agent, featureNames) {
         var featureNamesToFix = Iterable.filterBy(featureNames, instructions, function(instruction) {
             return instruction.name === 'fix';
         });
+        console.log('features to polyfill', featureNamesToFix);
         return buildFeatures(featureNamesToFix, {
             transpiler: featureTranspiler,
-            mode: 'polyfill'
+            mode: 'polyfill',
+            exclude: function(id) {
+                var featureName = path.dirname(path.relative(featuresFolderPath, id));
+                var featureNameIndex = featureNames.indexOf(featureName);
+                var instructionPromise;
+                if (featureNameIndex === -1) {
+                    instructionPromise = getInstruction(featureName, agent);
+                } else {
+                    instructionPromise = Promise.resolve(instructions[featureNameIndex]);
+                }
+                console.log('should we exclude', featureName);
+                return instructionPromise.then(function(instruction) {
+                    console.log('instruction for', featureName, '->', instruction);
+                    if (instruction.name === 'fail') {
+                        throw new Error('unfixable dependency ' + featureName);
+                    }
+                    if (instruction.name === 'fix') {
+                        return false;
+                    }
+                    return true;
+                });
+            },
+            footer: 'jsenv.polyfill(__exports__);'
         }).then(function(build) {
             return build.source;
         });
     });
 };
-// api.polyfill(
-//     jsenv.agent,
-//     ['const/scoped']
-// ).then(function(adapt) {
-//     console.log('adapt', adapt);
-// }).catch(function(e) {
-//     setTimeout(function() {
-//         throw e;
-//     });
-// });
+api.polyfill(
+    jsenv.agent,
+    ['object/assign']
+).then(function(polyfill) {
+    console.log('polyfill', polyfill);
+    eval(polyfill);
+    console.log(Object.assign);
+}).catch(function(e) {
+    setTimeout(function() {
+        throw e;
+    });
+});
 
 api.transpile = function() {};
 

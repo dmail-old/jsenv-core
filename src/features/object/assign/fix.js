@@ -27,7 +27,7 @@ function assign(target, source) { // eslint-disable-line no-unused-vars
 const fix = {
     dependencies: [objectKeysFix],
     type: 'inline',
-    value: function() {
+    value: function fixObjectAssign() {
         Object.assign = assign;
     }
 };

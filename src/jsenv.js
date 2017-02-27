@@ -342,6 +342,9 @@ ainsi que quelques utilitaires comme assign, Iterable et Predicate
         var versionSeparator = '/';
         var VersionnableProperties = {
             setName: function(firstArg) {
+                if (firstArg === null || firstArg === undefined) {
+                    throw new Error('cannot call setName on null or undefined');
+                }
                 var lowerFirstArg = firstArg.toLowerCase();
                 var separatorIndex = lowerFirstArg.indexOf(versionSeparator);
                 if (separatorIndex === -1) {
@@ -1748,6 +1751,7 @@ en fonction du résultat de ces tests
                 return solution.type === 'babel';
             }
             function execSolution(solution) {
+                console.log('exec the solution', solution);
                 if (isInlineSolution(solution)) {
                     return solution.value();
                 }
@@ -1793,16 +1797,19 @@ en fonction du résultat de ces tests
             var namedFileFunctions = meta.namedFileFunctions;
             var solutions = features.map(function(feature) {
                 var solution = feature.solution;
-                var value = solution.value;
-                if (value in namedFileFunctions) {
-                    solution.value = namedFileFunctions[value];
-                } else {
-                    solution.value = function() {
-                        throw new Error('missing file solution for ' + value);
-                    };
+                if (solution.type === 'file') {
+                    var value = solution.value;
+                    if (value in namedFileFunctions) {
+                        solution.value = namedFileFunctions[value];
+                    } else {
+                        solution.value = function() {
+                            throw new Error('missing file solution for ' + value);
+                        };
+                    }
                 }
                 return solution;
             });
+            console.log('the solutions', solutions);
             var records = [];
             jsenv.graph.map(
                 solutions,
@@ -1813,7 +1820,9 @@ en fonction du résultat de ces tests
                     // and consequently they dont have to be executed
                     // and we must ignore them because concerning fileSolution for instance
                     // there source would not be accessible
-                    ignoreHiddenDependencies: true,
+                    // ignoreHiddenDependencies: true,
+                    // ok maintenan tc'est pas ça, on va bien récup dependencies
+                    // mais il sera possible que ce soit des objets vide
                     progress: function(event) {
                         var testIndex = event.index;
                         if (testIndex === -1) {
@@ -1832,10 +1841,14 @@ en fonction du résultat de ces tests
             );
             return records;
         }
+        function polyfill(data) {
+            fixFeatures(data.features, data.meta);
+        }
 
         function createImplementationClient(mediator) {
             function testImplementation() {
                 return mediator.send('getAllRequiredTest').then(function(data) {
+                    console.log('the data', data.features);
                     return testFeatures(data.features).then(function(testRecords) {
                         return mediator.send('setAllTestRecord', testRecords);
                     });
@@ -1855,6 +1868,7 @@ en fonction du résultat de ces tests
                             tests.push(features[index].test);
                         }
                     });
+                    console.log('records', records);
 
                     return jsenv.graph.mapAsync(
                         tests,
@@ -1891,7 +1905,8 @@ en fonction du résultat de ces tests
         }
 
         return {
-            createImplementationClient: createImplementationClient
+            createImplementationClient: createImplementationClient,
+            polyfill: polyfill
         };
     });
 })();

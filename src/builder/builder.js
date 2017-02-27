@@ -214,7 +214,7 @@ function pickImports(importDescription, options) {
                 if (
                     warning.code === 'EVAL' &&
                     normalizePath(warning.loc.file) === normalizePath(
-                        path.resolve(root, './detect-helpers.js')
+                        path.resolve(root, './test-helpers.js')
                     )
                 ) {
                     return;
@@ -226,9 +226,34 @@ function pickImports(importDescription, options) {
                 {
                     name: 'name',
                     load: function(id) {
-                        if (normalizePath(id) === entryPath) {
+                        id = normalizePath(id);
+                        if (id === entryPath) {
                             return moduleSource;
                         }
+                        // on pourrais aussi déplacer ça dans resolveId
+                        // et rediriger #weak vers un fichier spécial qui contient grosso modo
+                        // export default {weak: true};
+                        var weakMark = '/fix.js';
+                        var weakLength = weakMark.length;
+                        var isWeak = id.slice(-weakLength) === weakMark;
+                        console.log(id, 'is weak ?', isWeak);
+                        if (isWeak) {
+                            var isExcludedPromise;
+                            if (options.exclude) {
+                                isExcludedPromise = Promise.resolve(options.exclude(id));
+                            } else {
+                                isExcludedPromise = Promise.resolve(false);
+                            }
+                            return isExcludedPromise.then(function(isExcluded) {
+                                if (isExcluded) {
+                                    console.log('returning expor{}');
+                                    return 'export default {}';
+                                }
+                                console.log('loading');
+                                return null;
+                            });
+                        }
+                        console.log('will load', id);
                     },
                     resolveId: function(importee, importer) {
                         if (importee.slice(0, 2) === '//') {
@@ -268,6 +293,11 @@ function pickImports(importDescription, options) {
                 }
             ]
         }).then(function(bundle) {
+            var footer = '__exports__;';
+            if (options.footer) {
+                footer += '\n' + options.footer;
+            }
+
             var result = bundle.generate({
                 format: 'iife',
                 // because we can't be sure people will use 'use strict' so consider the worts scenario
@@ -277,12 +307,12 @@ function pickImports(importDescription, options) {
                 indent: true,
                 exports: 'named',
                 banner: 'var __exports__ = {};',
-                intro: '"intro";',
+                // intro: '"intro";',
                 outro: (
                     '__exports__[' + uneval(mainExportName) + '] = collector;\n' +
                     '__exports__.meta = ' + uneval(options.meta || {}) + ';'
                 ),
-                footer: '__exports__;'
+                footer: footer
             });
             return result.code;
         });
