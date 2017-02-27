@@ -4,7 +4,7 @@ const test = {
         const result = value;
         return result;
     })`,
-    complete: function(fn) {
+    complete(fn) {
         var value = 1;
         var result = fn(value);
         return result === value;

@@ -1,4 +1,4 @@
-import {transpile} from 'helper/detect.js';
+import {transpile} from '/helper/detect.js';
 import {test as constTest} from '../feature.js';
 const test = {
     dependencies: [constTest],
@@ -9,7 +9,7 @@ const test = {
         }
         return a;
     })`,
-    complete: function(fn) {
+    complete(fn) {
         var outsideValue = 0;
         var insideValue = 1;
         var returnValue = fn(outsideValue, insideValue);

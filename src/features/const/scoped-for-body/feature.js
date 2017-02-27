@@ -1,8 +1,7 @@
-import {transpile, expect, sameValues, collectKeys} from 'helper/detect.js';
-import parent from '../feature.js';
-
-const feature = {
-    dependencies: [parent],
+import {transpile, sameValues, collectKeys} from '/helper/detect.js';
+import {test as constTest} from '../feature.js';
+const test = {
+    dependencies: [constTest],
     run: transpile`(function(value) {
         var scopes = [];
         for(const i in value) {
@@ -12,15 +11,15 @@ const feature = {
         }
         return scopes;
     })`,
-    test: expect(function(fn) {
+    complete(fn) {
         var value = [0, 1];
         var scopes = fn(value);
         var scopeValues = jsenv.Iterable.map(scopes, function(scope) {
             return scope();
         });
         return sameValues(scopeValues, collectKeys(value));
-    }),
-    solution: parent.solution
+    }
 };
+export {test};
 
-export default feature;
+export {solution} from '../feature.js';

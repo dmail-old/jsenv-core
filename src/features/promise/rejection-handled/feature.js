@@ -1,51 +1,55 @@
-import {expect} from 'helper/detect.js';
-import parent from '../feature.js';
-const feature = {
-    dependencies: [parent],
-    run: parent.run,
-    maxTestDuration: 150,
-    test: expect(function(Promise, fail, pass) {
+import {listenOnce} from 'helper/detect.js';
+import {test as promiseTest} from '../feature.js';
+const test = {
+    dependencies: [promiseTest],
+    maxDuration: 150,
+    complete(first, fail, pass) {
         var promiseRejectionEvent;
 
         if (jsenv.isBrowser()) {
-            if ('onrejectionhandled' in window === false) {
-                return fail('missing-window-onrejectionhandled');
-            }
-            var browserListener = function(event) {
-                window.removeEventListener('rejectionhandled', browserListener);
-                promiseRejectionEvent = event;
-            };
-            window.addEventListener('rejectionhandled', browserListener);
+            listenOnce('rejectionHandled', function() {
+                promiseRejectionEvent = {
+                    reason: event.reason,
+                    promise: event.promise
+                };
+            });
         } else if (jsenv.isNode()) {
-            var nodeListener = function(promise) {
-                process.removeListener('rejectionHandled', nodeListener);
-                promiseRejectionEvent = {promise: promise};
-            };
-            process.addListener('rejectionHandled', nodeListener);
+            listenOnce('rejectionHandled', function(promise) {
+                promiseRejectionEvent = {
+                    promise: promise
+                };
+            });
         } else {
             return fail('unkown-platform');
         }
 
-        var promise = Promise.reject('foo');
+        const reason = 'foo';
+        const promise = Promise.reject(reason);
+        const waitEventDuration = 100; // engine has 100ms to trigger the event
         return new Promise(function(resolve) {
-            setTimeout(function() {
-                promise.catch(function() {});
-                // engine has 10ms to trigger the event
-                setTimeout(resolve, 100);
-            }, 2);
+            setTimeout(
+                function() {
+                    promise.catch(function() {});
+                    setTimeout(resolve, waitEventDuration);
+                },
+                2
+                // it's important to keep 1 or 2ms here so that this setTimeout
+                // cannot be in concurrency (and be executed before) the one Promise polyfill may use
+            );
         }).then(function() {
             if (promiseRejectionEvent) {
-                // node event emit the value
+                // node event emit only the promise value
                 // so we can't check for
-                // promiseRejectionEvent.reason === 'foo'
+                // promiseRejectionEvent.reason === reason
                 if (promiseRejectionEvent.promise === promise) {
                     return pass('event-ok');
                 }
-                return fail('event-promise-mismatch');
+                return fail('event-mismatch');
             }
             return fail('event-not-triggered');
         });
-    }),
-    solution: parent.solution
+    }
 };
-export default feature;
+export {test};
+
+export {solution} from '../feature.js';

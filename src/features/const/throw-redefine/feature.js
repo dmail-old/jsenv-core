@@ -1,18 +1,18 @@
-import {transpile, expect, expectThrow} from 'helper/detect.js';
-import parent from '../feature.js';
-
-const feature = {
-    dependencies: [parent],
+import {transpile, expectThrow} from '//helper/detect.js';
+import {test as constTest} from '../feature.js';
+const test = {
+    dependencies: [constTest],
     run: transpile`(function() {
         const foo = 1;
         foo = 2;
     })`,
-    test: expect(expectThrow(function(fn) {
+    complete: expectThrow(function(fn) {
         fn();
-    })),
-    solution: {
-        type: 'none'
-    }
+    })
 };
+export {test};
 
-export default feature;
+const solution = {
+    type: 'none'
+};
+export {solution};

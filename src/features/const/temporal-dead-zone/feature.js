@@ -1,8 +1,8 @@
-import {transpile, expect} from 'helper/detect.js';
-import parent from '../feature.js';
+import {transpile} from '/helper/detect.js';
+import {test as consTest} from '../feature.js';
 
-const feature = {
-    dependencies: [parent],
+const test = {
+    dependencies: [consTest],
     run: transpile`(function(value) {
         var result;
         function fn() {
@@ -12,12 +12,12 @@ const feature = {
         fn();
         return result;
     })`,
-    test: expect(function(fn) {
+    complete(fn) {
         var value = 10;
         var result = fn(value);
         return result === value;
-    }),
-    solution: parent.solution
+    }
 };
+export {test};
 
-export default feature;
+export {solution} from '../feature.js';

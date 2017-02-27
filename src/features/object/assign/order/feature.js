@@ -1,14 +1,15 @@
 import {test as assignTest} from '../feature.js';
+import {sameValues, collectKeys} from '/helper/detect.js';
 const test = {
     dependencies: [assignTest],
     complete() {
-        var keys = 'abcdefghijklmnopqrst';
+        var keys = 'abcdefghijklmnopqrst'.split('');
         var object = {};
-        keys.split('').forEach(function(key) {
+        keys.forEach(function(key) {
             object[key] = key;
         });
         var result = Object.assign({}, object);
-        return result.join('') === keys;
+        return sameValues(collectKeys(result), keys);
     }
 };
 export {test};
