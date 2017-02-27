@@ -957,6 +957,45 @@ ainsi que quelques utilitaires comme assign, Iterable et Predicate
     })();
     provide('Predicate', Predicate);
 
+    provide('platformPolymorph', function(implementations) {
+        return function platformPolymorph() {
+            var method;
+            var searched;
+
+            if (jsenv.isBrowser()) {
+                searched = 'browser';
+                method = implementations.browser;
+            } else if (jsenv.isNode()) {
+                searched = 'node';
+                method = implementations.node;
+            }
+
+            if (method) {
+                return method.apply(this, arguments);
+            }
+            throw new Error('no implementation found for ' + searched);
+        };
+    });
+
+    provide('triggerEvent', jsenv.platformPolymorph({
+        browser: function(name, event) {
+            name = 'on' + name.toLowerCase();
+            var listener = window[name];
+            if (listener) {
+                listener(event);
+                return true;
+            }
+            return false;
+        },
+        node: function(name, event) {
+            if (process.listeners(name).length) {
+                process.emit(name, event);
+                return true;
+            }
+            return false;
+        }
+    }));
+
     // we need a promise like object to use Promise power even in environment wo Promise
     // we reuse this one https://github.com/taylorhakes/promise-polyfill/blob/master/promise.js
     var Thenable = (function() {
@@ -1000,37 +1039,19 @@ ainsi que quelques utilitaires comme assign, Iterable et Predicate
                 }
             };
         })();
-        var triggerUnhandled = (function() {
-            if (jsenv.isBrowser()) {
-                return function triggerUnhandled(value, promise) {
-                    if (window.onunhandledrejection) {
-                        window.onunhandledrejection(value, promise);
-                    } else {
-                        // var mess = value instanceof Error ? value.stack : value;
-                        console.log('possibly unhandled rejection "' + value + '" for', promise);
-                    }
-                };
+        function triggerUnhandled(value, promise) {
+            if (!jsenv.triggerEvent('onunhandledRejection', {
+                value: value,
+                promise: promise
+            })) {
+                console.log('possibly unhandled rejection "' + value + '" for', promise);
             }
-            return function triggerUnhandled(value, promise) {
-                if (process.listeners('unhandledRejection').length === 0) {
-                    // var mess = value instanceof Error ? value.stack : value;
-                    console.log('possibly unhandled rejection "' + value + '" for', promise);
-                }
-                process.emit('unhandledRejection', value, promise);
-            };
-        })();
-        var triggerHandled = (function() {
-            if (jsenv.isBrowser()) {
-                return function triggerHandled(promise) {
-                    if (window.onrejectionhandled) {
-                        window.onrejectionhandled(promise);
-                    }
-                };
-            }
-            return function triggerHandled(promise) {
-                process.emit('rejectionHandled', promise);
-            };
-        })();
+        }
+        function triggerHandled(promise) {
+            jsenv.triggerEvent('rejectionHandled', {
+                promise: promise
+            });
+        }
         var asap = (function() {
             if (typeof setImmediate === 'function') {
                 return setImmediate;
@@ -1277,371 +1298,16 @@ On s'en sert pour tester comment se comporte l'environnement et pouvoir réagir
 en fonction du résultat de ces tests
 */
 (function() {
-    var Iterable = jsenv.Iterable;
-    // var Predicate = jsenv.Predicate;
     var Thenable = jsenv.Thenable;
-
-    /*
-    plus tard on pourrais imaginer supporter les features avec des version par exemple
-    array/1.0.0/from/0.1.0 signifie array version 1.0.0, from version 0.1.0
-    il faudra alors changer le code qui parcoure le filesystem pour qu'il détecte
-    le dossiers commençant par [0-9] et considère que c'est une version de la feature
-    c'est bien entendu de l'ultra bonus et pas besoin de ça pour le moment
-    */
 
     jsenv.provide(function versionnedFeature() {
         function VersionnedFeature() {
-            this.dependents = [];
-            this.dependencies = [];
-            this.parameters = [];
             jsenv.constructVersion(this, arguments);
         }
         VersionnedFeature.prototype = {
-            constructor: VersionnedFeature,
-            enabled: false,
-
-            getPath: function() {
-                var path = [];
-                var selfOrParent = this;
-                while (selfOrParent && selfOrParent.path) {
-                    path.unshift(selfOrParent.path);
-                    selfOrParent = selfOrParent.parent;
-                }
-                return path.join('.');
-            },
-
-            createRegisterCode: function(source) {
-                var featureNameSource = "'" + this.name + "'";
-                var featurePropertiesSource = '';
-                if (source) {
-                    featurePropertiesSource += 'function(feature, parent, expose) {\n\t';
-                    featurePropertiesSource += source;
-                    featurePropertiesSource += '\n}';
-                } else {
-                    featurePropertiesSource = 'null';
-                }
-
-                return 'registerFeature(' + featureNameSource + ', ' + featurePropertiesSource + ');';
-            },
-
-            addDependent: function(dependentFeature, options) {
-                dependentFeature.addDependency(this, options);
-                return this;
-            },
-
-            addDependency: function(dependency, options) {
-                if (dependency instanceof VersionnedFeature === false) {
-                    throw new Error('addDependency first arg must be a feature (not ' + dependency + ')');
-                }
-                if (Iterable.includes(this.dependencies, dependency)) {
-                    if (options.preventDuplicateError) {
-                        return this;
-                    }
-                    throw new Error(this.name + ' already dependent of ' + dependency.name);
-                }
-                if (this.isDependentOf(dependency)) {
-                    throw new Error('cyclic dependency between ' + dependency.name + ' and ' + this.name);
-                }
-
-                var asParameter = options && options.as === 'parameter';
-                var asParent = options && options.as === 'parent';
-
-                if (asParameter) {
-                    this.parameters.push(dependency);
-                } else if (dependency.isDisabled()) {
-                    this.disable();
-                }
-
-                if (asParent) {
-                    this.parent = dependency;
-                    this.dependencies.unshift(dependency);
-                } else {
-                    this.dependencies.push(dependency);
-                }
-                dependency.dependents.push(this);
-            },
-
-            isDependentOf: function(feature) {
-                var dependents = this.dependents;
-                var i = dependents.length;
-                while (i--) {
-                    var dependent = dependents[i];
-                    if (dependent.match(feature)) {
-                        return true;
-                    }
-                    if (dependent.isDependentOf(feature)) {
-                        return true;
-                    }
-                }
-                return false;
-            },
-
-            dependsOn: function() {
-                Iterable.forEach(arguments, function(arg) {
-                    this.addDependency(arg);
-                }, this);
-            },
-
-            influencedBy: function() {
-                Iterable.forEach(arguments, function(arg) {
-                    this.addDependency(arg, {as: 'parameter'});
-                }, this);
-            },
-            // isParameterizedBy: function(feature) {
-            //     return Iterable.includes(this.parameters, feature);
-            // },
-            isParameterOf: function(feature) {
-                return Iterable.includes(this.parameters, feature);
-            },
-
-            disable: function(reason) {
-                if (this.isEnabled()) {
-                    this.enabled = false;
-                    this.disableReason = reason;
-                    Iterable.forEach(this.dependents, function(dependent) {
-                        if (this.isParameterOf(dependent) === false) {
-                            dependent.disable('dependent-is-disabled');
-                        }
-                    }, this);
-                }
-                return this;
-            },
-            enable: function(reason) {
-                if (this.isDisabled()) {
-                    this.enabled = true;
-                    this.enableReason = reason;
-                    Iterable.forEach(this.dependencies, function(dependency) {
-                        if (dependency.isParameterOf(this) === false) {
-                            dependency.enable('dependency-is-enabled');
-                        }
-                    }, this);
-                }
-                return this;
-            },
-            isEnabled: function() {
-                return this.enabled === true;
-            },
-            isDisabled: function() {
-                return this.enabled !== true;
-            },
-
-            beforeTest: function() {},
-
-            solution: {
-                type: 'none',
-                value: undefined
-            },
-
-            toJSON: function() {
-                return {
-                    name: this.name,
-                    run: this.run,
-                    pass: this.pass,
-                    fail: this.fail,
-                    solution: this.solution,
-                    maxTestDuration: this.maxTestDuration
-                };
-            }
+            constructor: VersionnedFeature
         };
         jsenv.makeVersionnable(VersionnedFeature);
-
-        // function convertToSettler(fn) {
-        //     return function() {
-        //         var args = arguments;
-        //         var arity = args.length;
-        //         var fnArity = fn.length;
-
-        //         if (fnArity < arity) {
-        //             var settle = args[arity - 1];
-        //             var returnValue = fn.apply(this, args);
-        //             settle(Boolean(returnValue), 'returned', returnValue);
-        //         } else {
-        //             fn.apply(this, args);
-        //         }
-        //     };
-        // }
-
-        // feature testing helpers
-        var helpers = (function() {
-            function DeepValue() {
-
-            }
-            DeepValue.prototype = {
-                constructor: DeepValue,
-                reached: false,
-                read: function(property) {
-                    var next;
-                    if (this.reached) {
-                        if (property in this.value) {
-                            next = new DeepValue();
-                            next.reached = true;
-                            next.value = this.value[property];
-                            next.property = property;
-                        } else {
-                            next = new DeepValue();
-                            next.reached = false;
-                            next.property = property;
-                        }
-                    } else {
-                        next = new DeepValue();
-                        next.reached = false;
-                        next.property = property;
-                    }
-                    next.previous = this;
-                    return next;
-                },
-                polyfill: function(value) {
-                    var previous = this.previous;
-                    if (!previous) {
-                        throw new Error('polyfill expect previous');
-                    }
-                    if (!previous.reached) {
-                        throw new Error('polyfill expect previous to be reachable');
-                    }
-                    if (this.reached) {
-                        // il est possible qu'on force le polyfill pour deux raisons :
-                        // (a) la version actuelle ne se comporte pas correctement d'après nos tests
-                        // (b) un met le polyfill par mesure de sécurité car on ne sait
-                        //     pas comment se comporte la version actuelle (pas testé)
-                    }
-                    // console.log('polyfill', this, 'at', this.property, 'with', value);
-                    previous.value[this.property] = value;
-                }
-            };
-
-            function createDeepValue() {
-                var deepValue = new DeepValue();
-                return deepValue;
-            }
-
-            function isDeepValue(a) {
-                return a instanceof DeepValue;
-            }
-
-            return {
-                runStandard: runStandard,
-                standardPresence: standardPresence,
-                createIterableObject: createIterableObject,
-                polyfill: polyfill
-            };
-
-            function runStandard() {
-                var i = 0;
-                var j = arguments.length;
-                var args = [];
-                var composedValue = createDeepValue();
-                while (i < j) {
-                    var arg = arguments[i];
-                    if (jsenv.isFeature(arg)) {
-                        args.push(arg);
-                    } else if (typeof arg === 'string') {
-                        if (i === 0) {
-                            composedValue.value = jsenv.global;
-                            composedValue.reached = true;
-                        }
-                        args.push({
-                            property: arg,
-                            compile: function(previousOutput) {
-                                var deepValue;
-                                if (isDeepValue(previousOutput)) {
-                                    deepValue = previousOutput;
-                                } else {
-                                    deepValue = createDeepValue();
-                                    deepValue.value = previousOutput;
-                                    deepValue.reached = true;
-                                }
-                                return deepValue.read(this.property);
-                            }
-                        });
-                    }
-                    i++;
-                }
-
-                return function() {
-                    var previousOutput = arguments.length === 0 ? composedValue : arguments[0];
-                    var composedOutput = previousOutput;
-                    var i = 0;
-
-                    while (i < j) {
-                        var arg = args[i];
-                        var output;
-                        output = arg.compile(previousOutput);
-                        composedOutput = output;
-                        previousOutput = output;
-                        i++;
-                    }
-
-                    return composedOutput;
-                };
-            }
-            function standardPresence(output, settle) {
-                if (isDeepValue(output)) {
-                    if (output.reached) {
-                        settle(true, 'present');
-                        return true;
-                    }
-                    settle(false, 'missing');
-                    return false;
-                }
-                settle(false, 'output-must-be-deep-value', output);
-                return false;
-            }
-            function createIterableObject(arr, methods) {
-                var j = arr.length;
-                var iterable = {};
-                iterable[Symbol.iterator] = function() {
-                    var i = -1;
-                    var iterator = {
-                        next: function() {
-                            i++;
-                            return {
-                                value: i === j ? undefined : arr[i],
-                                done: i === j
-                            };
-                        }
-                    };
-                    jsenv.assign(iterator, methods || {});
-                    iterator.iterable = iterable;
-
-                    return iterator;
-                };
-                return iterable;
-            }
-            function polyfill(value) {
-                var i = 0;
-                var j = arguments.length;
-
-                if (j === 0) {
-
-                } else {
-                    var output = this.compile();
-                    if (isDeepValue(output)) {
-                        var lastArg;
-                        if (j === 1) {
-                            lastArg = arguments[i];
-                        } else {
-                            var lastIndex = j - 1;
-                            while (i < lastIndex) {
-                                // on fait rien de spéc av les arg pour le moment
-                                i++;
-                            }
-                            lastArg = arguments[lastIndex];
-                        }
-                        if (typeof lastArg === 'function') {
-                            value = lastArg.apply(this, this.dependencies);
-                        } else {
-                            value = lastArg;
-                        }
-                        output.polyfill(value);
-                    } else {
-                        throw new TypeError(
-                            'feature.polyfill must be called on a feature compiled to deepValue'
-                        );
-                    }
-                }
-            }
-        })();
-        jsenv.assign(VersionnedFeature.prototype, helpers);
 
         return {
             createFeature: function() {
@@ -1658,250 +1324,6 @@ en fonction du résultat de ces tests
             isFeature: function(value) {
                 return value instanceof VersionnedFeature;
             }
-        };
-    });
-
-    jsenv.provide(function createFeatureRegisterer() {
-        var Iterable = jsenv.Iterable;
-
-        function createFeatureRegisterer() {
-            var concreteVersions = [];
-            var abstractVersions = [];
-            var opened = false;
-
-            function concrete(featureName) {
-                var feature;
-                var concreteVersion = findConcrete(featureName);
-                if (concreteVersion) {
-                    throw new Error('feature ' + featureName + ' already exists');
-                }
-
-                var abstractVersion = findAbstract(featureName);
-                if (abstractVersion) {
-                    feature = abstractVersion.feature;
-                    Iterable.remove(abstractVersions, abstractVersion);
-                } else {
-                    feature = jsenv.createFeature(featureName);
-                }
-                concreteVersion = {
-                    feature: feature
-                };
-                concreteVersions.push(concreteVersion);
-                return feature;
-            }
-            function findConcrete(featureName) {
-                return Iterable.find(concreteVersions, function(concreteVersion) {
-                    return concreteVersion.feature.match(featureName);
-                });
-            }
-            function findAbstract(featureName) {
-                return Iterable.find(abstractVersions, function(abstractVersion) {
-                    return abstractVersion.feature.match(featureName);
-                });
-            }
-            function abstract(featureName, dependent) {
-                var feature;
-
-                var concreteVersion = findConcrete(featureName);
-                if (concreteVersion) {
-                    feature = concreteVersion.feature;
-                } else {
-                    var abstractVersion = findAbstract(featureName);
-
-                    if (abstractVersion) {
-                        feature = abstractVersion.feature;
-                        abstractVersion.dependents.push(dependent);
-                    } else {
-                        feature = jsenv.createFeature(featureName);
-                        abstractVersion = {
-                            feature: feature,
-                            dependents: [dependent]
-                        };
-                        abstractVersions.push(abstractVersion);
-                    }
-                }
-                return feature;
-            }
-            function isConcrete(feature) {
-                return Boolean(findConcrete(feature.name));
-            }
-            function checkProperty(feature, properties, propertyName, inheritable) {
-                if (propertyName in properties) {
-                    assignProperty(feature, properties[propertyName], propertyName);
-                } else if (inheritable && feature.parent && isConcrete(feature.parent)) {
-                    // when parent feature is abstract, its properties are unknown (except name)
-                    // so children cannot inherit
-                    assignProperty(feature, feature.parent[propertyName], propertyName);
-                }
-
-                // when a feature is concretized, check if its children needs to inherit
-                // that property from it
-                if (inheritable) {
-                    var concreteDependentChildren = feature.dependents.filter(function(dependent) {
-                        return (
-                            dependent.parent === feature &&
-                            isConcrete(dependent)
-                        );
-                    });
-                    concreteDependentChildren.forEach(function(child) {
-                        if (child.hasOwnProperty(propertyName) === false) {
-                            assignProperty(child, feature[propertyName], propertyName);
-                        }
-                    });
-                }
-            }
-            function assignProperty(feature, propertyValue, propertyName) {
-                if (propertyName === 'solution' && propertyValue === 'none') {
-                    propertyValue = {
-                        type: 'none',
-                        value: undefined
-                    };
-                }
-                feature[propertyName] = propertyValue;
-            }
-
-            return {
-                open: function() {
-                    if (opened) {
-                        throw new Error('registerer already opened');
-                    }
-                    opened = true;
-                },
-
-                has: function(name) {
-                    return Iterable.some(concreteVersions, function(concrete) {
-                        return concrete.feature.name === name;
-                    });
-                },
-
-                add: function(name, propertiesConstructor) {
-                    if (opened === false) {
-                        throw new Error('cannot add to a closed closed registerer');
-                    }
-                    if (typeof name !== 'string') {
-                        throw new TypeError('registerer.add first arg must be a string');
-                    }
-
-                    var feature = concrete(name);
-                    var properties = {};
-                    var lastSlashIndex = name.lastIndexOf('/');
-                    var parent;
-
-                    if (lastSlashIndex > -1) {
-                        var parentName = name.slice(0, lastSlashIndex);
-                        parent = abstract(parentName, feature);
-                        feature.addDependency(parent, {as: 'parent'});
-                    }
-                    propertiesConstructor = propertiesConstructor || function(feature, parent, expose) {
-                        expose(
-                            {
-                                run: function() {},
-                                pass: function(settle) {
-                                    settle(true, 'skipped');
-                                }
-                            }
-                        );
-                    };
-
-                    // sort of module.exports
-                    feature.expose = function() {
-                        var dependencies = [];
-                        var pojo;
-                        var i = 0;
-                        var j = arguments.length;
-                        if (j === 0) {
-                            pojo = {};
-                        } else {
-                            var lastArg;
-                            if (j === 1) {
-                                lastArg = arguments[i];
-                            } else {
-                                var lastIndex = j - 1;
-                                while (i < lastIndex) {
-                                    var arg = arguments[i];
-                                    if (typeof arg === 'string') {
-                                        var dependency = abstract(arg, feature);
-                                        feature.addDependency(dependency);
-                                        dependencies.push(dependency);
-                                    } else {
-                                        throw new TypeError('expose() dependency arg must be string');
-                                    }
-                                    i++;
-                                }
-                                lastArg = arguments[lastIndex];
-                            }
-                            if (typeof lastArg === 'function') {
-                                pojo = lastArg.apply(feature, dependencies);
-                            } else if (typeof lastArg === 'object') {
-                                pojo = lastArg;
-                            }
-                        }
-
-                        jsenv.assign(properties, pojo);
-                    };
-
-                    propertiesConstructor(
-                        feature,
-                        feature.parent,
-                        feature.expose,
-                        jsenv.transpile
-                    );
-
-                    checkProperty(feature, properties, 'run', true);
-                    checkProperty(feature, properties, 'pass');
-                    checkProperty(feature, properties, 'fail');
-                    checkProperty(feature, properties, 'meta', true);
-                    checkProperty(feature, properties, 'maxTestDuration');
-                    checkProperty(feature, properties, 'solution', true);
-
-                    return feature;
-                },
-
-                close: function() {
-                    if (opened === false) {
-                        throw new Error('cannot close an already closed registerer');
-                    }
-
-                    var concreteFeatures = concreteVersions.map(function(concreteVersion) {
-                        return concreteVersion.feature;
-                    });
-
-                    if (abstractVersions.length) {
-                        // to get a simple error message we'll just throw with
-                        // one abstractVersion which was expected to become concrete
-                        var abstractVersion = abstractVersions[0];
-                        var abstractFeature = abstractVersion.feature;
-                        var dependentNames = abstractVersion.dependents.map(function(dependent) {
-                            return dependent.name;
-                        });
-                        // console.log('the concrete feature names', concreteFeatures.map(function(feature) {
-                        //     return feature.name;
-                        // }));
-                        throw new Error(
-                            abstractFeature.name + ' is required by ' + dependentNames + ' but is not registered'
-                        );
-                    }
-
-                    return concreteFeatures;
-                }
-            };
-        }
-
-        return {
-            createFeatureRegisterer: createFeatureRegisterer
-        };
-    });
-
-    jsenv.provide(function registerFeatures() {
-        function registerFeatures(fn) {
-            var registerer = jsenv.createFeatureRegisterer();
-            registerer.open();
-            fn(registerer.add, jsenv.tranpsile);
-            return registerer.close();
-        }
-
-        return {
-            registerFeatures: registerFeatures
         };
     });
 
@@ -1969,107 +1391,15 @@ en fonction du résultat de ces tests
         };
     })());
 
-    jsenv.provide('execGraph', (function() {
+    jsenv.provide('graph', (function() {
         var Iterable = jsenv.Iterable;
-        var Output = jsenv.Output;
-        var pass = Output.pass;
-        var fail = Output.fail;
-
-        function execGraph(nodes, executor, progressCallback) {
-            var results = [];
-            var groups = groupByDependencyDepth(nodes);
-            var readyCount = 0;
-            var totalCount = Iterable.reduce(groups, function(previous, group) {
-                return previous + group.length;
-            }, 0);
-
-            function reduceAsync(iterable, fn, firstValue) {
-                var i = 0;
-                var j = iterable.length;
-                var values = [];
-                function next(previousValue) {
-                    if (i === j) {
-                        return values;
-                    }
-                    if (i > 0) {
-                        values[i - 1] = previousValue;
-                    }
-
-                    var value = iterable[i];
-                    i++;
-                    var returnValue = fn(value, i, iterable);
-                    return Thenable.resolve(returnValue).then(next);
-                }
-
-                return Thenable.resolve(firstValue).then(next);
+        function groupByDependencyDepth(nodes, ignoreHiddenDependencies) {
+            var unresolvedNodes;
+            if (ignoreHiddenDependencies) {
+                unresolvedNodes = nodes.slice();
+            } else {
+                unresolvedNodes = nodes.concat(collectDependencies(nodes));
             }
-            function isInvalid(node) {
-                var result = Iterable.find(results, function(result) {
-                    return result.node === node;
-                });
-                return result && result.status === 'invalid';
-            }
-            function dependencyIsInvalid(dependency) {
-                return (
-                    // dependency.isParameterOf(this) === false &&
-                    isInvalid(dependency)
-                );
-            }
-
-            return reduceAsync(groups, function(group) {
-                return Thenable.all(group.map(function(node) {
-                    return Thenable.resolve().then(function() {
-                        if ('dependencies' in node) {
-                            var dependencies = node.dependencies;
-                            var invalidDependency = Iterable.find(dependencies, dependencyIsInvalid, node);
-                            if (invalidDependency) {
-                                return fail('dependency-is-invalid', dependencies.indexOf(invalidDependency));
-                            }
-                        }
-                        return executor(node, pass, fail);
-                    }).then(
-                        function(value) {
-                            value = Output.cast(value);
-                            if (Output.is(value)) {
-                                return value;
-                            }
-                            return pass('resolved', value);
-                        },
-                        function(value) {
-                            value = Output.cast(value);
-                            if (Output.is(value)) {
-                                return value;
-                            }
-                            return fail('rejected', value);
-                        }
-                    ).then(function(result) {
-                        readyCount++;
-                        results.push({
-                            node: node,
-                            data: result
-                        });
-                        if (progressCallback) {
-                            var nodeIndex = nodes.indexOf(node);
-                            var progressEvent = {
-                                type: 'progress',
-                                target: node,
-                                index: nodeIndex,
-                                detail: result,
-                                lengthComputable: true,
-                                total: totalCount,
-                                loaded: readyCount
-                            };
-                            progressCallback(progressEvent);
-                        }
-                        return result;
-                    });
-                }));
-            }).then(function() {
-                return results;
-            });
-        }
-        function groupByDependencyDepth(nodes) {
-            var unresolvedNodes = nodes.concat(collectDependencies(nodes));
             var i = 0;
             var j = unresolvedNodes.length;
             var resolvedNodes = [];
@@ -2134,161 +1464,355 @@ en fonction du résultat de ces tests
             nodes.forEach(visit);
             return dependencies;
         }
-
-        return execGraph;
-    })());
-
-    jsenv.provide('execTest', (function() {
-        var defaultMaxDuration = 100;
-
-        function compileTest(test) {
-            var value;
-            if (test.hasOwnProperty('run')) {
-                var run = test.run;
-                if (typeof run === 'object') {
-                    if (run === null) {
-                        value = run;
-                    } else if (typeof run.compile === 'function') {
-                        value = run.compile();
-                    } else {
-                        value = run;
+        var Output = jsenv.Output;
+        var pass = Output.pass;
+        var fail = Output.fail;
+        var asyncMethods = (function() {
+            function serieAsync(iterable, fn, firstValue) {
+                var i = 0;
+                var j = iterable.length;
+                var values = [];
+                function next(previousValue) {
+                    if (i === j) {
+                        return values;
                     }
-                } else if (typeof run === 'function') {
-                    value = run.call(test);
-                } else {
-                    value = run;
+                    if (i > 0) {
+                        values[i - 1] = previousValue;
+                    }
+
+                    var value = iterable[i];
+                    i++;
+                    var returnValue = fn(value, i, iterable);
+                    return Thenable.resolve(returnValue).then(next);
                 }
+
+                return Thenable.resolve(firstValue).then(next);
             }
-            return value;
-        }
-        function execTest(test, pass, fail) {
-            var compileResult;
-            var isCrashed;
-            try {
-                compileResult = compileTest(test);
-                isCrashed = false;
-            } catch (e) {
-                compileResult = e;
-                isCrashed = true;
+            function parallelAsync(iterable, fn) {
+                return Thenable.all(iterable.map(function(value, index) {
+                    return fn(value, index, iterable);
+                }));
+            }
+            function chainAsync(value, a, b) {
+                return Thenable.resolve(value).then(a, b);
             }
 
-            var testReturnValue;
-            var testTransformer;
-            if (isCrashed === false) {
-                if (test.hasOwnProperty('complete')) {
-                    testTransformer = test.complete;
-                } else {
-                    testReturnValue = fail('unexpected-compile-return', compileResult);
-                }
-            } else if (isCrashed === true) {
-                if (test.hasOwnProperty('crash')) {
-                    testTransformer = test.crash;
-                } else {
-                    testReturnValue = fail('unexpected-compile-throw', compileResult);
-                }
-            }
-
-            if (testTransformer) {
-                try {
-                    testReturnValue = testTransformer(compileResult, pass, fail);
-                } catch (e) {
-                    testReturnValue = fail('unexpected-test-throw', e);
-                }
-            }
-
-            var maxDuration = test.hasOwnProperty('maxDuration') ? test.maxDuration : defaultMaxDuration;
-            var timeout;
-            var clean = function() {
-                if (timeout) {
-                    clearTimeout(timeout);
-                    timeout = null;
-                }
+            return {
+                serie: serieAsync,
+                chain: chainAsync,
+                parallel: parallelAsync
             };
-            return Thenable.race([
-                Thenable.resolve(testReturnValue).then(
-                    function(value) {
-                        clean();
-                        return value;
-                    },
-                    function(value) {
-                        clean();
-                        return value;
-                    }
-                ),
-                new Thenable(function(resolve) {
-                    timeout = setTimeout(function() {
-                        resolve(fail('timeout', maxDuration));
-                    }, maxDuration);
-                })
-            ]);
-        }
-
-        return execTest;
-    })());
-
-    jsenv.provide('execSolution', (function() {
-        function isInlineSolution(solution) {
-            return solution.type === 'inline';
-        }
-        function isBabelSolution(solution) {
-            return solution.type === 'babel';
-        }
-        function execSolution(solution, pass, fail) {
-            if (isInlineSolution(solution)) {
+        })();
+        var syncMethods = (function() {
+            function serieSync(iterable, fn) {
+                return Iterable.map(iterable, fn);
+            }
+            function chainSync(fn, returnFn, catchFn) {
+                var value;
+                var status;
                 try {
-                    solution.value();
-                    return true;
+                    value = fn();
+                    status = 'returned';
                 } catch (e) {
-                    return fail('solution-crash', e);
+                    value = e;
+                    status = 'throwed';
                 }
+                if (status === 'returned') {
+                    return returnFn(value);
+                }
+                if (catchFn) {
+                    return catchFn(value);
+                }
+                throw value;
             }
-            if (isBabelSolution(solution)) {
-                return true;
+            function parallelSync(iterable, fn) {
+                return Iterable.map(iterable, fn);
             }
-            return true;
+
+            return {
+                serie: serieSync,
+                chain: chainSync,
+                parallel: parallelSync
+            };
+        })();
+        function visitAndTransform(nodes, fn, options) {
+            var mode = options.mode || 'sync';
+            var methods = mode === 'sync' ? syncMethods : asyncMethods;
+            var progressCallback = options.progress;
+            var ignoreHiddenDependencies = options.ignoreHiddenDependencies;
+
+            var results = [];
+            var groups = groupByDependencyDepth(nodes, ignoreHiddenDependencies);
+            var readyCount = 0;
+            var totalCount = Iterable.reduce(groups, function(previous, group) {
+                return previous + group.length;
+            }, 0);
+
+            function isFailed(node) {
+                var result = Iterable.find(results, function(result) {
+                    return result.node === node;
+                });
+                return result && result.status === 'failed';
+            }
+            function dependencyIsFailed(dependency) {
+                return (
+                    // dependency.isParameterOf(this) === false &&
+                    isFailed(dependency)
+                );
+            }
+
+            // say hello to callback hell
+            // I need execGraph logic to be sync when I exec the polyfill
+            // but I want it async when I test so that test can be async
+            var serie = methods.serie(groups, function(group) {
+                return methods.parallel(group, function(node) {
+                    if ('dependencies' in node) {
+                        var dependencies = node.dependencies;
+                        var failedDependency = Iterable.find(dependencies, dependencyIsFailed, node);
+                        if (failedDependency) {
+                            return fail('dependency-is-failed', dependencies.indexOf(failedDependency));
+                        }
+                    }
+
+                    var execution = methods.chain(
+                        function() {
+                            return fn(node, pass, fail);
+                        },
+                        function(value) {
+                            value = Output.cast(value);
+                            if (Output.is(value)) {
+                                return value;
+                            }
+                            return pass(mode === 'sync' ? 'returned' : 'resolved', value);
+                        },
+                        function(value) {
+                            value = Output.cast(value);
+                            if (Output.is(value)) {
+                                return value;
+                            }
+                            return fail(mode === 'sync' ? 'throwed' : 'rejected', value);
+                        }
+                    );
+                    return methods.chain(
+                        function() {
+                            return execution;
+                        },
+                        function(result) {
+                            readyCount++;
+                            results.push({
+                                node: node,
+                                data: result
+                            });
+                            if (progressCallback) {
+                                var nodeIndex = nodes.indexOf(node);
+                                var progressEvent = {
+                                    type: 'progress',
+                                    target: node,
+                                    index: nodeIndex,
+                                    detail: result,
+                                    lengthComputable: true,
+                                    total: totalCount,
+                                    loaded: readyCount
+                                };
+                                progressCallback(progressEvent);
+                            }
+                            return result;
+                        }
+                    );
+                });
+            });
+            return methods.chain(
+                function() {
+                    return serie;
+                },
+                function() {
+                    return results;
+                }
+            );
         }
 
-        return execSolution;
+        return {
+            groupByDependencyDepth: groupByDependencyDepth,
+            collectDependencies: collectDependencies,
+            map: function(nodes, fn, options) {
+                options = options || {};
+                options.mode = 'sync';
+                return visitAndTransform(nodes, fn, options);
+            },
+            mapAsync: function(nodes, fn, options) {
+                options = options || {};
+                options.mode = 'async';
+                return visitAndTransform(nodes, fn, options);
+            }
+        };
     })());
 
     jsenv.provide(function createImplementationClient() {
-        function createImplementationClient(mediator) {
-            function testFeatures(features) {
-                var records = [];
-                var tests = features.map(function(feature) {
-                    return feature.test;
-                });
-                return jsenv.execGraph(tests, jsenv.execTest, function(event) {
-                    var testIndex = event.index;
-                    if (testIndex === -1) {
-                        console.log('test dependency ->', event.detail);
+        var execTest = (function() {
+            var defaultMaxDuration = 100;
+
+            function compileTest(test) {
+                var value;
+                if (test.hasOwnProperty('run')) {
+                    var run = test.run;
+                    if (typeof run === 'object') {
+                        if (run === null) {
+                            value = run;
+                        } else if (typeof run.compile === 'function') {
+                            value = run.compile();
+                        } else {
+                            value = run;
+                        }
+                    } else if (typeof run === 'function') {
+                        value = run.call(test);
                     } else {
-                        var feature = features[testIndex];
-                        var featureName = jsenv.parentPath(feature.filename);
-                        console.log('tested', featureName, '->', event.detail);
-                        records.push({
-                            name: featureName,
-                            data: event.detail
-                        });
+                        value = run;
                     }
-                }).then(function() {
-                    return records;
-                });
+                }
+                return value;
             }
-            function testImplementation() {
-                return mediator.send('getAllRequiredTest').then(function(features) {
-                    return testFeatures(features).then(function(testRecords) {
-                        return mediator.send('setAllTestRecord', testRecords);
-                    });
-                });
+            function execTest(test, pass, fail) {
+                var compileResult;
+                var isCrashed;
+                try {
+                    compileResult = compileTest(test);
+                    isCrashed = false;
+                } catch (e) {
+                    compileResult = e;
+                    isCrashed = true;
+                }
+
+                var testReturnValue;
+                var testTransformer;
+                if (isCrashed === false) {
+                    if (test.hasOwnProperty('complete')) {
+                        testTransformer = test.complete;
+                    } else {
+                        testReturnValue = fail('unexpected-compile-return', compileResult);
+                    }
+                } else if (isCrashed === true) {
+                    if (test.hasOwnProperty('crash')) {
+                        testTransformer = test.crash;
+                    } else {
+                        testReturnValue = fail('unexpected-compile-throw', compileResult);
+                    }
+                }
+
+                if (testTransformer) {
+                    try {
+                        testReturnValue = testTransformer(compileResult, pass, fail);
+                    } catch (e) {
+                        testReturnValue = fail('unexpected-test-throw', e);
+                    }
+                }
+
+                var maxDuration = test.hasOwnProperty('maxDuration') ? test.maxDuration : defaultMaxDuration;
+                var timeout;
+                var clean = function() {
+                    if (timeout) {
+                        clearTimeout(timeout);
+                        timeout = null;
+                    }
+                };
+                return Thenable.race([
+                    Thenable.resolve(testReturnValue).then(
+                        function(value) {
+                            clean();
+                            return value;
+                        },
+                        function(value) {
+                            clean();
+                            return value;
+                        }
+                    ),
+                    new Thenable(function(resolve) {
+                        timeout = setTimeout(function() {
+                            resolve(fail('timeout', maxDuration));
+                        }, maxDuration);
+                    })
+                ]);
             }
-            function fixImplementation() {
-                return mediator.send('getAllRequiredFix').then(function(features) {
-                    var records = [];
-                    var solutions = features.map(function(feature) {
-                        return feature.solution;
-                    });
-                    return jsenv.execGraph(solutions, jsenv.execSolution, function(event) {
+
+            return execTest;
+        })();
+        var execSolution = (function() {
+            function isInlineSolution(solution) {
+                return solution.type === 'inline';
+            }
+            function isFileSolution(solution) {
+                return solution.type === 'file';
+            }
+            function isBabelSolution(solution) {
+                return solution.type === 'babel';
+            }
+            function execSolution(solution) {
+                if (isInlineSolution(solution)) {
+                    return solution.value();
+                }
+                if (isFileSolution(solution)) {
+                    return solution.value();
+                }
+                if (isBabelSolution(solution)) {
+                    return true;
+                }
+                return true;
+            }
+            return execSolution;
+        })();
+        function testFeatures(features) {
+            var records = [];
+            var tests = features.map(function(feature) {
+                return feature.test;
+            });
+            return jsenv.graph.mapAsync(
+                tests,
+                execTest,
+                {
+                    progress: function(event) {
+                        var testIndex = event.index;
+                        if (testIndex === -1) {
+                            console.log('test dependency ->', event.detail);
+                        } else {
+                            var feature = features[testIndex];
+                            var featureName = jsenv.parentPath(feature.filename);
+                            console.log('tested', featureName, '->', event.detail);
+                            records.push({
+                                name: featureName,
+                                data: event.detail
+                            });
+                        }
+                    }
+                }
+            ).then(function() {
+                return records;
+            });
+        }
+        function fixFeatures(features, meta) {
+            var namedFileFunctions = meta.namedFileFunctions;
+            var solutions = features.map(function(feature) {
+                var solution = feature.solution;
+                var value = solution.value;
+                if (value in namedFileFunctions) {
+                    solution.value = namedFileFunctions[value];
+                } else {
+                    solution.value = function() {
+                        throw new Error('missing file solution for ' + value);
+                    };
+                }
+                return solution;
+            });
+            var records = [];
+            jsenv.graph.map(
+                solutions,
+                execSolution,
+                {
+                    // we can ignore dependencies of solution because
+                    // if they are not in solutions, it means they are not required
+                    // and consequently they dont have to be executed
+                    // and we must ignore them because concerning fileSolution for instance
+                    // there source would not be accessible
+                    ignoreHiddenDependencies: true,
+                    progress: function(event) {
                         var testIndex = event.index;
                         if (testIndex === -1) {
                             console.log('solve dependency ->', event.detail);
@@ -2301,27 +1825,51 @@ en fonction du résultat de ces tests
                                 data: event.detail
                             };
                         }
-                    }).then(function() {
-                        var recordsWithPassedTests = [];
-                        var tests = [];
-                        records.forEach(function(record, index) {
-                            if (record.data.status === 'passed') {
-                                recordsWithPassedTests.push(record);
-                                tests.push(features[index].test);
+                    }
+                }
+            );
+            return records;
+        }
+
+        function createImplementationClient(mediator) {
+            function testImplementation() {
+                return mediator.send('getAllRequiredTest').then(function(data) {
+                    return testFeatures(data.features).then(function(testRecords) {
+                        return mediator.send('setAllTestRecord', testRecords);
+                    });
+                });
+            }
+            function fixImplementation() {
+                return mediator.send('getAllRequiredFix').then(function(data) {
+                    var features = data.features;
+                    var meta = data.meta;
+                    var records = fixFeatures(features, meta);
+                    var recordsWithPassedTests = [];
+                    var tests = [];
+                    records.forEach(function(record, index) {
+                        if (record.data.status === 'passed') {
+                            recordsWithPassedTests.push(record);
+                            tests.push(features[index].test);
+                        }
+                    });
+
+                    return jsenv.graph.mapAsync(
+                        tests,
+                        execTest,
+                        {
+                            progress: function(event) {
+                                var testIndex = event.index;
+                                if (testIndex === -1) {
+                                    console.log('test solution dependency ->', event.detail);
+                                } else {
+                                    var recordWithPassedTest = recordsWithPassedTests[testIndex];
+                                    var featureName = recordWithPassedTest.name;
+                                    console.log('test solution', featureName, '->', event.detail);
+                                    recordsWithPassedTests[testIndex].data = event.detail;
+                                }
                             }
-                        });
-                        return jsenv.execGraph(tests, jsenv.execTest, function(event) {
-                            var testIndex = event.index;
-                            if (testIndex === -1) {
-                                console.log('test solution dependency ->', event.detail);
-                            } else {
-                                var recordWithPassedTest = recordsWithPassedTests[testIndex];
-                                var featureName = recordWithPassedTest.name;
-                                console.log('test solution', featureName, '->', event.detail);
-                                recordsWithPassedTests[testIndex].data = event.detail;
-                            }
-                        });
-                    }).then(function() {
+                        }
+                    ).then(function() {
                         return mediator.send('setAllFixRecord', records);
                     });
                 });
