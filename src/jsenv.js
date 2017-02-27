@@ -1493,8 +1493,10 @@ en fonction du résultat de ces tests
                     return fn(value, index, iterable);
                 }));
             }
-            function chainAsync(value, a, b) {
-                return Thenable.resolve(value).then(a, b);
+            function chainAsync(fn, resolveFn, rejectFn) {
+                return new Thenable(function(resolve) {
+                    resolve(fn());
+                }).then(resolveFn, rejectFn);
             }
 
             return {
@@ -1843,6 +1845,7 @@ en fonction du résultat de ces tests
                 return mediator.send('getAllRequiredFix').then(function(data) {
                     var features = data.features;
                     var meta = data.meta;
+                    console.log('fixings features', data);
                     var records = fixFeatures(features, meta);
                     var recordsWithPassedTests = [];
                     var tests = [];
