@@ -1,4 +1,4 @@
-var Target = (function() {
+const Target = (function() {
     function Target(executor) {
         var target = this;
         function pass(value) {
@@ -55,8 +55,6 @@ var Target = (function() {
         is: isTarget
     };
 })();
-var globalTarget = Target.pass(global);
-var defaultTarget = Target.fail();
 function createPropertyAccessor(property) {
     return function(previous) {
         if (previous.reached) {
@@ -77,7 +75,7 @@ function at() {
         var firstArg = arguments[0];
         if (typeof firstArg === 'string') {
             accessors.push(function() {
-                return globalTarget;
+                return Target.pass(jsenv.global);
             });
         }
 
@@ -95,7 +93,7 @@ function at() {
     return function() {
         var i = 0;
         var j = accessors.length;
-        var finalTarget = defaultTarget;
+        var finalTarget = Target.fail();
 
         while (i < j) {
             var accessor = accessors[i];
@@ -245,29 +243,6 @@ function collectKeys(value) {
 }
 export {collectKeys};
 
-function sameValues(a, b) {
-    if (typeof a === 'string') {
-        a = convertStringToArray(a);
-    } else if (typeof a === 'object' && typeof a.next === 'function') {
-        a = consumeIterator(a);
-    }
-    if (typeof b === 'string') {
-        b = convertStringToArray(b);
-    } else if (typeof b === 'object' && typeof b.next === 'function') {
-        b = consumeIterator(b);
-    }
-
-    if (a.length !== b.length) {
-        return false;
-    }
-    var i = a.length;
-    while (i--) {
-        if (a[i] !== b[i]) {
-            return false;
-        }
-    }
-    return true;
-}
 function convertStringToArray(string) {
     var result = [];
     var i = 0;
@@ -301,6 +276,29 @@ function consumeIterator(iterator) {
     }
     return values;
 }
+function sameValues(a, b) {
+    if (typeof a === 'string') {
+        a = convertStringToArray(a);
+    } else if (typeof a === 'object' && typeof a.next === 'function') {
+        a = consumeIterator(a);
+    }
+    if (typeof b === 'string') {
+        b = convertStringToArray(b);
+    } else if (typeof b === 'object' && typeof b.next === 'function') {
+        b = consumeIterator(b);
+    }
+
+    if (a.length !== b.length) {
+        return false;
+    }
+    var i = a.length;
+    while (i--) {
+        if (a[i] !== b[i]) {
+            return false;
+        }
+    }
+    return true;
+}
 export {sameValues};
 
 function createTypeExpectation(expectedType) {
@@ -314,9 +312,9 @@ function createTypeExpectation(expectedType) {
         });
     };
 }
-var object = createTypeExpectation('object');
-var string = createTypeExpectation('string');
-var number = createTypeExpectation('number');
+const object = createTypeExpectation('object');
+const string = createTypeExpectation('string');
+const number = createTypeExpectation('number');
 export {object, string, number};
 
 function expectThrow(fn, verifyThrowValue) {
@@ -361,4 +359,53 @@ function expectThrow(fn, verifyThrowValue) {
     };
 }
 export {expectThrow};
+
+function createVolatileListener(fn, remove) {
+    var volatile = function() {
+        remove.apply(this, arguments);
+        fn.apply(this, arguments);
+    };
+    return volatile;
+}
+const listenOnce = jsenv.platformPolymorph({
+    browser: function(name, fn) {
+        name = 'on' + name.toLowerCase();
+        var old = window[name];
+        var volatile = createVolatileListener(fn, function() {
+            window[name] = old;
+            old.apply(this, arguments);
+        });
+        window[name] = volatile;
+    },
+    node: function(name, fn) {
+        var volatile = createVolatileListener(fn, function() {
+            process.removeListener(name, volatile);
+        });
+        process.addListener(name, volatile);
+    }
+});
+export {listenOnce};
+
+function createIterableObject(arr, methods) {
+    var j = arr.length;
+    var iterable = {};
+    iterable[Symbol.iterator] = function() {
+        var i = -1;
+        var iterator = {
+            next: function() {
+                i++;
+                return {
+                    value: i === j ? undefined : arr[i],
+                    done: i === j
+                };
+            }
+        };
+        jsenv.assign(iterator, methods || {});
+        iterator.iterable = iterable;
+
+        return iterator;
+    };
+    return iterable;
+}
+export {createIterableObject};
 
