@@ -37,7 +37,6 @@ function normalizePlugins(pluginsOption) {
     // console.log('normalize', pluginsOption, '->', normalizedPluginsOption);
     return normalizedPluginsOption;
 }
-
 function createTranspiler(transpilerOptions) {
     transpilerOptions = transpilerOptions || {plugins: []};
     // console.log('required babel plugins', pluginsAsOptions.map(function(plugin) {
@@ -219,7 +218,10 @@ function createTranspiler(transpilerOptions) {
     var transpiler = {
         options: transpilerOptions,
         transpile: transpile,
-        transpileFile: transpileFile
+        transpileFile: transpileFile,
+        clone: function() {
+            return createTranspiler(transpilerOptions);
+        }
     };
 
     return transpiler;

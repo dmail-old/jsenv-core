@@ -1,73 +1,50 @@
-/*
+function createInstruction(name, from) {
+    return {
+        namedImports: [
+            {
+                name: name,
+                as: null
+            }
+        ],
+        from: from,
+        findNamedImport: function(name) {
+            return Iterable.find(this.namedImports, function(namedImport) {
+                return namedImport.name === name;
+            });
+        },
+        addNamedImport: function(name) {
+            var existing = this.findNamedImport(name);
+            if (existing) {
+                throw new Error(
+                    'duplicate import ' + name + ' from ' + this.from
+                );
+            }
 
-*/
-
-var rollup = require('rollup');
-var path = require('path');
-var cuid = require('cuid');
-
-require('../jsenv.js');
-var store = require('../store.js');
-var memoize = require('../memoize.js');
-var uneval = require('../uneval.js');
-var Iterable = jsenv.Iterable;
-
-function normalizePath(path) {
-    return path.replace(/\\/g, '/');
+            this.namedImports.push({
+                name: name,
+                as: null
+            });
+        },
+        toSource: function() {
+            var source = 'import {';
+            source += this.namedImports.map(function(namedImport) {
+                var namedImportSource = '';
+                namedImportSource += namedImport.name;
+                if (namedImport.as) {
+                    namedImportSource += ' as ' + namedImport.as;
+                }
+                return namedImportSource;
+            }).join(', ');
+            source += '}';
+            source += ' from ';
+            source += "'" + this.from + "'";
+            source += ';';
+            return source;
+        }
+    };
 }
-
-var rootFolder = normalizePath(path.resolve(__dirname, '../../'));
-var cacheFolder = rootFolder + '/cache';
-var builderCacheFolder = cacheFolder + '/builder';
-var builderCache = store.fileSystemCache(builderCacheFolder);
-
 function generateSourceImporting(objects) {
     var instructions = [];
-    function createInstruction(name, from) {
-        return {
-            namedImports: [
-                {
-                    name: name,
-                    as: null
-                }
-            ],
-            from: from,
-            findNamedImport: function(name) {
-                return Iterable.find(this.namedImports, function(namedImport) {
-                    return namedImport.name === name;
-                });
-            },
-            addNamedImport: function(name) {
-                var existing = this.findNamedImport(name);
-                if (existing) {
-                    throw new Error(
-                        'duplicate import ' + name + ' from ' + this.from
-                    );
-                }
-
-                this.namedImports.push({
-                    name: name,
-                    as: null
-                });
-            },
-            toSource: function() {
-                var source = 'import {';
-                source += this.namedImports.map(function(namedImport) {
-                    var namedImportSource = '';
-                    namedImportSource += namedImport.name;
-                    if (namedImport.as) {
-                        namedImportSource += ' as ' + namedImport.as;
-                    }
-                    return namedImportSource;
-                }).join(', ');
-                source += '}';
-                source += ' from ';
-                source += "'" + this.from + "'";
-                source += ';';
-                return source;
-            }
-        };
-    }
     var propertyInstructionsMap = [];
     objects.forEach(function(object) {
         Object.keys(object).forEach(function(propertyName) {
@@ -170,7 +147,26 @@ function generateSourceImporting(objects) {
 //     )
 // );
 
-function pickImports(importDescription, options) {
+var rollup = require('rollup');
+var path = require('path');
+var cuid = require('cuid');
+
+require('../jsenv.js');
+var store = require('../store.js');
+var memoize = require('../memoize.js');
+var uneval = require('../uneval.js');
+var Iterable = jsenv.Iterable;
+
+function normalizePath(path) {
+    return path.replace(/\\/g, '/');
+}
+
+var rootFolder = normalizePath(path.resolve(__dirname, '../../'));
+var cacheFolder = rootFolder + '/cache';
+var builderCacheFolder = cacheFolder + '/builder';
+var builderCache = store.fileSystemCache(builderCacheFolder);
+
+function buildImports(importDescription, options) {
     options = options || {};
     var root = options.root;
     var transpiler = options.transpiler;
@@ -193,21 +189,10 @@ function pickImports(importDescription, options) {
         )();
     });
 
-    // function getImportDescriptorFor(id) {
-    //     return jsenv.Iterable.find(importDescriptors, function(importDescriptor) {
-    //         var resolvedPath = path.resolve(rootFolder, importDescriptor.from);
-    //         var normalized = normalizePath(resolvedPath);
-    //         return normalized === normalizePath(id);
-    //     });
-    // }
-
     function build() {
         var moduleSource = generateSourceImporting(importDescription, root);
-        // console.log('the source', moduleSource);
         var entryId = cuid() + '.js';
         var entryPath = root + '/' + entryId;
-        // var temporaryFolderPath = normalizePath(osTmpDir());
-        // var temporaryFilePath = temporaryFolderPath + '/' + cuid() + '.js';
         return rollup.rollup({
             entry: entryId,
             onwarn: function(warning) {
@@ -219,7 +204,6 @@ function pickImports(importDescription, options) {
                 ) {
                     return;
                 }
-                console.log(warning.loc.file);
                 console.warn(warning.message);
             },
             plugins: [
@@ -230,30 +214,9 @@ function pickImports(importDescription, options) {
                         if (id === entryPath) {
                             return moduleSource;
                         }
-                        // on pourrais aussi déplacer ça dans resolveId
-                        // et rediriger #weak vers un fichier spécial qui contient grosso modo
-                        // export default {weak: true};
-                        var weakMark = '/fix.js';
-                        var weakLength = weakMark.length;
-                        var isWeak = id.slice(-weakLength) === weakMark;
-                        console.log(id, 'is weak ?', isWeak);
-                        if (isWeak) {
-                            var isExcludedPromise;
-                            if (options.exclude) {
-                                isExcludedPromise = Promise.resolve(options.exclude(id));
-                            } else {
-                                isExcludedPromise = Promise.resolve(false);
-                            }
-                            return isExcludedPromise.then(function(isExcluded) {
-                                if (isExcluded) {
-                                    console.log('returning expor{}');
-                                    return 'export default {}';
-                                }
-                                console.log('loading');
-                                return null;
-                            });
+                        if (options.load) {
+                            return options.load(id);
                         }
-                        console.log('will load', id);
                     },
                     resolveId: function(importee, importer) {
                         if (importee.slice(0, 2) === '//') {
@@ -319,17 +282,73 @@ function pickImports(importDescription, options) {
     }
 }
 
-module.exports = pickImports;
+function createFeatureImports(featureNames, mode) {
+    var featureImports = featureNames.map(function(feature) {
+        if (mode === 'test') {
+            return {
+                test: {
+                    name: 'default',
+                    from: './' + feature + '/test.js'
+                },
+                filename: {
+                    name: 'filename',
+                    from: './' + feature + '/test.js'
+                }
+            };
+        }
+        if (mode === 'fix' || mode === 'transpile') {
+            return {
+                test: {
+                    name: 'default',
+                    from: './' + feature + '/test.js'
+                },
+                filename: {
+                    name: 'filename',
+                    from: './' + feature + '/test.js'
+                },
+                solution: {
+                    name: 'default',
+                    from: './' + feature + '/fix.js'
+                }
+            };
+        }
+        if (mode === 'polyfill') {
+            return {
+                filename: {
+                    name: 'filename',
+                    from: './' + feature + '/fix.js'
+                },
+                solution: {
+                    name: 'default',
+                    from: './' + feature + '/fix.js'
+                }
+            };
+        }
+        return {};
+    });
 
-// build({
-//     features: [
-//         'promise',
-//         'promise/unhandled-rejection'
-//     ]
-// }).then(eval).then(function(exports) {
-//     console.log(exports);
-// }).catch(function(e) {
-//     setTimeout(function() {
-//         throw e;
-//     });
-// });
+    return featureImports;
+}
+
+var getFeaturesFolder = require('./get-features-folder.js');
+function buildFeatures(featureNames, options) {
+    var featureImports = createFeatureImports(featureNames, options.mode);
+
+    return buildImports(featureImports, {
+        root: getFeaturesFolder(),
+        transpiler: options.transpiler,
+        meta: options.meta,
+        mainExportName: 'features',
+        load: options.load,
+        footer: options.footer
+    }).then(function(source) {
+        return {
+            source: source,
+            compile: function() {
+                return eval(source);
+            }
+        };
+    });
+}
+
+module.exports = buildFeatures;

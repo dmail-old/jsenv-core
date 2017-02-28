@@ -1,5 +1,7 @@
 import objectKeysFix from '../keys/fix.js';
+// import symbolFix from '../symbol/fix.js';
 import {toObject, toIterable, isEnumerable} from '/fix-helpers.js';
+
 const getOwnPropertySymbols = Object.getOwnPropertySymbols;
 function assign(target, source) { // eslint-disable-line no-unused-vars
     var object = toObject(target);
@@ -25,10 +27,14 @@ function assign(target, source) { // eslint-disable-line no-unused-vars
     return object;
 }
 const fix = {
-    dependencies: [objectKeysFix],
+    dependencies: [
+        objectKeysFix
+        // symbolFix
+    ],
     type: 'inline',
     value: function fixObjectAssign() {
         Object.assign = assign;
     }
 };
+
 export default fix;

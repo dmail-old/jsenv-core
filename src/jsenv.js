@@ -1741,6 +1741,9 @@ en fonction du résultat de ces tests
             return execTest;
         })();
         var execSolution = (function() {
+            function isExcludedSolution(solution) {
+                return solution.type === 'excluded';
+            }
             function isInlineSolution(solution) {
                 return solution.type === 'inline';
             }
@@ -1750,16 +1753,20 @@ en fonction du résultat de ces tests
             function isBabelSolution(solution) {
                 return solution.type === 'babel';
             }
-            function execSolution(solution) {
-                console.log('exec the solution', solution);
+
+            function execSolution(solution, pass) {
+                if (isExcludedSolution(solution)) {
+                    return pass('skipped', 'excluded');
+                }
                 if (isInlineSolution(solution)) {
                     return solution.value();
                 }
                 if (isFileSolution(solution)) {
-                    return solution.value();
+                    solution.value();
+                    return true;
                 }
                 if (isBabelSolution(solution)) {
-                    return true;
+                    return pass('skipped', 'babel');
                 }
                 return true;
             }
