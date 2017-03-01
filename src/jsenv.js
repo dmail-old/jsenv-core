@@ -1467,6 +1467,8 @@ en fonction du résultat de ces tests
             nodes.forEach(visit);
             return dependencies;
         }
+        jsenv.collectDependencies = collectDependencies;
+        jsenv.groupByDependencyDepth = groupByDependencyDepth;
         var Output = jsenv.Output;
         var pass = Output.pass;
         var fail = Output.fail;
@@ -1740,87 +1742,104 @@ en fonction du résultat de ces tests
 
             return execTest;
         })();
-        var execSolution = (function() {
-            function isExcludedSolution(solution) {
-                return solution.type === 'excluded';
+        var execFix = (function() {
+            function isInlineFix(fix) {
+                return fix.type === 'inline';
             }
-            function isInlineSolution(solution) {
-                return solution.type === 'inline';
+            function isFileFix(fix) {
+                return fix.type === 'file';
             }
-            function isFileSolution(solution) {
-                return solution.type === 'file';
-            }
-            function isBabelSolution(solution) {
-                return solution.type === 'babel';
+            function isBabelFix(fix) {
+                return fix.type === 'babel';
             }
 
-            function execSolution(solution, pass) {
-                if (isExcludedSolution(solution)) {
-                    return pass('skipped', 'excluded');
+            function execFix(fix, pass) {
+                if (isInlineFix(fix)) {
+                    return fix.value();
                 }
-                if (isInlineSolution(solution)) {
-                    return solution.value();
-                }
-                if (isFileSolution(solution)) {
-                    solution.value();
+                if (isFileFix(fix)) {
+                    if (typeof fix.value === 'string') {
+                        throw new Error('missing file solution for ' + fix.name);
+                    }
+                    fix.value();
                     return true;
                 }
-                if (isBabelSolution(solution)) {
+                if (isBabelFix(fix)) {
                     return pass('skipped', 'babel');
                 }
                 return true;
             }
-            return execSolution;
+            return execFix;
         })();
+        function extractTestFromFeatures(features) {
+            var tests = features.map(function(feature) {
+                var test = feature.test;
+                if (test) {
+                    test.name = feature.name;
+                    return test;
+                }
+                return null;
+            });
+            tests.forEach(function(test, index) {
+                if (test) {
+                    test.dependencies = features[index].testDependencies.map(function(featureIndex) {
+                        return tests[featureIndex];
+                    });
+                }
+            });
+            return tests.filter(function(test) {
+                return Boolean(test);
+            });
+        }
+        function extractFixFromFeatures(features) {
+            var fixs = features.map(function(feature) {
+                var fix = feature.fix;
+                if (fix) {
+                    fix.name = feature.name;
+                    if (feature.fixFunction) {
+                        fix.value = feature.fixFunction;
+                    }
+                    return fix;
+                }
+                return null;
+            });
+            fixs.forEach(function(fix, index) {
+                if (fix) {
+                    fix.dependencies = features[index].fixDependencies.map(function(featureIndex) {
+                        return fix[featureIndex];
+                    });
+                }
+            });
+            return fixs.filter(function(fix) {
+                return Boolean(fix);
+            });
+        }
         function testFeatures(features) {
             var records = [];
-            var tests = features.map(function(feature) {
-                return feature.test;
-            });
+            var tests = extractTestFromFeatures(features);
+
             return jsenv.graph.mapAsync(
                 tests,
                 execTest,
                 {
                     progress: function(event) {
-                        var testIndex = event.index;
-                        if (testIndex === -1) {
-                            console.log('test dependency ->', event.detail);
-                        } else {
-                            var feature = features[testIndex];
-                            var featureName = jsenv.parentPath(feature.filename);
-                            console.log('tested', featureName, '->', event.detail);
-                            records.push({
-                                name: featureName,
-                                data: event.detail
-                            });
-                        }
+                        var test = event.target;
+                        console.log('tested', test.name, '->', event.detail);
+                        records.push({
+                            name: test.name,
+                            data: event.detail
+                        });
                     }
                 }
             ).then(function() {
                 return records;
             });
         }
-        function fixFeatures(features, meta) {
-            var namedFileFunctions = meta.namedFileFunctions;
-            var solutions = features.map(function(feature) {
-                var solution = feature.solution;
-                if (solution.type === 'file') {
-                    var value = solution.value;
-                    if (value in namedFileFunctions) {
-                        solution.value = namedFileFunctions[value];
-                    } else {
-                        solution.value = function() {
-                            throw new Error('missing file solution for ' + value);
-                        };
-                    }
-                }
-                return solution;
-            });
-            console.log('the solutions', solutions);
+        function execAllFix(fixs) {
             var records = [];
             jsenv.graph.map(
-                solutions,
-                execSolution,
+                fixs,
+                execFix,
                 {
                     // we can ignore dependencies of solution because
                     // if they are not in solutions, it means they are not required
@@ -1831,30 +1850,21 @@ en fonction du résultat de ces tests
                     // ok maintenan tc'est pas ça, on va bien récup dependencies
                     // mais il sera possible que ce soit des objets vide
                     progress: function(event) {
-                        var testIndex = event.index;
-                        if (testIndex === -1) {
-                            console.log('solve dependency ->', event.detail);
-                        } else {
-                            var feature = features[testIndex];
-                            var featureName = jsenv.parentPath(feature.filename);
-                            console.log('solve', featureName, '->', event.detail);
-                            records[testIndex] = {
-                                name: featureName,
-                                data: event.detail
-                            };
-                        }
+                        var fix = event.target;
+                        console.log('solve', fix.name, '->', event.detail);
+                        records[event.index] = {
+                            name: fix.name,
+                            data: event.detail
+                        };
                     }
                 }
             );
             return records;
         }
-        function polyfill(data) {
-            fixFeatures(data.features, data.meta);
-        }
 
         function createImplementationClient(mediator) {
             function testImplementation() {
-                return mediator.send('getAllRequiredTest').then(function(data) {
+                return mediator.send('getTestInstructions').then(function(data) {
                     console.log('the data', data.features);
                     return testFeatures(data.features).then(function(testRecords) {
                         return mediator.send('setAllTestRecord', testRecords);
@@ -1862,19 +1872,49 @@ en fonction du résultat de ces tests
                 });
             }
             function fixImplementation() {
-                return mediator.send('getAllRequiredFix').then(function(data) {
+                return mediator.send('getFixInstuctions').then(function(data) {
                     var features = data.features;
                     var meta = data.meta;
                     console.log('fixings features', data);
-                    var records = fixFeatures(features, meta);
-                    var recordsWithPassedTests = [];
-                    var tests = [];
-                    records.forEach(function(record, index) {
-                        if (record.data.status === 'passed') {
-                            recordsWithPassedTests.push(record);
-                            tests.push(features[index].test);
+
+                    var fixs = extractFixFromFeatures(features);
+                    var coreJSFunction = meta.coreJSFunction;
+                    function composedCoreJSSolution() {
+                        var status = 'pending';
+                        var value;
+
+                        return function() {
+                            if (status === 'pending') {
+                                try {
+                                    value = coreJSFunction();
+                                    status = 'returned';
+                                } catch (e) {
+                                    value = e;
+                                    status = 'throwed';
+                                }
+                            }
+                            if (status === 'returned') {
+                                return value;
+                            }
+                            throw value;
+                        };
+                    }
+                    fixs.forEach(function(fix) {
+                        if (fix.type === 'corejs') {
+                            fix.value = composedCoreJSSolution;
                         }
                     });
+
+                    var records = execAllFix(fixs);
+                    var featuresWithPassedFix = features.filter(function(feature) {
+                        return jsenv.Iterable.find(records, function(record) {
+                            return (
+                                record.name === feature.name &&
+                                record.data.status === 'passed'
+                            );
+                        });
+                    });
+                    var tests = extractTestFromFeatures(featuresWithPassedFix);
                     console.log('records', records);
 
                     return jsenv.graph.mapAsync(
@@ -1882,15 +1922,12 @@ en fonction du résultat de ces tests
                         execTest,
                         {
                             progress: function(event) {
-                                var testIndex = event.index;
-                                if (testIndex === -1) {
-                                    console.log('test solution dependency ->', event.detail);
-                                } else {
-                                    var recordWithPassedTest = recordsWithPassedTests[testIndex];
-                                    var featureName = recordWithPassedTest.name;
-                                    console.log('test solution', featureName, '->', event.detail);
-                                    recordsWithPassedTests[testIndex].data = event.detail;
-                                }
+                                var test = event.target;
+                                console.log('test fix', test.name, '->', event.detail);
+                                var record = jsenv.Iterable.find(records, function(record) {
+                                    return record.name === test.name;
+                                });
+                                record.data = event.detail;
                             }
                         }
                     ).then(function() {
@@ -1912,8 +1949,7 @@ en fonction du résultat de ces tests
         }
 
         return {
-            createImplementationClient: createImplementationClient,
-            polyfill: polyfill
+            createImplementationClient: createImplementationClient
         };
     });
 })();

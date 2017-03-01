@@ -1,4 +1,5 @@
 import {toIterable, hasOwnProperty, getSharedKey} from '/fix-helpers.js';
+
 const IE_PROTO = getSharedKey('IE_PROTO');
 function keys(object) {
     object = toIterable(object);
@@ -17,4 +18,5 @@ const fix = {
         Object.keys = keys;
     }
 };
+
 export default fix;

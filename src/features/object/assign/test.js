@@ -1,11 +1,8 @@
-import testObject from '../test.js';
 // import testSymbol from '/symbol/test.js';
 import {at, present, every, sameValues, collectKeys} from '/test-helpers.js';
 
-const methodName = 'assign';
 const test = {
-    dependencies: [testObject],
-    run: at(testObject.run, methodName),
+    run: at('Object', 'assign'),
     complete: every(
         present,
         function() {

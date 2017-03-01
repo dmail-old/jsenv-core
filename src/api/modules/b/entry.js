@@ -1,0 +1,1 @@
+import '../c/entry.js';

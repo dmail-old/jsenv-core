@@ -1,4 +1,4 @@
-var getFeaturesFolder = require('./get-features-folder.js');
+var getFeaturesFolder = require('./get-folder.js');
 var fsAsync = require('../fs-async.js');
 
 function readFolder(path) {
@@ -69,3 +69,11 @@ function listFeatureNames() {
 }
 
 module.exports = listFeatureNames;
+
+// listFeatureNames().then(function(names) {
+//     console.log('names', names);
+// }).catch(function(e) {
+//     setTimeout(function() {
+//         throw e;
+//     });
+// });

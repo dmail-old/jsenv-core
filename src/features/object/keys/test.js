@@ -1,9 +1,8 @@
-import testObject from '../test.js';
 import {at, present} from '/test-helpers.js';
-const methodName = 'keys';
+
 const test = {
-    dependencies: [testObject],
-    run: at(testObject.run, methodName),
+    run: at('Object', 'keys'),
     complete: present
 };
+
 export default test;

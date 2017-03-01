@@ -24,10 +24,7 @@ var featureTranspiler = createTranspiler({
                 loose: true // because we may not have Symbol.iterator etc
             }
         ],
-        'transform-es2015-destructuring',
-        [
-            createTranspiler.generateExport()
-        ]
+        'transform-es2015-destructuring'
     ]
 });
 

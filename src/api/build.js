@@ -1,39 +1,88 @@
-function createInstruction(name, from) {
-    return {
-        namedImports: [
-            {
-                name: name,
-                as: null
-            }
-        ],
-        from: from,
-        findNamedImport: function(name) {
-            return Iterable.find(this.namedImports, function(namedImport) {
-                return namedImport.name === name;
-            });
-        },
-        addNamedImport: function(name) {
-            var existing = this.findNamedImport(name);
-            if (existing) {
-                throw new Error(
-                    'duplicate import ' + name + ' from ' + this.from
-                );
-            }
+var Instruction = (function() {
+    function preventMembersConflict(id) {
+        this.members.forEach(function(member) {
+            member.as = member.name + '$' + id;
+        });
+    }
+    function findMember(name) {
+        return Iterable.find(this.members, function(member) {
+            return member.name === name;
+        });
+    }
+    function addMember(name, propertyName) {
+        var existing = this.findMember(name);
+        if (existing) {
+            throw new Error(
+                'duplicate member ' + name + ' for ' + this
+            );
+        }
+        this.members.push({
+            name: name,
+            property: propertyName,
+            as: null
+        });
+    }
 
-            this.namedImports.push({
-                name: name,
-                as: null
-            });
+    function DeclareInstruction(from) {
+        this.from = from;
+        this.members = [];
+    }
+    DeclareInstruction.prototype = {
+        constructor: DeclareInstruction,
+        type: 'declare',
+        findMember: findMember,
+        addMember: addMember,
+        preventConflict: function(id) {
+            this.name = '$' + id;
+            preventMembersConflict.call(this, id);
         },
         toSource: function() {
-            var source = 'import {';
-            source += this.namedImports.map(function(namedImport) {
-                var namedImportSource = '';
-                namedImportSource += namedImport.name;
-                if (namedImport.as) {
-                    namedImportSource += ' as ' + namedImport.as;
+            var source = 'var ';
+            source += this.name;
+            source += ' = ';
+            source += uneval(this.from);
+            source += ';';
+            source += '\n';
+
+            var inlineName = this.name;
+            source += this.members.map(function(member) {
+                var memberSource = '';
+                memberSource += 'var ';
+                memberSource += member.as;
+                memberSource += ' = ';
+                memberSource += inlineName;
+
+                var propertyName = member.name;
+                if (propertyName) {
+                    memberSource += '[' + uneval(propertyName) + ']';
                 }
-                return namedImportSource;
+                memberSource += ';';
+                return memberSource;
+            }).join('\n');
+
+            return source;
+        }
+    };
+
+    function ImportInstruction(from) {
+        this.from = from;
+        this.members = [];
+    }
+    ImportInstruction.prototype = {
+        constructor: ImportInstruction,
+        type: 'import',
+        findMember: findMember,
+        addMember: addMember,
+        preventConflict: preventMembersConflict,
+        toSource: function() {
+            var source = 'import {';
+            source += this.members.map(function(member) {
+                var memberSource = '';
+                memberSource += member.name;
+                if (member.as) {
+                    memberSource += ' as ' + member.as;
+                }
+                return memberSource;
             }).join(', ');
             source += '}';
             source += ' from ';
@@ -42,71 +91,83 @@ function createInstruction(name, from) {
             return source;
         }
     };
-}
-function generateSourceImporting(objects) {
-    var instructions = [];
-    var propertyInstructionsMap = [];
-    objects.forEach(function(object) {
-        Object.keys(object).forEach(function(propertyName) {
-            var propertyImport = object[propertyName];
 
-            var existingInstruction = Iterable.find(instructions, function(instruction) {
-                return instruction.from === propertyImport.from;
+    return {
+        create: function createInstruction(type, arg) {
+            if (type === 'inline') {
+                return new DeclareInstruction(arg);
+            }
+            if (type === 'import') {
+                return new ImportInstruction(arg);
+            }
+        }
+    };
+})();
+
+var uneval = require('../uneval.js');
+require('../jsenv.js');
+var Iterable = jsenv.Iterable;
+function generateSource(abstractObjects) {
+    var instructions = [];
+    var links = [];
+    abstractObjects.forEach(function(abstractObject) {
+        Object.keys(abstractObject).forEach(function(propertyName) {
+            var abstractProperty = abstractObject[propertyName];
+            var instruction = Iterable.find(instructions, function(instruction) {
+                return (
+                    instruction.type === abstractProperty.type &&
+                    instruction.from === abstractProperty.from
+                );
             });
-            if (existingInstruction) {
-                existingInstruction.addNamedImport(propertyImport.name);
-                propertyInstructionsMap.push({
-                    object: object,
-                    property: propertyName,
-                    instruction: existingInstruction
-                });
+            if (instruction) {
+
             } else {
-                var instruction = createInstruction(propertyImport.name, propertyImport.from);
-                propertyInstructionsMap.push({
-                    object: object,
-                    property: propertyName,
-                    instruction: instruction
-                });
+                instruction = Instruction.create(abstractProperty.type, abstractProperty.from);
                 instructions.push(instruction);
             }
+            instruction.addMember(abstractProperty.name, propertyName);
+            links.push({
+                object: abstractObject,
+                property: propertyName,
+                instruction: instruction
+            });
         });
     });
-    // set a unique variable name for every import
+    // set a unique variable name for every instruction
     // to prevent clash and allow collecting thoose variable later
     var id = 0;
     instructions.forEach(function(instruction) {
-        instruction.namedImports.forEach(function(namedImport) {
-            id++;
-            namedImport.as = namedImport.name + '$' + id;
-        });
+        id++;
+        instruction.preventConflict(id);
     });
 
-    function getObjectPropertyVariableName(object, property) {
-        var foundData = Iterable.find(propertyInstructionsMap, function(data) {
-            return (
-                data.object === object &&
-                data.property === property
-            );
-        });
-        var instruction = foundData.instruction;
-        var importName = object[property].name;
-        var namedImport = instruction.findNamedImport(importName);
-        if (!namedImport) {
-            throw new Error('cannot find named import ' + importName + ' of property ' + property);
-        }
-        return namedImport.as;
-    }
-
-    function generateImportSource() {
+    function generateInstructionSource() {
         return instructions.map(function(instruction) {
             return instruction.toSource();
         }).join('\n');
     }
+    function getAbstractObjectVariableNameForProperty(abstractObject, property) {
+        var link = Iterable.find(links, function(link) {
+            return (
+                link.object === abstractObject &&
+                link.property === property
+            );
+        });
+        var instruction = link.instruction;
+        var abstractProperty = abstractObject[property];
+        var member = instruction.findMember(abstractProperty.name);
+        if (member) {
+            return member.as;
+        }
+        throw new Error(
+            'cannot find named member ' + abstractProperty.name + ' of property ' + property
+        );
+    }
     function generateCollectorSources() {
-        return objects.map(function(object) {
+        return abstractObjects.map(function(abstractObject) {
             var objectSource = '{';
-            objectSource += Object.keys(object).map(function(key) { // eslint-disable-line
-                return '"' + key + '": ' + getObjectPropertyVariableName(object, key);
+            objectSource += Object.keys(abstractObject).map(function(key) { // eslint-disable-line
+                return '"' + key + '": ' + getAbstractObjectVariableNameForProperty(abstractObject, key);
             }).join(', ');
             objectSource += '}';
             return 'collect(' + objectSource + ');';
@@ -114,7 +175,7 @@ function generateSourceImporting(objects) {
     }
 
     return (
-        generateImportSource() +
+        generateInstructionSource() +
         '\n\n' +
         'var collector = [];\n' +
         'function collect(a) {\n' +
@@ -127,20 +188,28 @@ function generateSourceImporting(objects) {
     );
 }
 // console.log(
-//     generateSourceImporting(
+//     generateSource(
 //         [
 //             {
 //                 foo: {
+//                     type: 'import',
 //                     name: 'default',
 //                     from: './foo.js'
 //                 },
 //                 bar: {
+//                     type: 'import',
 //                     name: 'default',
-//                     from: './bar.js',
+//                     from: './bar.js'
 //                 },
 //                 baz: {
+//                     type: 'import',
 //                     name: 'filename',
 //                     from: './bar.js'
+//                 },
+//                 name: {
+//                     type: 'inline',
+//                     name: '',
+//                     from: 'nammmmme'
 //                 }
 //             }
 //         ]
@@ -150,12 +219,8 @@ function generateSourceImporting(objects) {
 var rollup = require('rollup');
 var path = require('path');
 var cuid = require('cuid');
-
-require('../jsenv.js');
 var store = require('../store.js');
 var memoize = require('../memoize.js');
-var uneval = require('../uneval.js');
-var Iterable = jsenv.Iterable;
 
 function normalizePath(path) {
     return path.replace(/\\/g, '/');
@@ -166,15 +231,14 @@ var cacheFolder = rootFolder + '/cache';
 var builderCacheFolder = cacheFolder + '/builder';
 var builderCache = store.fileSystemCache(builderCacheFolder);
 
-function buildImports(importDescription, options) {
+function buildSource(abstractObjects, options) {
     options = options || {};
     var root = options.root;
     var transpiler = options.transpiler;
     var mainExportName = options.mainExportName || 'default';
 
     return builderCache.match({
-        imports: importDescription,
-        root: root,
+        abstracts: abstractObjects,
         main: mainExportName
     }).then(function(cacheBranch) {
         var entry = cacheBranch.entry({
@@ -190,7 +254,7 @@ function buildImports(importDescription, options) {
     });
 
     function build() {
-        var moduleSource = generateSourceImporting(importDescription, root);
+        var moduleSource = generateSource(abstractObjects, root);
         var entryId = cuid() + '.js';
         var entryPath = root + '/' + entryId;
         return rollup.rollup({
@@ -282,60 +346,65 @@ function buildImports(importDescription, options) {
     }
 }
 
-function createFeatureImports(featureNames, mode) {
-    var featureImports = featureNames.map(function(feature) {
-        if (mode === 'test') {
-            return {
-                test: {
-                    name: 'default',
-                    from: './' + feature + '/test.js'
-                },
-                filename: {
-                    name: 'filename',
-                    from: './' + feature + '/test.js'
-                }
-            };
-        }
-        if (mode === 'fix' || mode === 'transpile') {
-            return {
-                test: {
-                    name: 'default',
-                    from: './' + feature + '/test.js'
-                },
-                filename: {
-                    name: 'filename',
-                    from: './' + feature + '/test.js'
-                },
-                solution: {
-                    name: 'default',
-                    from: './' + feature + '/fix.js'
-                }
-            };
-        }
-        if (mode === 'polyfill') {
-            return {
-                filename: {
-                    name: 'filename',
-                    from: './' + feature + '/fix.js'
-                },
-                solution: {
-                    name: 'default',
-                    from: './' + feature + '/fix.js'
-                }
-            };
-        }
-        return {};
-    });
+// function createAbstractFeatures(featureNames, mode) {
+//     var featureImports = featureNames.map(function(feature) {
+//         if (mode === 'test') {
+//             return {
+//                 name: {
+//                     type: 'inline',
+//                     name: '',
+//                     from: feature
+//                 },
+//                 test: {
+//                     type: 'import',
+//                     name: 'default',
+//                     from: './' + feature + '/test.js'
+//                 }
+//             };
+//         }
+//         if (mode === 'fix' || mode === 'transpile') {
+//             return {
+//                 name: {
+//                     type: 'inline',
+//                     name: '',
+//                     from: feature
+//                 },
+//                 test: {
+//                     type: 'import',
+//                     name: 'default',
+//                     from: './' + feature + '/test.js'
+//                 },
+//                 solution: {
+//                     type: 'import',
+//                     name: 'default',
+//                     from: './' + feature + '/fix.js'
+//                 }
+//             };
+//         }
+//         if (mode === 'polyfill') {
+//             return {
+//                 name: {
+//                     type: 'inline',
+//                     name: '',
+//                     from: feature
+//                 },
+//                 solution: {
+//                     type: 'import',
+//                     name: 'default',
+//                     from: './' + feature + '/fix.js'
+//                 }
+//             };
+//         }
+//         return {};
+//     });
 
-    return featureImports;
-}
+//     return featureImports;
+// }
 
-var getFeaturesFolder = require('./get-features-folder.js');
-function buildFeatures(featureNames, options) {
-    var featureImports = createFeatureImports(featureNames, options.mode);
-
-    return buildImports(featureImports, {
-        root: getFeaturesFolder(),
+// var getFeaturesFolder = require('./get-folder.js');
+function build(abstractFeatures, options) {
+    return buildSource(abstractFeatures, {
+        root: options.root,
         transpiler: options.transpiler,
         meta: options.meta,
         mainExportName: 'features',
@@ -351,4 +420,4 @@ function buildFeatures(featureNames, options) {
     });
 }
 
-module.exports = buildFeatures;
+module.exports = build;
