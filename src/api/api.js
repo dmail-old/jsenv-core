@@ -24,6 +24,15 @@ et n'a pas été effacé entre temps
 
 - sourcemap
 
+- au lieu d'avoir un folder par sous-test
+ça serais ptet mieux même si difficile à lire d'avoir l'ensemble de tests lié à la feature spread
+dans le fichier spread/test.js
+c'est un gros changement et j'ai ni le temps ni l'envie de le faire pr le moment
+mais ça m'éviterais de créer 12000 fichier de fix.js pour rien
+en gros faudrais un moyen de ne pas avoir un seul test par fichier
+donc potentiellement d'avoir plusieurs run() + complete()
+faudrais un truc qui permette de l'imbrication, pas que une liste de sous-test
+
 */
 
 require('../jsenv.js');
@@ -168,7 +177,10 @@ function readRecordFromFileSystem(featureName, agent, type) {
     });
 }
 function recordIsMissing(record) {
-    return record.data.valid === false && record.data.reason === 'file-not-found';
+    return (
+        record.data.valid === false &&
+        record.data.reason === 'file-not-found'
+    );
 }
 function recordIsInvalid(record) {
     return record.data.valid === false;
