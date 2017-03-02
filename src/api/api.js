@@ -6,8 +6,6 @@ with
 https://github.com/kangax/compat-table/blob/gh-pages/data-es5.js
 https://github.com/kangax/compat-table/blob/gh-pages/data-es6.js
 
-- transpile() doit marcher avec const
-
 - changer feature.name pour feature.id
 
 - il faudrais que polyfill/transpile retourne le chemin vers le fichier
@@ -880,23 +878,23 @@ function createOwnMediator(featureNames, agent) {
         return data;
     }
 }
-var ownMediator = createOwnMediator(
-    [
-        // 'promise/unhandled-rejection',
-        // 'promise/rejection-handled'
-        // 'const/scoped'
-        'const/scoped'
-    ],
-    String(jsenv.agent)
-);
-var client = jsenv.createImplementationClient(ownMediator);
-client.fix().then(function() {
-    console.log('ok');
-}).catch(function(e) {
-    setTimeout(function() {
-        throw e;
-    });
-});
+// var ownMediator = createOwnMediator(
+//     [
+//         // 'promise/unhandled-rejection',
+//         // 'promise/rejection-handled'
+//         // 'const/scoped'
+//         'const/scoped'
+//     ],
+//     String(jsenv.agent)
+// );
+// var client = jsenv.createImplementationClient(ownMediator);
+// client.fix().then(function() {
+//     console.log('ok');
+// }).catch(function(e) {
+//     setTimeout(function() {
+//         throw e;
+//     });
+// });
 
 function getClosestAgentForFeature(featureName, agent) {
     var featureFolderPath = folderFromFeatureName(featureName);
@@ -1115,8 +1113,34 @@ function getPolyfillInstructions(featureNames, agent) {
 //     });
 // });
 
-function transpile(path, featureNames, agent) {
-    return getNodesMatchingStatus(
+function transpile(code, featureNames, agent) {
+    return getFeaturesMatching(
+        featureNames,
+        agent,
+        clientMatchOptions
+    ).then(function(match) {
+        var featuresToFix = match.features;
+        var groups = groupBySolution(featuresToFix);
+        var transpiler = babelSolution.createTranspiler(groups.babel);
+        return transpiler.transpile(code, {as: 'code'});
+    });
+}
+// transpile(
+//     'const a = true;',
+//     [
+//         'const/scoped'
+//     ],
+//     jsenv.agent
+// ).then(function(result) {
+//     console.log('transpilation result', result.code);
+// }).catch(function(e) {
+//     setTimeout(function() {
+//         throw e;
+//     });
+// });
+
+function transpileFile(path, featureNames, agent) {
+    return getFeaturesMatching(
         featureNames,
         agent,
         clientMatchOptions
@@ -1127,18 +1151,6 @@ function transpile(path, featureNames, agent) {
         return transpiler.transpileFile(path);
     });
 }
-// transpile(
-//     './test.js',
-//     [
-//         'const/scoped'
-//     ]
-// ).then(function(content) {
-//     console.log('transpilation result', content);
-// }).catch(function(e) {
-//     setTimeout(function() {
-//         throw e;
-//     });
-// });
 
 function createBrowserMediator(featureNames) {
     return {
@@ -1265,6 +1277,7 @@ api.getClosestAgent = getClosestAgentForFeature;
 api.getFixInstructions = getFixInstructions;
 api.getPolyfillInstructions = getPolyfillInstructions;
 api.transpile = transpile;
+api.transpileFile = transpileFile;
 api.createOwnMediator = createOwnMediator;
 
 module.exports = api;

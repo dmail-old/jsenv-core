@@ -37,29 +37,34 @@ var Instruction = (function() {
             preventMembersConflict.call(this, id);
         },
         toSource: function() {
-            var source = 'var ';
-            source += this.name;
-            source += ' = ';
-            source += uneval(this.from);
-            source += ';';
-            source += '\n';
+            var source;
+            if (this.members.length === 1 && this.members[0].name === '') {
+                var firstMember = this.members[0];
+                source = 'var ' + firstMember.as + ' = ' + uneval(this.from) + ';';
+            } else {
+                source = 'var ';
+                source += this.name;
+                source += ' = ';
+                source += uneval(this.from);
+                source += ';';
+                source += '\n';
 
-            var inlineName = this.name;
-            source += this.members.map(function(member) {
-                var memberSource = '';
-                memberSource += 'var ';
-                memberSource += member.as;
-                memberSource += ' = ';
-                memberSource += inlineName;
+                var inlineName = this.name;
+                source += this.members.map(function(member) {
+                    var memberSource = '';
+                    memberSource += 'var ';
+                    memberSource += member.as;
+                    memberSource += ' = ';
+                    memberSource += inlineName;
 
-                var propertyName = member.name;
-                if (propertyName) {
-                    memberSource += '[' + uneval(propertyName) + ']';
-                }
-                memberSource += ';';
-                return memberSource;
-            }).join('\n');
-
+                    var propertyName = member.name;
+                    if (propertyName) {
+                        memberSource += '[' + uneval(propertyName) + ']';
+                    }
+                    memberSource += ';';
+                    return memberSource;
+                }).join('\n');
+            }
             return source;
         }
     };

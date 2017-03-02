@@ -1,22 +1,3 @@
-import {at, expect, present} from 'helper/detect.js';
-import parent from '../feature.js';
-const path = 'fromCodePoint';
-const feature = {
-    dependencies: [parent],
-    run: at(parent.run, path),
-    test: expect(present, function(fromCodePoint, pass, fail) {
-        if (fromCodePoint.length !== 1) {
-            return fail('length-must-be-one');
-        }
-        return pass();
-    }),
-    solution: {
-        type: 'inline',
-        value: fix
-    }
-};
-export default feature;
-
 const stringFromCharCode = String.fromCharCode;
 const floor = Math.floor;
 function fromCodePoint(x) { // eslint-disable-line no-unused-vars
@@ -56,10 +37,12 @@ function fromCodePoint(x) { // eslint-disable-line no-unused-vars
     }
     return result;
 }
-export {fromCodePoint};
 
-import {defineMethod} from 'helper/fix.js';
-function fix() {
-    defineMethod(at(parent.run).value, path, fromCodePoint);
-}
-export {fix};
+const fix = {
+    type: 'inline',
+    value: function() {
+        String.fromCodePoint = fromCodePoint;
+    }
+};
+
+export default fix;
