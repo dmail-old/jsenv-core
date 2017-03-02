@@ -999,7 +999,7 @@ ainsi que quelques utilitaires comme assign, Iterable et Predicate
         }
     }));
 
-    // we need a promise like object to use Promise power even in environment wo Promise
+    // we need a promise like object to use Promise power even in environment missing Promise
     // we reuse this one https://github.com/taylorhakes/promise-polyfill/blob/master/promise.js
     var Thenable = (function() {
         var forOf = (function() {
@@ -1577,7 +1577,7 @@ en fonction du résultat de ces tests
                         var dependencies = node.dependencies;
                         var failedDependency = Iterable.find(dependencies, dependencyIsFailed, node);
                         if (failedDependency) {
-                            return fail('dependency-is-failed', dependencies.indexOf(failedDependency));
+                            return fail('dependency-is-failed', failedDependency.name);
                         }
                     }
 
@@ -1872,7 +1872,7 @@ en fonction du résultat de ces tests
                 });
             }
             function fixImplementation() {
-                return mediator.send('getFixInstuctions').then(function(data) {
+                return mediator.send('getFixInstructions').then(function(data) {
                     var features = data.features;
                     var meta = data.meta;
                     console.log('fixings features', data);
@@ -1906,15 +1906,7 @@ en fonction du résultat de ces tests
                     });
 
                     var records = execAllFix(fixs);
-                    var featuresWithPassedFix = features.filter(function(feature) {
-                        return jsenv.Iterable.find(records, function(record) {
-                            return (
-                                record.name === feature.name &&
-                                record.data.status === 'passed'
-                            );
-                        });
-                    });
-                    var tests = extractTestFromFeatures(featuresWithPassedFix);
+                    var tests = extractTestFromFeatures(features);
                     console.log('records', records);
 
                     return jsenv.graph.mapAsync(
@@ -1927,7 +1919,11 @@ en fonction du résultat de ces tests
                                 var record = jsenv.Iterable.find(records, function(record) {
                                     return record.name === test.name;
                                 });
-                                record.data = event.detail;
+                                // if the fix has failed, prevent test from erasing
+                                // that, else let it become the result
+                                if (record.data.status === 'passed') {
+                                    record.data = event.detail;
+                                }
                             }
                         }
                     ).then(function() {

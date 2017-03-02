@@ -6,9 +6,9 @@ with
 https://github.com/kangax/compat-table/blob/gh-pages/data-es5.js
 https://github.com/kangax/compat-table/blob/gh-pages/data-es6.js
 
-- en fait ce qu'on a fait suffti pas pour les fix de type file
-puisque si une dépendance est de type file on aura pas fetch
-pareil pour corejs
+- test() / fix() / scan() / polyfill() doit marche avec object/assign
+
+- changer feature.name pour feature.id
 
 - mettre en place limit: {value: number, strategy: string} dans store.js
 parce que ça a des impacts sur l amanière dont on utilise l'api ensuite
@@ -169,6 +169,9 @@ function recordIsMissing(record) {
 function recordIsInvalid(record) {
     return record.data.valid === false;
 }
+function recordIsFailed(record) {
+    return record.data.value.status === 'failed';
+}
 function getStatus(featureName, featureAgent, includeFix) {
     return readRecordFromFileSystem(
         featureName,
@@ -250,27 +253,32 @@ function getNodes(featureNames, mode) {
 function getTestInstructions(featureNames, agent) {
     return getNodes(featureNames, 'test').then(function(featureNodes) {
         return mapAsync(featureNodes, function(featureNode) {
-            return getStatus(featureNameFromFile(featureNode.id), agent);
+            return getStatus(featureNameFromNode(featureNode), agent);
         }).then(function(statuses) {
-            var featureNodesToTest = Iterable.filterBy(featureNodes, statuses, function(status) {
-                return (
-                    status === 'test-missing' ||
-                    status === 'test-invalid'
-                );
-            });
+            var nodesToTest = Iterable.filterBy(
+                featureNodes,
+                statuses,
+                function(status) {
+                    return (
+                        status === 'test-missing' ||
+                        status === 'test-invalid'
+                    );
+                }
+            );
+            nodesToTest = nodesToTest.concat(jsenv.collectDependencies(nodesToTest));
             return build(
-                featureNodesToTest.map(function(featureNode) {
+                nodesToTest.map(function(featureNode) {
                     return {
                         name: {
                             type: 'inline',
                             name: '',
-                            from: featureNameFromFile(featureNode.id)
+                            from: featureNameFromNode(featureNode)
                         },
                         testDependencies: {
                             type: 'inline',
                             name: '',
                             from: featureNode.dependencies.map(function(dependency) {
-                                return featureNodesToTest.indexOf(dependency);
+                                return nodesToTest.indexOf(dependency);
                             })
                         },
                         test: {
@@ -301,13 +309,6 @@ function getTestInstructions(featureNames, agent) {
 //     });
 // });
 
-api.setAllTestRecord = function(records, agent) {
-    return writeAllRecordToFileSystem(
-        records,
-        agent,
-        'test'
-    );
-};
 function writeAllRecordToFileSystem(records, agent, type) {
     var outputsPromises = records.map(function(record) {
         var createProperties;
@@ -332,351 +333,25 @@ function writeOutputToFileSystem(featureName, agent, createProperties, output) {
     var cache = getFeatureAgentCache(featureName, agent, createProperties);
     return cache.write(output);
 }
-function pickFeaturesUsingSolution(features, solution) {
-    var i = 0;
-    var j = features.length;
-    var result = [];
-    while (i < j) {
-        var feature = features[i];
-        if (solution.match(feature)) {
-            features.splice(i, 1);
-            result.push(feature);
-            j--;
-        } else {
-            i++;
-        }
-    }
-    return result;
-}
-function groupBySolution(features) {
-    var groups = {
-        inline: pickFeaturesUsingSolution(features, inlineSolution),
-        file: pickFeaturesUsingSolution(features, fileSolution),
-        corejs: pickFeaturesUsingSolution(features, coreJSSolution),
-        babel: pickFeaturesUsingSolution(features, babelSolution),
-        none: pickFeaturesUsingSolution(features, noSolution),
-        remaining: features
-    };
-    return groups;
-}
-function getUniqSolutions(features) {
-    var solutions = features.map(function(feature) {
-        return feature.fix;
-    });
-    // a-t-on besoin de récup les solution dépendantes ?
-    // parce que si elle ne sont pas déjà là
-    // c'est que leur test est ok
-    // et donc que la solution n'est pas requise
-    // if (excludeDependencies !== true) {
-    //     var solutionsDependencies = jsenv.collectDependencies(solutions);
-    //     solutions.push.apply(solutions, solutionsDependencies);
-    // }
-    return Iterable.uniq(solutions);
-}
-function getFixInstructions(featureNames, agent, mode) {
-    mode = mode || 'fix';
-    var getAgent;
-    if (mode === 'fix') {
-        getAgent = function() {
-            return agent;
-        };
-    } else {
-        getAgent = function(feature) {
-            // en fait c'est pas vraiment le getAgent qui doit catch mais le getStatus
-            // qui lorsqu'il est appelé doit retourner test-missing
-            // lorsque aucun test-output.json n'est trouvé pour cette feature
-            return getClosestAgentForFeature(feature, agent).catch(function(e) {
-                if (e) {
-                    if (e.code === 'NO_AGENT') {
-                        return {
-                            valid: false,
-                            reason: 'no-agent',
-                            detail: e
-                        };
-                    }
-                    if (e.code === 'NO_AGENT_VERSION') {
-                        return {
-                            valid: false,
-                            reason: 'no-agent-version',
-                            detail: e
-                        };
-                    }
-                }
-                return Promise.reject(e);
-            });
-        };
-    }
-
-    return getAllDependencies(featureNames, 'fix').then(function(featureGraph) {
-        var featureNodes = featureGraph.concat(jsenv.collectDependencies(featureGraph));
-
-        return mapAsync(featureNodes, function(featureNode) {
-            return getAgent(featureNameFromFile(featureNode.id), agent);
-        }).then(function(agents) {
-            return mapAsync(featureNodes, function(featureNode, index) {
-                return getStatus(featureNameFromFile(featureNode.id), agents[index]);
-            });
-        }).then(function(statuses) {
-            if (mode === 'fix') {
-                var featureWithMissingOrInvalidTest = Iterable.filterBy(featureNodes, statuses, function(status) {
-                    return (
-                        status === 'test-missing' ||
-                        status === 'test-invalid'
-                    );
-                });
-                if (featureWithMissingOrInvalidTest.length) {
-                    throw new Error('some test are missing or invalid: ' + featureWithMissingOrInvalidTest);
-                }
-
-                return Iterable.filterBy(featureNodes, statuses, function(status) {
-                    return (
-                        status === 'test-failed-and-fix-missing' ||
-                        status === 'test-failed-and-fix-invalid'
-                    );
-                });
-            }
-            if (mode === 'polyfill') {
-                var featureWithFailedTestAndFailedFix = Iterable.filterBy(
-                    featureNodes,
-                    statuses,
-                    function(status) {
-                        return status === 'test-failed-and-fix-failed';
-                    }
-                );
-                // je ne suis pas sur qu'on va throw
-                // on va ptet juste ne rien faire parce qu'on sait que ca créé une erreur plutot
-                if (featureWithFailedTestAndFailedFix.length) {
-                    throw new Error('unfixable features ' + featureWithFailedTestAndFailedFix);
-                }
-
-                return Iterable.filterBy(featureNodes, statuses, function(status) {
-                    return (
-                        status === 'test-missing' ||
-                        status === 'test-invalid' ||
-                        status === 'test-failed-and-fix-missing' ||
-                        status === 'test-failed-and-fix-invalid' ||
-                        status === 'test-failed-and-fix-passed'
-                    );
-                });
-            }
-        }).then(function(featureNodesToFix) {
-            console.log('features to fix', featureNodesToFix.map(function(node) {
-                return featureNameFromFile(node.id);
-            }));
-            var abstractFeatures = featureNodesToFix.map(function(featureNode) {
-                return {
-                    name: {
-                        type: 'inline',
-                        name: '',
-                        from: featureNameFromFile(featureNode.id)
-                    },
-                    fix: {
-                        type: 'import',
-                        name: 'default',
-                        from: './' + featureNameFromFile(featureNode.id) + '/fix.js'
-                    },
-                    fixDependencies: {
-                        type: 'inline',
-                        name: '',
-                        from: featureNode.dependencies.map(function(dependency) {
-                            return featureNodesToFix.indexOf(dependency);
-                        })
-                    }
-                };
-            });
-
-            return build(
-                abstractFeatures,
-                {
-                    root: getFolder(),
-                    transpiler: transpiler
-                }
-            ).then(function(bundle) {
-                return bundle.compile();
-            });
-        }).then(function(featuresToFix) {
-            var groups = groupBySolution(featuresToFix);
-
-            var inlineSolutions = getUniqSolutions(groups.inline);
-            var inlineSolver = inlineSolution.solve(inlineSolutions);
-            console.log('inline fix', inlineSolutions.length);
-
-            var fileSolutions = getUniqSolutions(groups.file);
-            var fileSolver = fileSolution.solve(fileSolutions);
-            console.log('file fix', fileSolutions.length);
-
-            var coreJSSolutions = getUniqSolutions(groups.corejs);
-            var coreJSSolver = coreJSSolution.solve(coreJSSolutions);
-            console.log('corejs fix', coreJSSolutions.length);
-
-            return Thenable.all([
-                inlineSolver,
-                fileSolver,
-                coreJSSolver
-            ]).then(function(data) {
-                var fileFunctions = data[1];
-                var coreJSFunction = data[2];
-                var abstractFeatures = featuresToFix.map(function(feature) {
-                    var abstractFeature = {
-                        name: {
-                            type: 'inline',
-                            name: '',
-                            from: feature.name
-                        },
-                        fix: {
-                            type: 'import',
-                            name: 'default',
-                            from: './' + feature.name + '/fix.js'
-                        },
-                        fixDependencies: {
-                            type: 'inline',
-                            name: '',
-                            from: feature.fixDependencies
-                        }
-                    };
-                    if (feature.fix.type === 'file') {
-                        var index = fileSolutions.indexOf(feature.solution);
-                        abstractFeature.fixFunction = fileFunctions[index];
-                    }
-
-                    return abstractFeature;
-                });
-
-                if (mode === 'fix') {
-                    var loadTestIntoAbstracts = function loadTestIntoAbstracts() {
-                        var featureNamesToTest = featuresToFix.map(function(feature) {
-                            return feature.name;
-                        });
-
-                        return getNodes(
-                            featureNamesToTest,
-                            'test'
-                        ).then(function(testNodes) {
-                            testNodes.forEach(function(testNode) {
-                                var featureName = featureNameFromNode(testNode);
-                                var abstract = Iterable.find(abstractFeatures, function(abstractFeature) {
-                                    return abstractFeature.name.from === featureName;
-                                });
-                                var abstractTestProperty = {
-                                    type: 'import',
-                                    name: 'default',
-                                    from: './' + featureName + '/test.js'
-                                };
-                                var abstractTestDependenciesProperty = {
-                                    type: 'inline',
-                                    name: ''
-                                };
-
-                                // en fait faudrais un fixTestDependencies
-                                // enfin chais pas...
-                                // non pas besoin la feature exprime des testsDependencies
-                                // si cette feature est fix, il faut la retester
-                                // si on la reteste on a besoin
-
-                                if (abstract) {
-                                    abstract.test = abstractTestProperty;
-                                    abstract.testDependencies = abstractTestDependenciesProperty;
-                                } else {
-                                    abstract = {
-                                        name: {
-                                            type: 'inline',
-                                            name: '',
-                                            value: featureName
-                                        },
-                                        test: abstractTestProperty,
-                                        testDependencies: abstractTestDependenciesProperty
-                                    };
-                                    abstractFeatures.push(abstract);
-                                }
-
-                                // on connais le from que ici puisqu'on fait abstractFeatures.push(abstract);
-                                abstractTestDependenciesProperty.from = testNode.dependencies.map(function(dependency) {
-                                    return abstractFeatures.indexOf(dependency);
-                                });
-                            });
-                        });
-                    };
-                    var loadFixedTranspiler = function loadFixedTranspiler() {
-                        var babelSolutions = getUniqSolutions(groups.babel);
-                        var babelSolver = Thenable.resolve(babelSolution.solve(babelSolutions));
-
-                        return babelSolver.then(function(babelTranspiler) {
-                            /*
-                            it may be the most complex thing involved here so let me explain
-                            we create a transpiler adapted to required features
-                            then we create a babel plugin which transpile template literals using that transpiler
-                            finally we create a transpiler which uses that plugin
-                            */
-                            var plugin = createTranspiler.transpileTemplateTaggedWith(function(code) {
-                                return babelTranspiler.transpile(code, {
-                                    as: 'code',
-                                    filename: false,
-                                    sourceMaps: false,
-                                    soureURL: false,
-                                    // disable cache to prevent race condition with the transpiler
-                                    // that will use this plugin (it's the parent transpiler which is reponsible to cache)
-                                    cache: false
-                                });
-                            }, 'transpile');
-                            var fixedTranspiler = transpiler.clone();
-                            fixedTranspiler.options.plugins.push(plugin);
-                            return fixedTranspiler;
-                        });
-                    };
-
-                    return Promise.all(
-                        [
-                            loadTestIntoAbstracts(),
-                            loadFixedTranspiler()
-                        ]
-                    ).then(function(data) {
-                        var fixedTranspiler = data[1];
-                        return build(
-                            abstractFeatures,
-                            {
-                                root: getFolder(),
-                                transpiler: fixedTranspiler,
-                                meta: {
-                                    coreJSFunction: coreJSFunction
-                                }
-                            }
-                        );
-                    }).then(function(bundle) {
-                        return bundle.source;
-                    });
-                }
-                return build(
-                    abstractFeatures,
-                    {
-                        root: getFolder(),
-                        transpiler: transpiler,
-                        meta: {
-                            coreJSFunction: coreJSFunction
-                        },
-                        footer: 'jsenv.polyfill(__exports__);'
-                    }
-                ).then(function(bundle) {
-                    return bundle.source;
-                });
-            });
-        });
-    });
-}
-function recordIsFailed(record) {
-    return record.data.value.status === 'failed';
+function setAllTestRecord(records, agent) {
+    return writeAllRecordToFileSystem(
+        records,
+        agent,
+        'test'
+    );
 }
 var noSolution = {
-    match: featureHasNoSolution
+    match: featureHasNoFix
 };
 var inlineSolution = {
-    match: featureUseInlineSolution,
+    match: featureUseInlineFix,
 
     solve: function() {
 
     }
 };
 var fileSolution = {
-    match: featureUseFileSolution,
+    match: featureUseFileFix,
 
     solve: function(solutions) {
         // console.log('the solutions', solutions);
@@ -715,7 +390,7 @@ var fileSolution = {
     }
 };
 var coreJSSolution = {
-    match: featureUseCoreJSSolution,
+    match: featureUseCoreJSFix,
 
     solve: function(solutions) {
         var moduleNames = [];
@@ -774,7 +449,7 @@ var coreJSSolution = {
     }
 };
 var babelSolution = {
-    match: featureUseBabelSolution,
+    match: featureUseBabelFix,
 
     solve: function(solutions) {
         var plugins = [];
@@ -812,27 +487,343 @@ var babelSolution = {
         var pluginsAsOptions = Iterable.map(plugins, function(plugin) {
             return [plugin.name, plugin.options];
         });
-        return createTranspiler({
+        var transpiler = createTranspiler({
             cache: true,
             cacheMode: 'default',
             plugins: pluginsAsOptions
         });
+        return transpiler;
     }
 };
-function featureHasNoSolution(feature) {
+function featureHasNoFix(feature) {
     return feature.fix.type === 'none';
 }
-function featureUseInlineSolution(feature) {
+function featureUseInlineFix(feature) {
     return feature.fix.type === 'inline';
 }
-function featureUseFileSolution(feature) {
+function featureUseFileFix(feature) {
     return feature.fix.type === 'file';
 }
-function featureUseCoreJSSolution(feature) {
+function featureUseCoreJSFix(feature) {
     return feature.fix.type === 'corejs';
 }
-function featureUseBabelSolution(feature) {
+function featureUseBabelFix(feature) {
     return feature.fix.type === 'babel';
+}
+function getFixInstructions(featureNames, agent, mode) {
+    mode = mode || 'fix';
+    var getAgent;
+    if (mode === 'fix') {
+        getAgent = function() {
+            return agent;
+        };
+    } else {
+        getAgent = function(feature) {
+            // en fait c'est pas vraiment le getAgent qui doit catch mais le getStatus
+            // qui lorsqu'il est appelé doit retourner test-missing
+            // lorsque aucun test-output.json n'est trouvé pour cette feature
+            return getClosestAgentForFeature(feature, agent).catch(function(e) {
+                if (e) {
+                    if (e.code === 'NO_AGENT') {
+                        return {
+                            valid: false,
+                            reason: 'no-agent',
+                            detail: e
+                        };
+                    }
+                    if (e.code === 'NO_AGENT_VERSION') {
+                        return {
+                            valid: false,
+                            reason: 'no-agent-version',
+                            detail: e
+                        };
+                    }
+                }
+                return Promise.reject(e);
+            });
+        };
+    }
+
+    return getNodes(featureNames, 'fix').then(function(nodes) {
+        return mapAsync(nodes, function(node) {
+            return getAgent(featureNameFromNode(node), agent);
+        }).then(function(agents) {
+            return mapAsync(nodes, function(node, index) {
+                return getStatus(featureNameFromNode(node), agents[index], true);
+            });
+        }).then(function(statuses) {
+            var filterNodesToFix = function() {
+                var testProblems = Iterable.filterBy(
+                    nodes,
+                    statuses,
+                    function(status) {
+                        return (
+                            status === 'test-missing' ||
+                            status === 'test-invalid'
+                        );
+                    }
+                );
+                if (testProblems.length) {
+                    var problems = {};
+                    testProblems.forEach(function(node, index) {
+                        problems[featureNameFromNode(node)] = statuses[index];
+                    });
+                    throw new Error(
+                        'some test status prevent fix: ' + require('util').inspect(problems)
+                    );
+                }
+
+                // on pourrait pas les inclure en les considérant comme résolu?
+                // genre en mettant fix.solution.value = emptyFunction ?
+                // il faudrait je pense garder les dépendances étant ok
+                // et les considérer comme des tests qui doivent être run
+                // quoiqu'il arrive il faut run les test des fixs dont on dépend
+                // par contre il faudra ne pas considérer qu'on a besoin de ces fix
+                // donc les supprimer de fixDependencies
+                // et aussi les supprimer des features qu'on a besoin de fix
+                return Iterable.filterBy(
+                    nodes,
+                    statuses,
+                    function(status) {
+                        return (
+                            status === 'test-failed-and-fix-missing' ||
+                            status === 'test-failed-and-fix-invalid'
+                        );
+                    }
+                );
+            };
+            var filterNodesToPolyfill = function() {
+                var featureWithFailedTestAndFailedFix = Iterable.filterBy(
+                    nodes,
+                    statuses,
+                    function(status) {
+                        return status === 'test-failed-and-fix-failed';
+                    }
+                );
+                // je ne suis pas sur qu'on va throw
+                // on va ptet juste ne rien faire parce qu'on sait que ca créé une erreur plutot
+                if (featureWithFailedTestAndFailedFix.length) {
+                    throw new Error('unfixable features ' + featureWithFailedTestAndFailedFix);
+                }
+
+                return Iterable.filterBy(
+                    nodes,
+                    statuses,
+                    function(status) {
+                        return (
+                            status === 'test-missing' ||
+                            status === 'test-invalid' ||
+                            status === 'test-failed-and-fix-missing' ||
+                            status === 'test-failed-and-fix-invalid' ||
+                            status === 'test-failed-and-fix-passed'
+                        );
+                    }
+                );
+            };
+
+            if (mode === 'fix') {
+                return filterNodesToFix();
+            }
+            if (mode === 'polyfill') {
+                return filterNodesToPolyfill();
+            }
+        }).then(function(nodesToFix) {
+            var abstractFeatures = nodesToFix.map(function(node) {
+                return {
+                    name: {
+                        type: 'inline',
+                        name: '',
+                        from: featureNameFromNode(node)
+                    },
+                    fix: {
+                        type: 'import',
+                        name: 'default',
+                        from: './' + featureNameFromNode(node) + '/fix.js'
+                    },
+                    fixDependencies: {
+                        type: 'inline',
+                        name: '',
+                        from: node.dependencies.filter(function(dependency) {
+                            return Iterable.includes(nodesToFix, dependency);
+                        }).map(function(dependency) {
+                            return nodesToFix.indexOf(dependency);
+                        })
+                    }
+                };
+            });
+
+            return build(
+                abstractFeatures,
+                {
+                    root: getFolder(),
+                    transpiler: transpiler
+                }
+            ).then(function(bundle) {
+                return bundle.compile();
+            }).then(function(data) {
+                return data.features;
+            }).then(function(featuresToFix) {
+                // console.log('the features', featuresToFix);
+                var options = {
+                    transpiler: transpiler,
+                    root: getFolder(),
+                    meta: {}
+                };
+                var pending = [];
+
+                function filterBySolution(features, solution) {
+                    var i = 0;
+                    var j = features.length;
+                    var matches = [];
+                    while (i < j) {
+                        var feature = features[i];
+                        var existingFix = Iterable.find(matches, function(match) { // eslint-disable-line
+                            return match.fix === feature.fix;
+                        });
+                        if (existingFix) {
+                            // remove ducplicate fix from abstractFeatures (no need to fix them)
+                            abstractFeatures.split(i, 1);
+                            features.splice(i, 1);
+                            j--;
+                        } else if (solution.match(feature)) {
+                            matches.push(feature);
+                            features.splice(i, 1);
+                            j--;
+                        } else {
+                            i++;
+                        }
+                    }
+                    return matches;
+                }
+                function groupBySolution(features) {
+                    var groups = {
+                        inline: filterBySolution(features, inlineSolution),
+                        file: filterBySolution(features, fileSolution),
+                        corejs: filterBySolution(features, coreJSSolution),
+                        babel: filterBySolution(features, babelSolution),
+                        none: filterBySolution(features, noSolution),
+                        remaining: features
+                    };
+                    return groups;
+                }
+                var groups = groupBySolution(featuresToFix.slice());
+
+                var inlineFeatures = groups.inline;
+                console.log('inline fix', inlineFeatures.length);
+                var inlineSolver = inlineSolution.solve(inlineFeatures);
+                pending.push(inlineSolver);
+
+                var fileFeatures = groups.file;
+                console.log('file fix', fileFeatures.length);
+                var loadFileIntoAbstract = fileSolution.solve(fileFeatures).then(function(fileFunctions) {
+                    fileFunctions.forEach(function(fileFunction, index) {
+                        var feature = fileFeatures[index];
+                        var abstractFeature = Iterable.find(abstractFeatures, function(abstractFeature) {
+                            return abstractFeature.name.from === feature.name;
+                        });
+                        abstractFeature.fixFunction = fileFunction;
+                    });
+                });
+                pending.push(loadFileIntoAbstract);
+
+                var coreJSFeatures = groups.corejs;
+                console.log('corejs fix', coreJSFeatures.length);
+                var loadCoreJSIntoOptions = coreJSSolution.solve(coreJSFeatures).then(function(coreJSFunction) {
+                    options.meta.coreJSFunction = coreJSFunction;
+                });
+                pending.push(loadCoreJSIntoOptions);
+
+                if (mode === 'fix') {
+                    var nodesToFixDependencies = jsenv.collectDependencies(nodesToFix);
+                    var featureNamesToTest = nodesToFix.concat(nodesToFixDependencies).map(featureNameFromNode);
+                    var loadTestIntoAbstract = getNodes(
+                        featureNamesToTest,
+                        'test'
+                    ).then(function(testNodes) {
+                        var abstractFeaturesHavingTest = testNodes.map(function(testNode) {
+                            var featureName = featureNameFromNode(testNode);
+                            var abstractFeature = Iterable.find(abstractFeatures, function(abstractFeature) {
+                                return abstractFeature.name.from === featureName;
+                            });
+                            var abstractTestProperty = {
+                                type: 'import',
+                                name: 'default',
+                                from: './' + featureName + '/test.js'
+                            };
+                            var abstractTestDependenciesProperty = {
+                                type: 'inline',
+                                name: ''
+                            };
+
+                            if (abstractFeature) {
+                                abstractFeature.test = abstractTestProperty;
+                                abstractFeature.testDependencies = abstractTestDependenciesProperty;
+                            } else {
+                                abstractFeature = {
+                                    name: {
+                                        type: 'inline',
+                                        name: '',
+                                        from: featureName
+                                    },
+                                    test: abstractTestProperty,
+                                    testDependencies: abstractTestDependenciesProperty
+                                };
+                                abstractFeatures.push(abstractFeature);
+                            }
+                            return abstractFeature;
+                        });
+
+                        abstractFeaturesHavingTest.forEach(function(abstractFeature, index) {
+                            var testNode = testNodes[index];
+                            abstractFeature.testDependencies.from = testNode.dependencies.map(function(dependency) {
+                                return abstractFeatures.indexOf(dependency);
+                            });
+                        });
+                    });
+                    pending.push(loadTestIntoAbstract);
+
+                    var babelFeatures = groups.babel;
+                    var loadFixedTranspilerIntoOptions = Thenable.resolve().then(function() {
+                        return babelSolution.solve(babelFeatures);
+                    }).then(function(babelTranspiler) {
+                        /*
+                        it may be the most complex thing involved here so let me explain
+                        we create a transpiler adapted to required features
+                        then we create a babel plugin which transpile template literals using that transpiler
+                        finally we create a transpiler which uses that plugin
+                        */
+                        var plugin = createTranspiler.transpileTemplateTaggedWith(function(code) {
+                            return babelTranspiler.transpile(code, {
+                                as: 'code',
+                                filename: false,
+                                sourceMaps: false,
+                                soureURL: false,
+                                // disable cache to prevent race condition with the transpiler
+                                // that will use this plugin (it's the parent transpiler which is reponsible to cache)
+                                cache: false
+                            });
+                        }, 'transpile');
+                        var fixedTranspiler = transpiler.clone();
+                        fixedTranspiler.options.plugins.push(plugin);
+                        options.transpiler = fixedTranspiler;
+                    });
+                    pending.push(loadFixedTranspilerIntoOptions);
+                }
+                if (mode === 'polyfill') {
+                    options.footer = 'jsenv.polyfill(__exports__);';
+                }
+
+                return Thenable.all(pending).then(function() {
+                    return build(
+                        abstractFeatures,
+                        options
+                    ).then(function(bundle) {
+                        return bundle.source;
+                    });
+                });
+            });
+        });
+    });
 }
 // getFixInstructions(
 //     ['object'],
@@ -862,14 +853,15 @@ api.createOwnMediator = function(featureNames, agent) {
                 return getTestInstructions(featureNames, agent).then(fromServer);
             }
             if (action === 'setAllTestRecord') {
-                return api.setAllTestRecord(value, agent);
+                return setAllTestRecord(value, agent);
             }
-            if (action === 'getFix') {
-                return api.getAllRequiredFix(featureNames, agent).then(fromServer);
+            if (action === 'getFixInstructions') {
+                return getFixInstructions(featureNames, agent).then(fromServer);
             }
             if (action === 'setAllFixRecord') {
                 return setAllFixRecord(value, agent);
             }
+            throw new Error('unknown mediator action ' + action);
         }
     };
 
@@ -890,12 +882,12 @@ var ownMediator = api.createOwnMediator(
         // 'promise/unhandled-rejection',
         // 'promise/rejection-handled'
         // 'const/scoped'
-        'object/keys'
+        'object/assign'
     ],
     String(jsenv.agent)
 );
 api.client = jsenv.createImplementationClient(ownMediator);
-api.client.test().then(function() {
+api.client.fix().then(function() {
     console.log(Object.assign);
 }).catch(function(e) {
     setTimeout(function() {
