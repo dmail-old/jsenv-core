@@ -1,7 +1,6 @@
-import {transpile} from '/helper/detect.js';
-import {test as constTest} from '../feature.js';
+import {transpile} from '/detect-helpers.js';
+
 const test = {
-    dependencies: [constTest],
     run: transpile`(function(outsideValue, insideValue) {
         const a = outsideValue;
         {
@@ -16,6 +15,5 @@ const test = {
         return returnValue === outsideValue;
     }
 };
-export {test};
 
-export {solution} from '../feature.js';
+export default test;

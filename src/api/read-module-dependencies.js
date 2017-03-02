@@ -256,9 +256,9 @@ function readDependencies(filenames, options) {
                                     return dependency.id === parentDependencyId;
                                 });
                                 if (astParentDependency) {
-                                    console.log('parent dependency already declared in', module.id);
+                                    // console.log('parent dependency already declared in', module.id);
                                 } else {
-                                    console.log('auto add', parentDependencyId, 'to', module.id);
+                                    // console.log('auto add', parentDependencyId, 'to', module.id);
                                     dependencies.push(
                                         createModule(parentDependencyId)
                                     );

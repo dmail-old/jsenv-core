@@ -1,4 +1,5 @@
-import {transpile} from 'helper/detect.js';
+import {transpile} from '/detect-helpers.js';
+
 const test = {
     run: transpile`(function(value) {
         const result = value;
@@ -10,10 +11,5 @@ const test = {
         return result === value;
     }
 };
-export {test};
 
-const solution = {
-    type: 'babel',
-    value: 'transform-es2015-block-scoping'
-};
-export {solution};
+export default test;
