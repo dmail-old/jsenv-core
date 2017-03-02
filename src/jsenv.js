@@ -1,30 +1,7 @@
-/* globals jsenv */
-/* eslint-env browser, node */
-/* after including this file you can create your own env, (most time only one is enough) */
-
 /*
 concernant le nouveau fetch hook pour systemjs
 apparement il faudrais modifier le hook instantiate
 https://github.com/systemjs/systemjs/issues/1543#issuecomment-274036882
-
-à faire:
-
-enlever certain trucs comme les modules qu isont externalisées dans configSystem
-
-externaliser sourcemap
-externaliser remap-error-stack
-externaliser module-test
-externaliser module-cover
-
-maintenant qu'on a externalisé des trucs l'idée c'est de faire un truc à la babel
-qui en gros dit: je souhaite me servir de ces fonctionnalités là: module-test, module-source
-sauf que pour pouvoir faire ça je sais pas, donc s'inspirer de babel
-
-en gros babel utilise .babelrc pour dire utilise ce plugin (qui doit alors être dans les node_modules je présume)
-ou utilise une options de la méthode transform, en tous cas
-c'est un module dans le node_modules
-
-je dis pourquoi pas
 
 */
 

@@ -1,0 +1,12 @@
+{
+	"sources": [
+		{
+			"path": "../../../../test.js",
+			"eTag": "\"12a-5zErdpB1F2pwfEbzJMdieNGpOmc\""
+		}
+	],
+	"value": {
+		"status": "passed",
+		"reason": "returned-true"
+	}
+}

@@ -1,4 +1,4 @@
-import {transpile} from '/detect-helpers.js';
+import {transpile} from '/test-helpers.js';
 
 const test = {
     run: transpile`(function(outsideValue, insideValue) {

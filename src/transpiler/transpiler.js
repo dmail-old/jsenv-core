@@ -120,7 +120,6 @@ function createTranspiler(transpilerOptions) {
             // minified: false
 
             // console.log('transpiling', code, 'for', sourceURL);
-
             var babelOptions = {};
             babelOptions.filename = options.filename;
             babelOptions.plugins = options.plugins;
@@ -143,7 +142,7 @@ function createTranspiler(transpilerOptions) {
                 throw e;
             }
             var transpiledCode = result.code;
-            if (sourceURL && options.sourceURL !== false) {
+            if (sourceURL && options.sourceURL !== false && options.as !== 'code') {
                 transpiledCode += '\n//# sourceURL=' + sourceURL;
             }
             // if (options.transform) {

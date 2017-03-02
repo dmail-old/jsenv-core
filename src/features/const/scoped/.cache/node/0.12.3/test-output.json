@@ -1,0 +1,17 @@
+{
+	"sources": [
+		{
+			"path": "../../../../test.js",
+			"eTag": "\"1bb-1sXLnijgr8W8U9eYf0aCXYRJeeU\""
+		}
+	],
+	"value": {
+		"status": "failed",
+		"reason": "unexpected-test-throw",
+		"detail": {
+			"name": "TypeError",
+			"message": "Identifier 'a' has already been declared",
+			"stack": "TypeError: Identifier 'a' has already been declared\n    at eval (eval at <anonymous> (eval at fromServer (C:\\Users\\Damien\\Documents\\GitHub\\core\\src\\api\\api.js:875:25)), <anonymous>:4:9)\n    at test.complete (eval at fromServer (C:\\Users\\Damien\\Documents\\GitHub\\core\\src\\api\\api.js:875:25), <anonymous>:140:30)\n    at execTest (C:\\Users\\Damien\\Documents\\GitHub\\core\\src\\jsenv.js:1687:43)\n    at C:\\Users\\Damien\\Documents\\GitHub\\core\\src\\jsenv.js:1563:36\n    at C:\\Users\\Damien\\Documents\\GitHub\\core\\src\\jsenv.js:1480:29\n    at new Thenable (C:\\Users\\Damien\\Documents\\GitHub\\core\\src\\jsenv.js:1079:21)\n    at Object.chainAsync [as chain] (C:\\Users\\Damien\\Documents\\GitHub\\core\\src\\jsenv.js:1479:24)\n    at C:\\Users\\Damien\\Documents\\GitHub\\core\\src\\jsenv.js:1561:45\n    at C:\\Users\\Damien\\Documents\\GitHub\\core\\src\\jsenv.js:1475:28\n    at Array.map (native)"
+		}
+	}
+}

@@ -218,7 +218,6 @@ function generateSource(abstractObjects) {
 
 var rollup = require('rollup');
 var path = require('path');
-var cuid = require('cuid');
 var store = require('../store.js');
 var memoize = require('../memoize.js');
 
@@ -236,6 +235,7 @@ function buildSource(abstractObjects, options) {
     var root = options.root;
     var transpiler = options.transpiler;
     var mainExportName = options.mainExportName || 'default';
+    var exportsName = options.exportsName || '__exports__';
 
     return builderCache.match({
         abstracts: abstractObjects,
@@ -255,7 +255,7 @@ function buildSource(abstractObjects, options) {
 
     function build() {
         var moduleSource = generateSource(abstractObjects, root);
-        var entryId = cuid() + '.js';
+        var entryId = 'fake-entry.js';
         var entryPath = root + '/' + entryId;
         return rollup.rollup({
             entry: entryId,
@@ -302,25 +302,27 @@ function buildSource(abstractObjects, options) {
                     },
                     transform: function(code, id) {
                         var normalizedPath = normalizePath(id);
-                        if (transpiler && normalizedPath !== entryPath) {
-                            return Promise.resolve(
-                                transpiler.transpile(code, {
-                                    filename: normalizedPath,
-                                    sourceRoot: root
-                                })
-                            ).then(function(result) {
-                                return {
-                                    code: result.code,
-                                    map: result.map
-                                    // ast: result.ast.program
-                                };
-                            });
+                        if (normalizedPath !== entryPath) {
+                            if (transpiler) {
+                                return Promise.resolve(
+                                    transpiler.transpile(code, {
+                                        filename: normalizedPath,
+                                        sourceRoot: root
+                                    })
+                                ).then(function(result) {
+                                    return {
+                                        code: result.code,
+                                        map: result.map
+                                        // ast: result.ast.program
+                                    };
+                                });
+                            }
                         }
                     }
                 }
             ]
         }).then(function(bundle) {
-            var footer = '__exports__;';
+            var footer = exportsName + ';';
             if (options.footer) {
                 footer += '\n' + options.footer;
             }
@@ -330,14 +332,14 @@ function buildSource(abstractObjects, options) {
                 // because we can't be sure people will use 'use strict' so consider the worts scenario
                 // the one where they don't have use strict
                 useStrict: false,
-                moduleName: '__exports__',
+                moduleName: exportsName,
                 indent: true,
                 exports: 'named',
-                banner: 'var __exports__ = {};',
+                banner: 'var ' + exportsName + '= {};',
                 // intro: '"intro";',
                 outro: (
-                    '__exports__[' + uneval(mainExportName) + '] = collector;\n' +
-                    '__exports__.meta = ' + uneval(options.meta || {}) + ';'
+                    exportsName + '[' + uneval(mainExportName) + '] = collector;\n' +
+                    exportsName + '.meta = ' + uneval(options.meta || {}) + ';'
                 ),
                 footer: footer
             });
@@ -346,62 +348,6 @@ function buildSource(abstractObjects, options) {
     }
 }
 
-// function createAbstractFeatures(featureNames, mode) {
-//     var featureImports = featureNames.map(function(feature) {
-//         if (mode === 'test') {
-//             return {
-//                 name: {
-//                     type: 'inline',
-//                     name: '',
-//                     from: feature
-//                 },
-//                 test: {
-//                     type: 'import',
-//                     name: 'default',
-//                     from: './' + feature + '/test.js'
-//                 }
-//             };
-//         }
-//         if (mode === 'fix' || mode === 'transpile') {
-//             return {
-//                 name: {
-//                     type: 'inline',
-//                     name: '',
-//                     from: feature
-//                 },
-//                 test: {
-//                     type: 'import',
-//                     name: 'default',
-//                     from: './' + feature + '/test.js'
-//                 },
-//                 solution: {
-//                     type: 'import',
-//                     name: 'default',
-//                     from: './' + feature + '/fix.js'
-//                 }
-//             };
-//         }
-//         if (mode === 'polyfill') {
-//             return {
-//                 name: {
-//                     type: 'inline',
-//                     name: '',
-//                     from: feature
-//                 },
-//                 solution: {
-//                     type: 'import',
-//                     name: 'default',
-//                     from: './' + feature + '/fix.js'
-//                 }
-//             };
-//         }
-//         return {};
-//     });
-
-//     return featureImports;
-// }
-
-// var getFeaturesFolder = require('./get-folder.js');
 function build(abstractFeatures, options) {
     return buildSource(abstractFeatures, {
         root: options.root,

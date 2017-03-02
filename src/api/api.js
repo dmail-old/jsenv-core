@@ -178,41 +178,60 @@ function recordIsInvalid(record) {
 function recordIsFailed(record) {
     return record.data.value.status === 'failed';
 }
-function getStatus(featureName, featureAgent, includeFix) {
-    return readRecordFromFileSystem(
-        featureName,
-        featureAgent,
-        'test'
-    ).then(function(testRecord) {
-        if (recordIsMissing(testRecord)) {
-            return 'test-missing';
-        }
-        if (recordIsInvalid(testRecord)) {
-            return 'test-invalid';
-        }
-        if (recordIsFailed(testRecord)) {
-            if (includeFix) {
-                return readRecordFromFileSystem(
-                    featureName,
-                    featureAgent,
-                    'fix'
-                ).then(function(fixRecord) {
-                    if (recordIsMissing(fixRecord)) {
-                        return 'test-failed-and-fix-missing';
+function getStatus(featureName, agent, includeFix, enableClosestAgent) {
+    var featureAgentPromise;
+    if (enableClosestAgent) {
+        featureAgentPromise = getClosestAgentForFeature(featureName, agent);
+    } else {
+        featureAgentPromise = Promise.resolve(agent);
+    }
+    return featureAgentPromise.then(
+        function(featureAgent) {
+            return readRecordFromFileSystem(
+                featureName,
+                featureAgent,
+                'test'
+            ).then(function(testRecord) {
+                if (recordIsMissing(testRecord)) {
+                    return 'test-missing';
+                }
+                if (recordIsInvalid(testRecord)) {
+                    return 'test-invalid';
+                }
+                if (recordIsFailed(testRecord)) {
+                    if (includeFix) {
+                        return readRecordFromFileSystem(
+                            featureName,
+                            featureAgent,
+                            'fix'
+                        ).then(function(fixRecord) {
+                            if (recordIsMissing(fixRecord)) {
+                                return 'test-failed-and-fix-missing';
+                            }
+                            if (recordIsInvalid(fixRecord)) {
+                                return 'test-failed-and-fix-invalid';
+                            }
+                            if (recordIsFailed(fixRecord)) {
+                                return 'test-failed-and-fix-failed';
+                            }
+                            return 'test-failed-and-fix-passed';
+                        });
                     }
-                    if (recordIsInvalid(fixRecord)) {
-                        return 'test-failed-and-fix-invalid';
-                    }
-                    if (recordIsFailed(fixRecord)) {
-                        return 'test-failed-and-fix-failed';
-                    }
-                    return 'test-failed-and-fix-passed';
-                });
+                    return 'test-failed';
+                }
+                return 'test-passed';
+            });
+        },
+        function(e) {
+            if (e && (e.code === 'NO_AGENT' || e.code === 'NO_AGENT_VERSION')) {
+                if (includeFix) {
+                    return 'test-missing-and-fix-missing';
+                }
+                return 'test-missing';
             }
-            return 'test-failed';
+            return Promise.reject(e);
         }
-        return 'test-passed';
-    });
+    );
 }
 function getAllDependencies(featureNames, mode) {
     var filename = mode === 'test' ? 'test' : 'fix';
@@ -494,7 +513,7 @@ var babelSolution = {
         });
         plugins.forEach(function(plugin, index) {
             var duplicateIndex = Iterable.findIndex(
-                plugins.slice(index),
+                plugins.slice(index + 1),
                 function(nextPlugin) {
                     return nextPlugin.name === plugin.name;
                 }
@@ -528,19 +547,19 @@ var babelSolution = {
         finally we create a transpiler which uses that plugin
         */
         var babelTranspiler = this.createTranspiler(features);
-        var plugin = createTranspiler.transpileTemplateTaggedWith(function(code) {
-            return babelTranspiler.transpile(code, {
+        var transpileTemplatePlugin = createTranspiler.transpileTemplateTaggedWith(function(code) {
+            var result = babelTranspiler.transpile(code, {
                 as: 'code',
-                filename: false,
                 sourceMaps: false,
-                soureURL: false,
+                sourceURL: false,
                 // disable cache to prevent race condition with the transpiler
                 // that will use this plugin (it's the parent transpiler which is reponsible to cache)
                 cache: false
             });
+            return result;
         }, 'transpile');
         var fixedTranspiler = transpiler.clone();
-        fixedTranspiler.options.plugins.push(plugin);
+        fixedTranspiler.options.plugins.unshift(transpileTemplatePlugin);
         options.transpiler = fixedTranspiler;
         return Promise.resolve(fixedTranspiler);
     }
@@ -571,7 +590,9 @@ function filterBySolution(features, solution, abstractFeatures) {
         });
         if (existingFix) {
             // remove ducplicate fix from abstractFeatures (no need to fix them)
-            abstractFeatures.split(i, 1);
+            if (abstractFeatures) {
+                abstractFeatures.split(i, 1);
+            }
             features.splice(i, 1);
             j--;
         } else if (solution.match(feature)) {
@@ -647,198 +668,163 @@ function loadTestIntoAbstract(nodes, abstractFeatures) {
         });
     });
 }
-function getFixInstructions(featureNames, agent, mode) {
-    var abstractFeatures = [];
-    var buildOptions = {
-        root: getFolder(),
-        transpiler: transpiler,
-        meta: {}
-    };
-
-    mode = mode || 'fix';
-    var getFixStatus;
-    if (mode === 'fix') {
-        getFixStatus = function(featureName, agent) {
-            return getStatus(featureName, agent, true);
-        };
-    } else {
-        getFixStatus = function(featureName, agent) {
-            return getClosestAgentForFeature(featureName, agent).then(
-                function(featureAgent) {
-                    return getStatus(featureName, featureAgent, true);
-                },
-                function(e) {
-                    if (e) {
-                        if (e.code === 'NO_AGENT') {
-                            return 'test-missing-and-fix-missing';
-                        }
-                        if (e.code === 'NO_AGENT_VERSION') {
-                            return 'test-missing-and-fix-missing';
-                        }
-                    }
-                }
-            );
-        };
-    }
-
+function getNodesMatchingStatus(featureNames, agent, options) {
     return getNodes(featureNames, 'fix').then(function(nodes) {
         return mapAsync(nodes, function(node) {
             var featureName = featureNameFromNode(node);
-            return getFixStatus(featureName, agent);
+            return getStatus(
+                featureName,
+                agent,
+                true,
+                options.inheritClosestStatus
+            );
         }).then(function(statuses) {
-            if (mode === 'fix') {
-                var testProblems = Iterable.filterBy(
-                    nodes,
-                    statuses,
-                    function(status) {
-                        return (
-                            status === 'test-missing' ||
-                            status === 'test-invalid'
-                        );
-                    }
-                );
-                if (testProblems.length) {
-                    var problems = {};
-                    testProblems.forEach(function(node, index) {
-                        problems[featureNameFromNode(node)] = statuses[index];
-                    });
-                    throw new Error(
-                        'some test status prevent fix: ' + require('util').inspect(problems)
-                    );
-                }
-
-                // on pourrait pas les inclure en les considérant comme résolu?
-                // genre en mettant fix.solution.value = emptyFunction ?
-                // il faudrait je pense garder les dépendances étant ok
-                // et les considérer comme des tests qui doivent être run
-                // quoiqu'il arrive il faut run les test des fixs dont on dépend
-                // par contre il faudra ne pas considérer qu'on a besoin de ces fix
-                // donc les supprimer de fixDependencies
-                // et aussi les supprimer des features qu'on a besoin de fix
-                return Iterable.filterBy(
-                    nodes,
-                    statuses,
-                    function(status) {
-                        return (
-                            status === 'test-failed-and-fix-missing' ||
-                            status === 'test-failed-and-fix-invalid'
-                        );
-                    }
-                );
+            if (options.ensure) {
+                options.ensure(nodes, statuses);
             }
-            if (mode === 'polyfill') {
-                var featureWithFailedTestAndFailedFix = Iterable.filterBy(
-                    nodes,
-                    statuses,
-                    function(status) {
-                        return status === 'test-failed-and-fix-failed';
-                    }
-                );
-                // je ne suis pas sur qu'on va throw
-                // on va ptet juste ne rien faire parce qu'on sait que ca créé une erreur plutot
-                if (featureWithFailedTestAndFailedFix.length) {
-                    throw new Error('unfixable features ' + featureWithFailedTestAndFailedFix);
-                }
 
-                return Iterable.filterBy(
-                    nodes,
-                    statuses,
-                    function(status) {
-                        return (
-                            status === 'test-missing' ||
-                            status === 'test-invalid' ||
-                            status === 'test-failed-and-fix-missing' ||
-                            status === 'test-failed-and-fix-invalid' ||
-                            status === 'test-failed-and-fix-passed'
-                        );
-                    }
-                );
-            }
-        }).then(function(nodesToFix) {
-            abstractFeatures.push.apply(abstractFeatures, nodesToFix.map(function(node) {
-                return {
-                    name: {
-                        type: 'inline',
-                        name: '',
-                        from: featureNameFromNode(node)
-                    },
-                    fix: {
-                        type: 'import',
-                        name: 'default',
-                        from: './' + featureNameFromNode(node) + '/fix.js'
-                    },
-                    fixDependencies: {
-                        type: 'inline',
-                        name: '',
-                        from: node.dependencies.filter(function(dependency) {
-                            return Iterable.includes(nodesToFix, dependency);
-                        }).map(function(dependency) {
-                            return nodesToFix.indexOf(dependency);
-                        })
-                    }
-                };
-            }));
-
-            return build(
-                abstractFeatures,
-                {
-                    root: getFolder(),
-                    transpiler: transpiler
-                }
-            ).then(function(bundle) {
-                return bundle.compile();
-            }).then(function(data) {
-                return data.features;
-            }).then(function(featuresToFix) {
-                // console.log('the features', featuresToFix);
-                var groups = groupBySolution(featuresToFix, abstractFeatures);
-                var pending = [];
-
-                var fileFeatures = groups.file;
-                var fileSolutionThenable = fileSolution.solve(
-                    fileFeatures,
-                    abstractFeatures,
-                    buildOptions
-                );
-                pending.push(fileSolutionThenable);
-
-                var coreJSFeatures = groups.corejs;
-                var coreJSSolutionThenable = coreJSSolution.solve(
-                    coreJSFeatures,
-                    abstractFeatures,
-                    buildOptions
-                );
-                pending.push(coreJSSolutionThenable);
-
-                if (mode === 'fix') {
-                    var babelFeatures = groups.babel;
-                    var babelSolutionThenable = babelSolution.solve(
-                        babelFeatures,
-                        abstractFeatures,
-                        buildOptions
-                    );
-                    pending.push(babelSolutionThenable);
-
-                    var loadTestThenable = loadTestIntoAbstract(
-                        nodesToFix,
-                        abstractFeatures,
-                        buildOptions
-                    );
-                    pending.push(loadTestThenable);
-                }
-                if (mode === 'polyfill') {
-                    buildOptions.footer = 'jsenv.polyfill(__exports__);';
-                }
-
-                return Thenable.all(pending);
-            });
+            return Iterable.filterBy(
+                nodes,
+                statuses,
+                options.include
+            );
         });
-    }).then(function() {
+    });
+}
+function getFeaturesMatching(featureNames, agent, options) {
+    return getNodesMatchingStatus(
+        featureNames,
+        agent,
+        options
+    ).then(function(nodes) {
+        var abstractFeatures = nodes.map(function(node) {
+            return {
+                name: {
+                    type: 'inline',
+                    name: '',
+                    from: featureNameFromNode(node)
+                },
+                fix: {
+                    type: 'import',
+                    name: 'default',
+                    from: './' + featureNameFromNode(node) + '/fix.js'
+                },
+                fixDependencies: {
+                    type: 'inline',
+                    name: '',
+                    from: node.dependencies.filter(function(dependency) {
+                        return Iterable.includes(nodes, dependency);
+                    }).map(function(dependency) {
+                        return nodes.indexOf(dependency);
+                    })
+                }
+            };
+        });
+
         return build(
             abstractFeatures,
-            buildOptions
+            {
+                root: getFolder(),
+                transpiler: transpiler
+            }
         ).then(function(bundle) {
-            return bundle.source;
+            return bundle.compile();
+        }).then(function(data) {
+            return data.features;
+        }).then(function(features) {
+            return {
+                nodes: nodes,
+                abstractFeatures: abstractFeatures,
+                features: features
+            };
+        });
+    });
+}
+function getFixInstructions(featureNames, agent) {
+    var matchOptions = {
+        ensure: function(nodes, statuses) {
+            var problematicNodes = Iterable.filterBy(
+                nodes,
+                statuses,
+                function(status) {
+                    return (
+                        status === 'test-missing' ||
+                        status === 'test-invalid'
+                    );
+                }
+            );
+            if (problematicNodes.length) {
+                var problems = {};
+                problematicNodes.forEach(function(node, index) {
+                    problems[featureNameFromNode(node)] = statuses[index];
+                });
+                throw new Error(
+                    'some test status prevent fix: ' + require('util').inspect(problems)
+                );
+            }
+        },
+        include: function(status) {
+            return (
+                status === 'test-failed-and-fix-missing' ||
+                status === 'test-failed-and-fix-invalid'
+            );
+        }
+    };
+
+    return getFeaturesMatching(
+        featureNames,
+        agent,
+        matchOptions
+    ).then(function(match) {
+        var nodesToFix = match.nodes;
+        var abstractFeatures = match.abstractFeatures;
+        var featuresToFix = match.features;
+        var groups = groupBySolution(featuresToFix, abstractFeatures);
+        var buildOptions = {
+            root: getFolder(),
+            transpiler: transpiler,
+            meta: {}
+        };
+        var pending = [];
+
+        var fileFeatures = groups.file;
+        var fileSolutionThenable = fileSolution.solve(
+            fileFeatures,
+            abstractFeatures,
+            buildOptions
+        );
+        pending.push(fileSolutionThenable);
+
+        var coreJSFeatures = groups.corejs;
+        var coreJSSolutionThenable = coreJSSolution.solve(
+            coreJSFeatures,
+            abstractFeatures,
+            buildOptions
+        );
+        pending.push(coreJSSolutionThenable);
+
+        var babelFeatures = groups.babel;
+        var babelSolutionThenable = babelSolution.solve(
+            babelFeatures,
+            abstractFeatures,
+            buildOptions
+        );
+        pending.push(babelSolutionThenable);
+
+        var loadTestThenable = loadTestIntoAbstract(
+            nodesToFix,
+            abstractFeatures,
+            buildOptions
+        );
+        pending.push(loadTestThenable);
+
+        return Thenable.all(pending).then(function() {
+            return build(
+                abstractFeatures,
+                buildOptions
+            ).then(function(bundle) {
+                return bundle.source;
+            });
         });
     });
 }
@@ -894,23 +880,23 @@ function createOwnMediator(featureNames, agent) {
         return data;
     }
 }
-// var ownMediator = createOwnMediator(
-//     [
-//         // 'promise/unhandled-rejection',
-//         // 'promise/rejection-handled'
-//         // 'const/scoped'
-//         'object/assign'
-//     ],
-//     String(jsenv.agent)
-// );
-// var client = jsenv.createImplementationClient(ownMediator);
-// client.fix().then(function() {
-//     console.log(Object.assign);
-// }).catch(function(e) {
-//     setTimeout(function() {
-//         throw e;
-//     });
-// });
+var ownMediator = createOwnMediator(
+    [
+        // 'promise/unhandled-rejection',
+        // 'promise/rejection-handled'
+        // 'const/scoped'
+        'const/scoped'
+    ],
+    String(jsenv.agent)
+);
+var client = jsenv.createImplementationClient(ownMediator);
+client.fix().then(function() {
+    console.log('ok');
+}).catch(function(e) {
+    setTimeout(function() {
+        throw e;
+    });
+});
 
 function getClosestAgentForFeature(featureName, agent) {
     var featureFolderPath = folderFromFeatureName(featureName);
@@ -1044,37 +1030,115 @@ function getClosestAgentForFeature(featureName, agent) {
 //     console.log('rejected with', e);
 // });
 
-function polyfill(featureNames, agent) {
-    return getFixInstructions(featureNames, agent, 'polyfill');
-}
-polyfill(
-    ['object/assign'],
-    jsenv.agent
-).then(function(polyfill) {
-    eval(polyfill);
-    console.log(Object.assign);
-}).catch(function(e) {
-    setTimeout(function() {
-        throw e;
+var clientMatchOptions = {
+    inheritClosestStatus: true,
+    // ensure: function(nodes, statuses) {
+    //     var featureWithFailedTestAndFailedFix = Iterable.filterBy(
+    //         nodes,
+    //         statuses,
+    //         function(status) {
+    //             return status === 'test-failed-and-fix-failed';
+    //         }
+    //     );
+    //     je ne suis pas sur qu'on va throw
+    //     on va ptet juste ne rien faire parce qu'on sait que ca créé une erreur plutot
+    //     if (featureWithFailedTestAndFailedFix.length) {
+    //         throw new Error('unfixable features ' + featureWithFailedTestAndFailedFix);
+    //     }
+    // },
+    include: function(status) {
+        return (
+            status === 'test-missing' ||
+            status === 'test-invalid' ||
+            status === 'test-failed-and-fix-missing' ||
+            status === 'test-failed-and-fix-invalid' ||
+            status === 'test-failed-and-fix-passed'
+        );
+    }
+};
+function getPolyfillInstructions(featureNames, agent) {
+    var matchOptions = clientMatchOptions;
+
+    return getFeaturesMatching(
+        featureNames,
+        agent,
+        matchOptions
+    ).then(function(match) {
+        var abstractFeatures = match.abstractFeatures;
+        var featuresToFix = match.features;
+        var groups = groupBySolution(featuresToFix, abstractFeatures);
+        var buildOptions = {
+            root: getFolder(),
+            transpiler: transpiler,
+            footer: 'jsenv.polyfill(__exports__);',
+            meta: {}
+        };
+        // console.log('the features', featuresToFix);
+
+        var pending = [];
+
+        var fileFeatures = groups.file;
+        var fileSolutionThenable = fileSolution.solve(
+            fileFeatures,
+            abstractFeatures,
+            buildOptions
+        );
+        pending.push(fileSolutionThenable);
+
+        var coreJSFeatures = groups.corejs;
+        var coreJSSolutionThenable = coreJSSolution.solve(
+            coreJSFeatures,
+            abstractFeatures,
+            buildOptions
+        );
+        pending.push(coreJSSolutionThenable);
+
+        return Thenable.all(pending).then(function() {
+            return build(
+                abstractFeatures,
+                buildOptions
+            ).then(function(bundle) {
+                return bundle.source;
+            });
+        });
     });
-});
-
-function transpile(/* path, featureNames, agent */) {
-    /*
-    pour transpile c'est bcp plus simple (je crois)
-    mais il faut tout de même :
-
-    récupérer les featureNodes depuis featureNames
-    lire toutes ces features et ne garde que :
-
-    celle dont le test est missing/invalid/failed ET dont le fix.type est 'babel'
-    depuis cette liste on peut alors utiliser le même délire de
-    filterBySolution en ne gardant que les fix unique
-    on peut du coup faire babelSolution.solve() pour récupérer le transpileur
-    une fois tout ceci fait on peut alors appeler transpiler.transpileFile
-    pour récup la verison transpilé du fichier
-    */
 }
+// getPolyfillInstructions(
+//     ['object/assign'],
+//     jsenv.agent
+// ).then(function(polyfill) {
+//     eval(polyfill);
+//     console.log(Object.assign);
+// }).catch(function(e) {
+//     setTimeout(function() {
+//         throw e;
+//     });
+// });
+
+function transpile(path, featureNames, agent) {
+    return getNodesMatchingStatus(
+        featureNames,
+        agent,
+        clientMatchOptions
+    ).then(function(match) {
+        var featuresToFix = match.features;
+        var groups = groupBySolution(featuresToFix);
+        var transpiler = babelSolution.createTranspiler(groups.babel);
+        return transpiler.transpileFile(path);
+    });
+}
+// transpile(
+//     './test.js',
+//     [
+//         'const/scoped'
+//     ]
+// ).then(function(content) {
+//     console.log('transpilation result', content);
+// }).catch(function(e) {
+//     setTimeout(function() {
+//         throw e;
+//     });
+// });
 
 function createBrowserMediator(featureNames) {
     return {
@@ -1199,7 +1263,7 @@ api.transpiler = transpiler;
 api.getTestInstructions = getTestInstructions;
 api.getClosestAgent = getClosestAgentForFeature;
 api.getFixInstructions = getFixInstructions;
-api.polyfill = polyfill;
+api.getPolyfillInstructions = getPolyfillInstructions;
 api.transpile = transpile;
 api.createOwnMediator = createOwnMediator;
 
