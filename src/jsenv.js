@@ -1771,7 +1771,8 @@ en fonction du résultat de ces tests
             }
             return execFix;
         })();
-        function extractTestFromFeatures(features) {
+        function extractTests(data) {
+            var features = data.features;
             var tests = features.map(function(feature) {
                 var test = feature.test;
                 if (test) {
@@ -1791,13 +1792,45 @@ en fonction du résultat de ces tests
                 return Boolean(test);
             });
         }
-        function extractFixFromFeatures(features) {
+        function extractFixs(data) {
+            var features = data.features;
+            var meta = data.meta;
+            var coreJSFunction = meta.coreJSFunction;
+            function composedCoreJSSolution() {
+                var status = 'pending';
+                var value;
+
+                return function() {
+                    if (status === 'pending') {
+                        try {
+                            value = coreJSFunction();
+                            status = 'returned';
+                        } catch (e) {
+                            value = e;
+                            status = 'throwed';
+                        }
+                    }
+                    if (status === 'returned') {
+                        return value;
+                    }
+                    throw value;
+                };
+            }
+
             var fixs = features.map(function(feature) {
                 var fix = feature.fix;
                 if (fix) {
                     fix.name = feature.name;
-                    if (feature.fixFunction) {
-                        fix.value = feature.fixFunction;
+                    if (fix.type === 'file') {
+                        if (feature.fixFunction) {
+                            fix.value = feature.fixFunction;
+                        } else {
+                            fix.value = function() {
+                                throw new Error('missing file fix for ' + fix.name);
+                            };
+                        }
+                    } else if (fix.type === 'corejs') {
+                        fix.value = composedCoreJSSolution;
                     }
                     return fix;
                 }
@@ -1814,10 +1847,8 @@ en fonction du résultat de ces tests
                 return Boolean(fix);
             });
         }
-        function testFeatures(features) {
+        function execAllTests(tests) {
             var records = [];
-            var tests = extractTestFromFeatures(features);
-
             return jsenv.graph.mapAsync(
                 tests,
                 execTest,
@@ -1851,7 +1882,7 @@ en fonction du résultat de ces tests
                     // mais il sera possible que ce soit des objets vide
                     progress: function(event) {
                         var fix = event.target;
-                        console.log('solve', fix.name, '->', event.detail);
+                        console.log('fix', fix.name, '->', event.detail);
                         records[event.index] = {
                             name: fix.name,
                             data: event.detail
@@ -1865,49 +1896,17 @@ en fonction du résultat de ces tests
         function createImplementationClient(mediator) {
             function testImplementation() {
                 return mediator.send('getTestInstructions').then(function(data) {
-                    console.log('the data', data.features);
-                    return testFeatures(data.features).then(function(testRecords) {
+                    var tests = extractTests(data);
+                    return execAllTests(tests).then(function(testRecords) {
                         return mediator.send('setAllTestRecord', testRecords);
                     });
                 });
             }
             function fixImplementation() {
                 return mediator.send('getFixInstructions').then(function(data) {
-                    var features = data.features;
-                    var meta = data.meta;
-                    console.log('fixings features', data);
-
-                    var fixs = extractFixFromFeatures(features);
-                    var coreJSFunction = meta.coreJSFunction;
-                    function composedCoreJSSolution() {
-                        var status = 'pending';
-                        var value;
-
-                        return function() {
-                            if (status === 'pending') {
-                                try {
-                                    value = coreJSFunction();
-                                    status = 'returned';
-                                } catch (e) {
-                                    value = e;
-                                    status = 'throwed';
-                                }
-                            }
-                            if (status === 'returned') {
-                                return value;
-                            }
-                            throw value;
-                        };
-                    }
-                    fixs.forEach(function(fix) {
-                        if (fix.type === 'corejs') {
-                            fix.value = composedCoreJSSolution;
-                        }
-                    });
-
+                    var fixs = extractFixs(data);
                     var records = execAllFix(fixs);
-                    var tests = extractTestFromFeatures(features);
-                    console.log('records', records);
+                    var tests = extractTests(data);
 
                     return jsenv.graph.mapAsync(
                         tests,
@@ -1921,7 +1920,7 @@ en fonction du résultat de ces tests
                                 });
                                 // if the fix has failed, prevent test from erasing
                                 // that, else let it become the result
-                                if (record.data.status === 'passed') {
+                                if (record && record.data.status === 'passed') {
                                     record.data = event.detail;
                                 }
                             }
@@ -1944,8 +1943,16 @@ en fonction du résultat de ces tests
             };
         }
 
+        function polyfill(data) {
+            var fixs = extractFixs(data);
+            var records = execAllFix(fixs);
+            jsenv.lastPolyfillRecords = records;
+            console.log('polyfill result', records);
+        }
+
         return {
-            createImplementationClient: createImplementationClient
+            createImplementationClient: createImplementationClient,
+            polyfill: polyfill
         };
     });
 })();
