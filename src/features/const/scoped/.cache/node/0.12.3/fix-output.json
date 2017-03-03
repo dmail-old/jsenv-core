@@ -1,7 +1,7 @@
 {
 	"sources": [
 		{
-			"path": "../../../../fix.js",
+			"path": "../../../fix.js",
 			"eTag": "\"23-/4YKITNn1NLzcmOylqbW17sSzo4\""
 		}
 	],

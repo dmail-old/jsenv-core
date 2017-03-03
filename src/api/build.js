@@ -223,42 +223,19 @@ function generateSource(abstractObjects) {
 
 var rollup = require('rollup');
 var path = require('path');
-var store = require('../store.js');
-var memoize = require('../memoize.js');
 
 function normalizePath(path) {
     return path.replace(/\\/g, '/');
 }
-
-var rootFolder = normalizePath(path.resolve(__dirname, '../../'));
-var cacheFolder = rootFolder + '/cache';
-var builderCacheFolder = cacheFolder + '/builder';
-var builderCache = store.fileSystemCache(builderCacheFolder);
-
 function buildSource(abstractObjects, options) {
     options = options || {};
-    var root = options.root;
-    var transpiler = options.transpiler;
-    var mainExportName = options.mainExportName || 'default';
-    var exportsName = options.exportsName || '__exports__';
 
-    return builderCache.match({
-        abstracts: abstractObjects,
-        main: mainExportName
-    }).then(function(cacheBranch) {
-        var entry = cacheBranch.entry({
-            name: 'build.js',
-            mode: 'write-only'
-        });
-        return entry;
-    }).then(function(entry) {
-        return memoize.async(
-            build,
-            entry
-        )();
-    });
+    function build(abstractObjects, options) {
+        var root = options.root;
+        var transpiler = options.transpiler;
+        var mainExportName = options.mainExportName || 'default';
+        var exportsName = options.exportsName || '__exports__';
 
-    function build() {
         var moduleSource = generateSource(abstractObjects, root);
         var entryId = 'fake-entry.js';
         var entryPath = root + '/' + entryId;
@@ -351,8 +328,29 @@ function buildSource(abstractObjects, options) {
             return result.code;
         });
     }
-}
 
+    return build(abstractObjects, options);
+    // var rootFolder = normalizePath(path.resolve(__dirname, '../../'));
+    // var cacheFolder = rootFolder + '/cache';
+    // var builderCacheFolder = cacheFolder + '/builder';
+    // var store = require('../store/store.js');
+    // var memoize = require('../memoize.js');
+    // var properties = {
+    //     normalize: function(abstractObjects, options) {
+    //         return {
+    //             abstracts: abstractObjects,
+    //             main: options.mainExportName
+    //         };
+    //     },
+    //     path: builderCacheFolder,
+    //     name: 'build.js',
+    //     mode: 'write-only'
+    // };
+    // return memoize.async(
+    //     build,
+    //     store.fileSystemEntry(properties)
+    // )(abstractObjects, options);
+}
 function build(abstractFeatures, options) {
     return buildSource(abstractFeatures, {
         root: options.root,

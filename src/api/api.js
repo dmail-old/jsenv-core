@@ -6,63 +6,53 @@ with
 https://github.com/kangax/compat-table/blob/gh-pages/data-es5.js
 https://github.com/kangax/compat-table/blob/gh-pages/data-es6.js
 
-- changer feature.name pour feature.id
-
-- il faudrais que polyfill/transpile retourne le chemin vers le fichier
-plutot que le contenu de celui-ci
-comme ça un serveur pourra servir le fichier et utiliser mtime/etag fetch
-en plus cela montre bien que le fichier doit rester et donc qu'il ne faut pas mettre en place
-de cache ayant une limite car le fichier doit rester accessible
-
-- mettre en place limit: {value: number, strategy: string} dans store.js
-parce que ça a des impacts sur la manière dont on utilise l'api ensuite
-en effet, le fait qu'une branche puisse disparaitre signifique que lorsqu'on fait entry.write
-il faut absolument s'assurer que la branche est toujours présente dans branches.json
-et n'a pas été effacé entre temps
+- transpile devra pouvoir se faire sur des fichiers externe
+si on install jsenv comme dépendance de project dans
+C:/Users/Damien/Document/project
+jsenv se retrouve alors dans
+C:/Users/Damien/Document/project/nodes_modules/jsenv
+et saura pas ou stocker ni d'ou provient file.js qui seras dans
+C:/Users/Damien/Document/project/file.js
 
 - minification
+pouvoir minifier polyfill.js
 
 - sourcemap
+écrire le fichier sourceMap a coté du fichier concerné pour polyfill.js
+et pour tous les fichier transpilé
 
-- au lieu d'avoir un folder par sous-test
-ça serais ptet mieux même si difficile à lire d'avoir l'ensemble de tests lié à la feature spread
-dans le fichier spread/test.js
-c'est un gros changement et j'ai ni le temps ni l'envie de le faire pr le moment
-mais ça m'éviterais de créer 12000 fichier de fix.js pour rien
-en gros faudrais un moyen de ne pas avoir un seul test par fichier
-donc potentiellement d'avoir plusieurs run() + complete()
-faudrais un truc qui permette de l'imbrication, pas que une liste de sous-test
+- implémenter test.children
 
 */
 
-require('../jsenv.js');
 var path = require('path');
-var Agent = require('../agent/agent.js');
 
+require('../jsenv.js');
+var Agent = require('../agent/agent.js');
+var store = require('../store/store.js');
 var fsAsync = require('../fs-async.js');
-var store = require('../store.js');
 var memoize = require('../memoize.js');
 var createTranspiler = require('../transpiler/transpiler.js');
+
 var rootFolder = path.resolve(__dirname, '../../').replace(/\\/g, '/');
 var cacheFolder = rootFolder + '/cache';
 var corejsCacheFolder = cacheFolder + '/corejs';
+var polyfillCacheFolder = cacheFolder + '/polyfill';
+
 var readDependencies = require('./read-module-dependencies.js');
 
 var Iterable = jsenv.Iterable;
 var Thenable = jsenv.Thenable;
 
 var getFolder = require('./get-folder.js');
-function folderFromFeatureName(featureName) {
-    return getFolder() + '/' + featureName;
+function pathFromId(featureId) {
+    return getFolder() + '/' + featureId;
 }
-function featureNameFromFile(file) {
-    var relative = file.slice(getFolder().length + 1);
+function idFromNode(node) {
+    var relative = node.id.slice(getFolder().length + 1);
     return jsenv.parentPath(relative);
 }
-function featureNameFromNode(node) {
-    return featureNameFromFile(node.id);
-}
-var listFeatureNames = require('./list-feature-names.js');
+var listAll = require('./list-all.js');
 var build = require('./build.js');
 var transpiler = require('./transpiler.js');
 var api = {};
@@ -99,59 +89,57 @@ function stringify(value) {
         return '[Circular]';
     }
 }
-function createTestOutputProperties(featureName, agent) {
+function createTestOutputProperties(featureId, agent) {
     var agentString = agent.toString();
-    var featureFolderPath = getFolder() + '/' + featureName;
+    var featureFolderPath = pathFromId(featureId);
     var featureCachePath = featureFolderPath + '/.cache';
     var featureAgentCachePath = featureCachePath + '/' + agentString;
 
     var properties = {
+        path: featureAgentCachePath,
         name: 'test-output.json',
         encode: stringify,
         sources: [
             {
-                path: folderFromFeatureName(featureName) + '/test.js',
+                path: featureFolderPath + '/test.js',
                 strategy: 'eTag'
             }
         ],
         // mode: 'write-only'
         mode: 'default'
     };
-    properties.path = featureAgentCachePath + '/' + properties.name;
     return properties;
 }
-function createFixOutputProperties(featureName, agent) {
+function createFixOutputProperties(featureId, agent) {
     var agentString = agent.toString();
-    var featureFolderPath = folderFromFeatureName(featureName);
+    var featureFolderPath = pathFromId(featureId);
     var featureCachePath = featureFolderPath + '/.cache';
     var featureAgentCachePath = featureCachePath + '/' + agentString;
 
-    var featureFilePath = featureFolderPath + '/fix.js';
-    var sources = [
-        {
-            path: featureFilePath,
-            strategy: 'eTag'
-        }
-    ];
     var properties = {
+        path: featureAgentCachePath,
         name: 'fix-output.json',
         encode: stringify,
-        mode: 'write-only',
-        // mode: 'default',
-        sources: sources
+        sources: [
+            {
+                path: featureFolderPath + '/fix.js',
+                strategy: 'eTag'
+            }
+        ],
+        mode: 'write-only'
+        // mode: 'default'
     };
-    properties.path = featureAgentCachePath + '/' + properties.name;
     return properties;
 }
-function readOutputFromFileSystem(featureName, agent, createProperties) {
-    var cache = getFeatureAgentCache(featureName, agent, createProperties);
+function readOutputFromFileSystem(featureId, agent, createProperties) {
+    var cache = getFeatureAgentCache(featureId, agent, createProperties);
     return cache.read();
 }
-function getFeatureAgentCache(featureName, agent, createProperties) {
-    var properties = createProperties(featureName, agent);
+function getFeatureAgentCache(featureId, agent, createProperties) {
+    var properties = createProperties(featureId, agent);
     return store.fileSystemEntry(properties);
 }
-function readRecordFromFileSystem(featureName, agent, type) {
+function readRecordFromFileSystem(featureId, agent, type) {
     var createProperties;
     if (type === 'test') {
         createProperties = createTestOutputProperties;
@@ -160,18 +148,18 @@ function readRecordFromFileSystem(featureName, agent, type) {
     }
 
     return readOutputFromFileSystem(
-        featureName,
+        featureId,
         agent,
         createProperties
     ).then(function(data) {
         if (data.valid) {
-            console.log('got valid data for', featureName);
+            console.log('got valid data for', featureId);
         } else {
-            console.log('no valid for', featureName, 'because', data.reason);
+            console.log('no valid for', featureId, 'because', data.reason);
         }
 
         return {
-            name: featureName,
+            id: featureId,
             data: data
         };
     });
@@ -188,17 +176,17 @@ function recordIsInvalid(record) {
 function recordIsFailed(record) {
     return record.data.value.status === 'failed';
 }
-function getStatus(featureName, agent, includeFix, enableClosestAgent) {
+function getStatus(featureId, agent, includeFix, enableClosestAgent) {
     var featureAgentPromise;
     if (enableClosestAgent) {
-        featureAgentPromise = getClosestAgentForFeature(featureName, agent);
+        featureAgentPromise = getClosestAgentForFeature(featureId, agent);
     } else {
         featureAgentPromise = Promise.resolve(agent);
     }
     return featureAgentPromise.then(
         function(featureAgent) {
             return readRecordFromFileSystem(
-                featureName,
+                featureId,
                 featureAgent,
                 'test'
             ).then(function(testRecord) {
@@ -211,7 +199,7 @@ function getStatus(featureName, agent, includeFix, enableClosestAgent) {
                 if (recordIsFailed(testRecord)) {
                     if (includeFix) {
                         return readRecordFromFileSystem(
-                            featureName,
+                            featureId,
                             featureAgent,
                             'fix'
                         ).then(function(fixRecord) {
@@ -243,10 +231,9 @@ function getStatus(featureName, agent, includeFix, enableClosestAgent) {
         }
     );
 }
-function getAllDependencies(featureNames, mode) {
-    var filename = mode === 'test' ? 'test' : 'fix';
-    var featureTests = featureNames.map(function(featureName) {
-        return './' + featureName + '/' + filename + '.js';
+function getAllDependencies(featureIds, file) {
+    var featureTests = featureIds.map(function(featureId) {
+        return './' + featureId + '/' + file;
     });
     var folderPath = getFolder();
     return readDependencies(
@@ -257,12 +244,16 @@ function getAllDependencies(featureNames, mode) {
                 if (id.indexOf(folderPath) !== 0) {
                     return true;
                 }
-                return path.basename(id) !== filename + '.js';
+                return path.basename(id) !== file;
             },
             autoParentDependency: function(id) {
+                if (file === 'fix.js') {
+                    return;
+                }
                 // si id est dans folderPath mais n'est pas un enfant direct de folderPath
                 // folderPath/a/file.js non
                 // mais folderpath/a/b/file.js oui et on renvoit folderpath/a/file.js
+                // seulement si mode === 'test' ?
 
                 // file must be inside folder
                 if (id.indexOf(folderPath) !== 0) {
@@ -275,61 +266,84 @@ function getAllDependencies(featureNames, mode) {
                     return;
                 }
                 // folderpath/a/b/file.js -> yep
-                return folderPath + '/' + relativeParts.slice(0, -2) + '/' + filename + '.js';
+                return folderPath + '/' + relativeParts.slice(0, -2) + '/' + file;
             }
         }
     );
 }
-function getNodes(featureNames, mode) {
-    return getAllDependencies(featureNames, mode).then(function(featureGraph) {
-        return featureGraph.concat(jsenv.collectDependencies(featureGraph));
+function getNodes(featureIds, file) {
+    return getAllDependencies(featureIds, file).then(function(nodes) {
+        return nodes.concat(jsenv.collectDependencies(nodes));
     });
 }
-function getTestInstructions(featureNames, agent) {
-    return getNodes(featureNames, 'test').then(function(featureNodes) {
-        return mapAsync(featureNodes, function(featureNode) {
-            return getStatus(featureNameFromNode(featureNode), agent);
-        }).then(function(statuses) {
-            var nodesToTest = Iterable.filterBy(
-                featureNodes,
-                statuses,
-                function(status) {
-                    return (
-                        status === 'test-missing' ||
-                        status === 'test-invalid'
-                    );
-                }
+function matchNodes(featureIds, agent, options) {
+    return getNodes(featureIds, options.file).then(function(nodes) {
+        return mapAsync(nodes, function(node) {
+            var featureId = idFromNode(node);
+            console.log('get status of', featureId);
+            return getStatus(
+                featureId,
+                agent,
+                options.needFixStatus,
+                options.inheritClosestStatus
             );
-            nodesToTest = nodesToTest.concat(jsenv.collectDependencies(nodesToTest));
-            return build(
-                nodesToTest.map(function(featureNode) {
-                    return {
-                        name: {
-                            type: 'inline',
-                            name: '',
-                            from: featureNameFromNode(featureNode)
-                        },
-                        testDependencies: {
-                            type: 'inline',
-                            name: '',
-                            from: featureNode.dependencies.map(function(dependency) {
-                                return nodesToTest.indexOf(dependency);
-                            })
-                        },
-                        test: {
-                            type: 'import',
-                            name: 'default',
-                            from: './' + featureNameFromFile(featureNode.id) + '/test.js'
-                        }
-                    };
-                }),
-                {
-                    transpiler: transpiler,
-                    root: getFolder()
+        }).then(function(statuses) {
+            if (options.ensure) {
+                options.ensure(nodes, statuses);
+            }
+            return Iterable.filterBy(
+                nodes,
+                statuses,
+                options.include
+            );
+        });
+    });
+}
+function getTestInstructions(featureIds, agent) {
+    return matchNodes(
+        featureIds,
+        agent,
+        {
+            file: 'test.js',
+            include: function(status) {
+                return (
+                    status === 'test-missing' ||
+                    status === 'test-invalid'
+                );
+            }
+        }
+    ).then(function(nodes) {
+        var nodesToTest = nodes.concat(jsenv.collectDependencies(nodes));
+        var abstractFeatures = nodesToTest.map(function(featureNode) {
+            var featureId = idFromNode(featureNode);
+            return {
+                id: {
+                    type: 'inline',
+                    name: '',
+                    from: featureId
+                },
+                testDependencies: {
+                    type: 'inline',
+                    name: '',
+                    from: featureNode.dependencies.map(function(dependency) {
+                        return nodesToTest.indexOf(dependency);
+                    })
+                },
+                test: {
+                    type: 'import',
+                    name: 'default',
+                    from: './' + featureId + '/test.js'
                 }
-            ).then(function(bundle) {
-                return bundle.source;
-            });
+            };
+        });
+        return build(
+            abstractFeatures,
+            {
+                transpiler: transpiler,
+                root: getFolder()
+            }
+        ).then(function(bundle) {
+            return bundle.source;
         });
     });
 }
@@ -354,7 +368,7 @@ function writeAllRecordToFileSystem(records, agent, type) {
         }
 
         return writeOutputToFileSystem(
-            record.name,
+            record.id,
             agent,
             createProperties,
             record.data
@@ -364,8 +378,8 @@ function writeAllRecordToFileSystem(records, agent, type) {
     });
     return Thenable.all(outputsPromises);
 }
-function writeOutputToFileSystem(featureName, agent, createProperties, output) {
-    var cache = getFeatureAgentCache(featureName, agent, createProperties);
+function writeOutputToFileSystem(featureId, agent, createProperties, output) {
+    var cache = getFeatureAgentCache(featureId, agent, createProperties);
     return cache.write(output);
 }
 function setAllTestRecord(records, agent) {
@@ -384,33 +398,31 @@ var inlineSolution = {
 var fileSolution = {
     match: featureUseFileFix,
 
+    resolvePath: function(feature) {
+        var fix = feature.fix;
+        var fixValue = fix.value;
+        if (fixValue.indexOf('${rootFolder}') === 0) {
+            fixValue = fixValue.replace('${rootFolder}', rootFolder);
+        }
+        var featurePath = pathFromId(feature.id);
+        return path.resolve(
+            featurePath,
+            fixValue
+        ).replace(/\\/g, '/');
+    },
+
     solve: function(features, abstractFeatures) {
         var filePaths = features.map(function(feature) {
-            var fix = feature.fix;
-            var fixValue = fix.value;
-
-            var filePath;
-            if (fixValue.indexOf('${rootFolder}') === 0) {
-                filePath = fixValue.replace('${rootFolder}', rootFolder);
-            } else {
-                if (fixValue[0] === '.') {
-                    throw new Error('solution path must be absolute');
-                }
-                filePath = path.resolve(
-                    rootFolder,
-                    fixValue
-                );
-            }
-            return filePath;
+            return fileSolution.resolvePath(feature);
         });
         filePaths.forEach(function(filePath, index) {
-            var duplicatePathIndex = filePaths.indexOf(filePath, index);
+            var duplicatePathIndex = filePaths.indexOf(filePath, index + 1);
             if (duplicatePathIndex > -1) {
                 throw new Error(
                     'file path conflict between ' +
-                    features[index].name +
+                    features[index].id +
                     ' and ' +
-                    features[duplicatePathIndex].name
+                    features[duplicatePathIndex].id
                 );
             }
         });
@@ -422,7 +434,7 @@ var fileSolution = {
             }).then(function(fileFunction) {
                 var feature = features[index];
                 var abstractFeature = Iterable.find(abstractFeatures, function(abstractFeature) {
-                    return abstractFeature.name.from === feature.name;
+                    return abstractFeature.id.from === feature.id;
                 });
                 abstractFeature.fixFunction = fileFunction;
             });
@@ -438,57 +450,61 @@ var coreJSSolution = {
             return fix.value;
         });
         moduleNames.forEach(function(moduleName, index) {
-            var duplicateIndex = moduleNames.indexOf(moduleName, index);
+            var duplicateIndex = moduleNames.indexOf(moduleName, index + 1);
             if (duplicateIndex > -1) {
                 throw new Error(
                     'corejs module conflict between ' +
-                    features[index].name +
+                    features[index].id +
                     ' and ' +
-                    features[duplicateIndex].name
+                    features[duplicateIndex].id
                 );
             }
         });
+        var banner = Iterable.reduce(features, function(previous, feature) {
+            if (feature.fix.beforeFix) {
+                previous += '\n' + feature.fix.beforeFix;
+            }
+            return previous;
+        }, '');
 
-        function createCoreJSBuild() {
+        function createCoreJSBuild(moduleNames, banner) {
             var source = '';
-            source = Iterable.reduce(features, function(previous, feature) {
-                if (feature.fix.beforeFix) {
-                    previous += '\n' + feature.fix.beforeFix;
-                }
-                return previous;
-            }, source);
-            var sourcePromise = Thenable.resolve(source);
+            if (banner) {
+                source += banner + '\n';
+            }
 
-            return sourcePromise.then(function(source) {
-                if (moduleNames.length) {
-                    console.log('concat corejs modules', moduleNames);
-                    var buildCoreJS = require('core-js-builder');
-                    var promise = buildCoreJS({
-                        modules: moduleNames,
-                        librabry: false,
-                        umd: true
-                    });
-                    return promise.then(function(polyfill) {
-                        source += '\n' + polyfill;
-
-                        return source;
-                    });
-                }
-                return source;
-            });
+            if (moduleNames.length) {
+                console.log('concat corejs modules', moduleNames);
+                var buildCoreJS = require('core-js-builder');
+                var promise = buildCoreJS({
+                    modules: moduleNames,
+                    librabry: false,
+                    umd: true
+                });
+                return promise.then(function(polyfill) {
+                    source += '\n' + polyfill;
+                    return source;
+                });
+            }
+            return Promise.resolve(source);
         }
 
-        var polyfillCache = store.fileSystemCache(corejsCacheFolder);
-        return polyfillCache.match({
-            modules: moduleNames
-        }).then(function(cacheBranch) {
-            return memoize.async(
-                createCoreJSBuild,
-                cacheBranch.entry({
+        var memoized = memoize.async(
+            createCoreJSBuild,
+            store.fileSystemEntry(
+                {
+                    normalize: function(moduleNames, banner) {
+                        return {
+                            modules: moduleNames,
+                            banner: banner
+                        };
+                    },
+                    path: corejsCacheFolder,
                     name: 'build.js'
-                })
-            )();
-        }).then(function(source) {
+                }
+            )
+        );
+        return memoized(moduleNames, banner).then(function(source) {
             return new Function(source); // eslint-disable-line no-new-func
         }).then(function(coreJSFunction) {
             options.meta.coreJSFunction = coreJSFunction;
@@ -531,9 +547,9 @@ var babelSolution = {
             if (duplicateIndex > -1) {
                 throw new Error(
                     'babel plugin conflict between ' +
-                    features[index].name +
+                    features[index].id +
                     ' and ' +
-                    features[duplicateIndex].name
+                    features[duplicateIndex].id
                 );
             }
         });
@@ -629,20 +645,20 @@ function groupBySolution(features, abstractFeatures) {
 }
 function loadTestIntoAbstract(nodes, abstractFeatures) {
     var dependencies = jsenv.collectDependencies(nodes);
-    var featureNamesToTest = nodes.concat(dependencies).map(featureNameFromNode);
+    var featureIdsToTest = nodes.concat(dependencies).map(idFromNode);
     return getNodes(
-        featureNamesToTest,
-        'test'
+        featureIdsToTest,
+        'test.js'
     ).then(function(testNodes) {
         var abstractFeaturesHavingTest = testNodes.map(function(testNode) {
-            var featureName = featureNameFromNode(testNode);
+            var featureId = idFromNode(testNode);
             var abstractFeature = Iterable.find(abstractFeatures, function(abstractFeature) {
-                return abstractFeature.name.from === featureName;
+                return abstractFeature.id.from === featureId;
             });
             var abstractTestProperty = {
                 type: 'import',
                 name: 'default',
-                from: './' + featureName + '/test.js'
+                from: './' + featureId + '/test.js'
             };
             var abstractTestDependenciesProperty = {
                 type: 'inline',
@@ -654,10 +670,10 @@ function loadTestIntoAbstract(nodes, abstractFeatures) {
                 abstractFeature.testDependencies = abstractTestDependenciesProperty;
             } else {
                 abstractFeature = {
-                    name: {
+                    id: {
                         type: 'inline',
                         name: '',
-                        from: featureName
+                        from: featureId
                     },
                     test: abstractTestProperty,
                     testDependencies: abstractTestDependenciesProperty
@@ -670,54 +686,32 @@ function loadTestIntoAbstract(nodes, abstractFeatures) {
         abstractFeaturesHavingTest.forEach(function(abstractFeature, index) {
             var testNode = testNodes[index];
             abstractFeature.testDependencies.from = testNode.dependencies.map(function(dependency) {
-                var dependencyAsFeatureName = featureNameFromNode(dependency);
+                var dependencyAsFeatureId = idFromNode(dependency);
                 return Iterable.findIndex(abstractFeatures, function(abstractFeature) {
-                    return abstractFeature.name.from === dependencyAsFeatureName;
+                    return abstractFeature.id.from === dependencyAsFeatureId;
                 });
             });
         });
     });
 }
-function getNodesMatchingStatus(featureNames, agent, options) {
-    return getNodes(featureNames, 'fix').then(function(nodes) {
-        return mapAsync(nodes, function(node) {
-            var featureName = featureNameFromNode(node);
-            return getStatus(
-                featureName,
-                agent,
-                true,
-                options.inheritClosestStatus
-            );
-        }).then(function(statuses) {
-            if (options.ensure) {
-                options.ensure(nodes, statuses);
-            }
-
-            return Iterable.filterBy(
-                nodes,
-                statuses,
-                options.include
-            );
-        });
-    });
-}
-function getFeaturesMatching(featureNames, agent, options) {
-    return getNodesMatchingStatus(
-        featureNames,
+function matcher(featureIds, agent, options) {
+    return matchNodes(
+        featureIds,
         agent,
         options
     ).then(function(nodes) {
         var abstractFeatures = nodes.map(function(node) {
+            var featureId = idFromNode(node);
             return {
-                name: {
+                id: {
                     type: 'inline',
                     name: '',
-                    from: featureNameFromNode(node)
+                    from: featureId
                 },
                 fix: {
                     type: 'import',
                     name: 'default',
-                    from: './' + featureNameFromNode(node) + '/fix.js'
+                    from: './' + featureId + '/fix.js'
                 },
                 fixDependencies: {
                     type: 'inline',
@@ -750,8 +744,10 @@ function getFeaturesMatching(featureNames, agent, options) {
         });
     });
 }
-function getFixInstructions(featureNames, agent) {
+function getFixInstructions(featureIds, agent) {
     var matchOptions = {
+        file: 'fix.js',
+        needFixStatus: true,
         ensure: function(nodes, statuses) {
             var problematicNodes = Iterable.filterBy(
                 nodes,
@@ -766,7 +762,7 @@ function getFixInstructions(featureNames, agent) {
             if (problematicNodes.length) {
                 var problems = {};
                 problematicNodes.forEach(function(node, index) {
-                    problems[featureNameFromNode(node)] = statuses[index];
+                    problems[idFromNode(node)] = statuses[index];
                 });
                 throw new Error(
                     'some test status prevent fix: ' + require('util').inspect(problems)
@@ -781,8 +777,8 @@ function getFixInstructions(featureNames, agent) {
         }
     };
 
-    return getFeaturesMatching(
-        featureNames,
+    return matcher(
+        featureIds,
         agent,
         matchOptions
     ).then(function(match) {
@@ -839,7 +835,7 @@ function getFixInstructions(featureNames, agent) {
     });
 }
 // getFixInstructions(
-//     ['object'],
+//     ['object/assign'],
 //     jsenv.agent
 // ).then(function(data) {
 //     console.log('required fix data', data);
@@ -857,19 +853,19 @@ function setAllFixRecord(records, agent) {
     );
 }
 
-function createOwnMediator(featureNames, agent) {
+function createOwnMediator(featureIds, agent) {
     agent = Agent.parse(agent);
 
     return {
         send: function(action, value) {
             if (action === 'getTestInstructions') {
-                return getTestInstructions(featureNames, agent).then(fromServer);
+                return getTestInstructions(featureIds, agent).then(fromServer);
             }
             if (action === 'setAllTestRecord') {
                 return setAllTestRecord(value, agent);
             }
             if (action === 'getFixInstructions') {
-                return getFixInstructions(featureNames, agent).then(fromServer);
+                return getFixInstructions(featureIds, agent).then(fromServer);
             }
             if (action === 'setAllFixRecord') {
                 return setAllFixRecord(value, agent);
@@ -908,8 +904,8 @@ function createOwnMediator(featureNames, agent) {
 //     });
 // });
 
-function getClosestAgentForFeature(featureName, agent) {
-    var featureFolderPath = folderFromFeatureName(featureName);
+function getClosestAgentForFeature(featureId, agent) {
+    var featureFolderPath = pathFromId(featureId);
     var featureCachePath = featureFolderPath + '/.cache';
 
     function adaptAgentName(agent, path) {
@@ -993,7 +989,7 @@ function getClosestAgentForFeature(featureName, agent) {
     function missingAgent() {
         var missing = {
             code: 'NO_AGENT',
-            featureName: featureName,
+            featureId: featureId,
             agentName: agent.name
         };
         return missing;
@@ -1001,7 +997,7 @@ function getClosestAgentForFeature(featureName, agent) {
     function missingVersion() {
         var missing = {
             code: 'NO_AGENT_VERSION',
-            featureName: featureName,
+            featureId: featureId,
             agentName: agent.name,
             agentVersion: agent.version.toString()
         };
@@ -1040,7 +1036,9 @@ function getClosestAgentForFeature(featureName, agent) {
 //     console.log('rejected with', e);
 // });
 
-var clientMatchOptions = {
+var clientMatcherOptions = {
+    file: 'fix.js',
+    needFixStatus: true,
     inheritClosestStatus: true,
     // ensure: function(nodes, statuses) {
     //     var featureWithFailedTestAndFailedFix = Iterable.filterBy(
@@ -1066,11 +1064,11 @@ var clientMatchOptions = {
         );
     }
 };
-function getPolyfillInstructions(featureNames, agent) {
-    var matchOptions = clientMatchOptions;
+function polyfill(featureIds, agent) {
+    var matchOptions = clientMatcherOptions;
 
-    return getFeaturesMatching(
-        featureNames,
+    return matcher(
+        featureIds,
         agent,
         matchOptions
     ).then(function(match) {
@@ -1104,72 +1102,94 @@ function getPolyfillInstructions(featureNames, agent) {
         pending.push(coreJSSolutionThenable);
 
         return Thenable.all(pending).then(function() {
-            return build(
-                abstractFeatures,
-                buildOptions
-            ).then(function(bundle) {
-                return bundle.source;
+            var sources = abstractFeatures.map(function(abstractFeature) {
+                return {
+                    path: pathFromId(abstractFeature.id.from) + '/fix.js',
+                    strategy: 'mtime'
+                };
+            });
+            fileFeatures.forEach(function(feature) {
+                sources.push({
+                    path: fileSolution.resolvePath(feature),
+                    strategy: 'mtime'
+                });
+            });
+            var entry = store.fileSystemEntry({
+                path: polyfillCacheFolder,
+                name: 'polyfill.js',
+                behaviour: 'branch',
+                normalize: function(abstractFeatures) {
+                    return {
+                        features: abstractFeatures.map(function(abstractFeature) {
+                            return abstractFeature.id.from;
+                        })
+                    };
+                },
+                sources: sources
+            });
+            return entry.get(abstractFeatures).then(function(data) {
+                if (data.valid) {
+                    return data.path;
+                }
+                return build(
+                    abstractFeatures,
+                    buildOptions
+                ).then(function(bundle) {
+                    return entry.set(bundle.source, abstractFeatures).then(function(data) {
+                        return data.path;
+                    });
+                });
             });
         });
     });
 }
-// getPolyfillInstructions(
+// polyfill(
 //     ['object/assign'],
 //     jsenv.agent
 // ).then(function(polyfill) {
-//     eval(polyfill);
-//     console.log(Object.assign);
+//     console.log('polyfill', polyfill);
 // }).catch(function(e) {
 //     setTimeout(function() {
 //         throw e;
 //     });
 // });
 
-function transpile(code, featureNames, agent) {
-    return getFeaturesMatching(
-        featureNames,
+function transpile(file, featureIds, agent) {
+    file = path.resolve(file).replace(/\\/g, '/');
+
+    return matcher(
+        featureIds,
         agent,
-        clientMatchOptions
+        clientMatcherOptions
     ).then(function(match) {
         var featuresToFix = match.features;
         var groups = groupBySolution(featuresToFix);
         var transpiler = babelSolution.createTranspiler(groups.babel);
-        return transpiler.transpile(code, {as: 'code'});
+        return transpiler.transpileFile(file, {
+            onlyPath: true
+        });
     });
 }
-// transpile(
-//     'const a = true;',
-//     [
-//         'const/scoped'
-//     ],
-//     jsenv.agent
-// ).then(function(result) {
-//     console.log('transpilation result', result.code);
-// }).catch(function(e) {
-//     setTimeout(function() {
-//         throw e;
-//     });
-// });
-
-function transpileFile(path, featureNames, agent) {
-    return getFeaturesMatching(
-        featureNames,
-        agent,
-        clientMatchOptions
-    ).then(function(match) {
-        var featuresToFix = match.features;
-        var groups = groupBySolution(featuresToFix);
-        var transpiler = babelSolution.createTranspiler(groups.babel);
-        return transpiler.transpileFile(path);
+transpile(
+    './test.js',
+    [
+        'const/scoped'
+    ],
+    jsenv.agent
+).then(function(file) {
+    console.log('transpiled file', file);
+}).catch(function(e) {
+    setTimeout(function() {
+        throw e;
     });
-}
+});
 
-function createBrowserMediator(featureNames) {
+function createBrowserMediator(featureIds) {
     return {
         send: function(action, value) {
             if (action === 'getTestInstructions') {
                 return get(
-                    'test?features=' + featureNames.join(encodeURIComponent(','))
+                    'test?features=' + featureIds.join(encodeURIComponent(','))
                 ).then(readBody);
             }
             if (action === 'setAllTestRecord') {
@@ -1180,7 +1200,7 @@ function createBrowserMediator(featureNames) {
             }
             if (action === 'getFixInstructions') {
                 return get(
-                    'fix?features=' + featureNames.join(encodeURIComponent(','))
+                    'fix?features=' + featureIds.join(encodeURIComponent(','))
                 ).then(readBody);
             }
             if (action === 'setAllFixRecord') {
@@ -1280,52 +1300,15 @@ function createBrowserMediator(featureNames) {
 api.createBrowserMediator = createBrowserMediator;
 
 api.getFolder = getFolder;
-api.getFeaturePath = folderFromFeatureName;
-api.listFeatureNames = listFeatureNames;
+api.getFeaturePath = pathFromId;
+api.getClosestAgent = getClosestAgentForFeature;
+api.listAll = listAll;
 api.build = build;
 api.transpiler = transpiler;
 api.getTestInstructions = getTestInstructions;
-api.getClosestAgent = getClosestAgentForFeature;
 api.getFixInstructions = getFixInstructions;
-api.getPolyfillInstructions = getPolyfillInstructions;
+api.polyfill = polyfill;
 api.transpile = transpile;
-api.transpileFile = transpileFile;
 api.createOwnMediator = createOwnMediator;
 
 module.exports = api;
-
-// function excludedAlreadyResolvedDependency(id) {
-    // en gros ici, si la dépendance a un test déjà satisfait
-    // alors résoud à {type: 'excluded'}
-    // (ce qu'on fait dans polyfill, en plus il faudrait vérifier si on a pas djà
-    // kk chose dans statuses
-
-    // console.log('load', id);
-    // on pourrais aussi déplacer ça dans resolveId
-    // et rediriger #weak vers un fichier spécial qui contient grosso modo
-    // export default {weak: true};
-    // var fixMark = '/fix.js';
-    // var fixLength = fixMark.length;
-    // var isFix = id.slice(-fixLength) === fixMark;
-    // console.log('isfix', isFix);
-    // if (isFix) {
-    //     var featureName = path.dirname(path.relative(getFeaturesFolder(), id));
-    //     var featureNameIndex = featureNames.indexOf(featureName);
-    //     var instructionPromise;
-    //     if (featureNameIndex === -1) {
-    //         instructionPromise = getInstruction(featureName, agent);
-    //     } else {
-    //         instructionPromise = Promise.resolve(instructions[featureNameIndex]);
-    //     }
-    //     return instructionPromise.then(function(instruction) {
-    //         if (instruction.name === 'fail') {
-    //             throw new Error('unfixable dependency ' + featureName);
-    //         }
-    //         if (instruction.name === 'fix') {
-    //             return undefined;
-    //         }
-    //         return 'export default {type: \'excluded\'};';
-    //     });
-    // }
-    // console.log('ici', id);
-// }

@@ -64,13 +64,13 @@ function recursivelyReadFolderFeatureNames(path) {
     });
 }
 
-function listFeatureNames() {
+function listAllFeatureIds() {
     return recursivelyReadFolderFeatureNames(getFeaturesFolder());
 }
 
-module.exports = listFeatureNames;
+module.exports = listAllFeatureIds;
 
-// listFeatureNames().then(function(names) {
+// listAllFeatureIds().then(function(names) {
 //     console.log('names', names);
 // }).catch(function(e) {
 //     setTimeout(function() {

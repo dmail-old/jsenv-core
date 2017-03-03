@@ -1,11 +1,10 @@
-var store = require('../store.js');
+var store = require('../store/store.js');
 var memoize = require('../memoize.js');
 var fsAsync = require('../fs-async.js');
 
 var rootFolder = require('path').resolve(__dirname, '../../').replace(/\\/g, '/');
 var cacheFolder = rootFolder + '/cache';
 var transpilerCacheFolder = cacheFolder + '/transpiler';
-var transpilerCache = store.fileSystemCache(transpilerCacheFolder);
 
 function assign(destination, source) {
     for (var key in source) { // eslint-disable-line guard-for-in
@@ -39,60 +38,7 @@ function normalizePlugins(pluginsOption) {
 }
 function createTranspiler(transpilerOptions) {
     transpilerOptions = transpilerOptions || {plugins: []};
-    // console.log('required babel plugins', pluginsAsOptions.map(function(plugin) {
-    //     return plugin[0];
-    // }));
 
-    function getNodeFilePath(path) {
-        var nodeFilePath;
-        if (path.indexOf('file:///') === 0) {
-            nodeFilePath = path.slice('file:///'.length);
-        } else {
-            nodeFilePath = path;
-        }
-        return nodeFilePath;
-    }
-    function getFileEntry(options) {
-        var path = options.filename;
-        var nodeFilePath = getNodeFilePath(path);
-
-        if (nodeFilePath.indexOf(rootFolder) === 0) {
-            var relativeFilePath = nodeFilePath.slice(rootFolder.length);
-            if (relativeFilePath[0] === '/') {
-                relativeFilePath = relativeFilePath.slice(1);
-            }
-
-            return transpilerCache.match({
-                plugins: normalizePlugins(options.plugins)
-            }).then(function(cacheBranch) {
-                var entryName;
-                if (options.as === 'module') {
-                    entryName = 'modules/' + relativeFilePath;
-                } else {
-                    entryName = relativeFilePath;
-                }
-
-                var entrySources;
-                if (options.sources) {
-                    entrySources = options.sources.slice();
-                } else {
-                    entrySources = [];
-                }
-                entrySources.push({path: nodeFilePath, strategy: 'mtime'});
-
-                var entry = cacheBranch.entry({
-                    name: entryName,
-                    mode: options.cacheMode || 'default',
-                    sources: entrySources,
-                    encode: function(result) {
-                        return result.code;
-                    }
-                });
-                return entry;
-            });
-        }
-        return Promise.resolve(null);
-    }
     function getOptions(transpilationOptions) {
         transpilationOptions = transpilationOptions || {};
         var options = {};
@@ -112,14 +58,76 @@ function createTranspiler(transpilerOptions) {
         options.plugins = plugins;
         return options;
     }
+    function getNodeFilePath(path) {
+        var nodeFilePath;
+        if (path.indexOf('file:///') === 0) {
+            nodeFilePath = path.slice('file:///'.length);
+        } else {
+            nodeFilePath = path;
+        }
+        return nodeFilePath;
+    }
+    function getFileEntry(options) {
+        if (options.cache === false) {
+            return null;
+        }
+
+        var filename = options.filename;
+        if (filename) {
+            var nodeFilePath = getNodeFilePath(filename);
+            if (nodeFilePath.indexOf(rootFolder) === 0) {
+                var relativeFilePath = nodeFilePath.slice(rootFolder.length);
+                if (relativeFilePath[0] === '/') {
+                    relativeFilePath = relativeFilePath.slice(1);
+                }
+                var entryName;
+                if (options.as === 'module') {
+                    entryName = 'modules/' + relativeFilePath;
+                } else {
+                    entryName = relativeFilePath;
+                }
+                var sources;
+                if (options.sources) {
+                    sources = options.sources.slice();
+                } else {
+                    sources = [];
+                }
+                sources.push({
+                    path: nodeFilePath,
+                    strategy: 'mtime'
+                });
+
+                var properties = {
+                    path: transpilerCacheFolder,
+                    name: entryName,
+                    behaviour: 'branch',
+                    normalize: function(options) {
+                        return {
+                            plugins: normalizePlugins(options.plugins)
+                        };
+                    },
+                    sources: sources,
+                    mode: options.cacheMode || 'default',
+                    encode: function(result) {
+                        return result.code;
+                    }
+                };
+                var entry = store.fileSystemEntry(properties);
+                return entry;
+            }
+        }
+        return null;
+    }
     function transpile(code, transpileCodeOptions) {
         var options = getOptions(transpileCodeOptions);
-        function transpileSource(sourceURL) {
+
+        function transpileSource(options) {
             // https://babeljs.io/docs/core-packages/#options
             // inputSourceMap: null,
             // minified: false
 
             // console.log('transpiling', code, 'for', sourceURL);
+            var filename = options.filename;
             var babelOptions = {};
             babelOptions.filename = options.filename;
             babelOptions.plugins = options.plugins;
@@ -136,13 +144,15 @@ function createTranspiler(transpilerOptions) {
                 result = babel.transform(code, babelOptions);
             } catch (e) {
                 if (e.name === 'SyntaxError') {
-                    console.error(e.message, 'in', sourceURL, 'at\n');
+                    console.error(e.message, 'in', filename, 'at\n');
                     console.error(e.codeFrame);
                 }
                 throw e;
             }
             var transpiledCode = result.code;
-            if (sourceURL && options.sourceURL !== false && options.as !== 'code') {
+            if (filename && options.as !== 'code' && options.sourceURL !== false) {
+                var sourceURL = filename;
+                sourceURL += '!transpiled';
                 transpiledCode += '\n//# sourceURL=' + sourceURL;
             }
             // if (options.transform) {
@@ -152,66 +162,43 @@ function createTranspiler(transpilerOptions) {
             return result;
         }
 
-        var sourceURL;
-        if ('filename' in options) {
-            var filename = options.filename;
-            if (filename !== false) {
-                sourceURL = filename;
-            }
-        } else {
-            sourceURL = 'anonymous';
+        var entry = getFileEntry(options);
+        if (entry) {
+            // options.filename = entry.path;
+            return memoize.async(
+                transpileSource,
+                entry
+            )(options);
         }
-
-        if (
-            options.cache &&
-            sourceURL !== 'anonymous' &&
-            sourceURL
-        ) {
-            return getFileEntry(options).then(function(entry) {
-                if (entry) {
-                    sourceURL = entry.path;
-                    return memoize.async(
-                        transpileSource,
-                        entry
-                    )(sourceURL);
-                }
-                if (sourceURL) {
-                    sourceURL += '!transpiled';
-                }
-                return transpileSource(sourceURL);
-            });
-        }
-        if (sourceURL) {
-            sourceURL += '!transpiled';
-        }
-        return transpileSource(sourceURL);
+        return transpileSource(options);
     }
-    function transpileFile(filePath, transpileFileOptions) {
-        function createTranspiledCode(transpileCodeOptions) {
-            return fsAsync.getFileContent(transpileCodeOptions.filename).then(function(code) {
-                return transpiler.transpile(code, transpileCodeOptions);
+    function transpileFileSource(filename, options) {
+        return fsAsync.getFileContent(filename).then(function(code) {
+            return transpile(code, options);
+        });
+    }
+    function transpileFile(filename, transpileFileOptions) {
+        var options = getOptions(transpileFileOptions);
+        options.filename = filename;
+
+        var entry = getFileEntry(options);
+        if (entry) {
+            options.cache = false; // désactive le cache puisque y'a déjà celui-la
+            return entry.get(options).then(function(data) {
+                if (data.valid) {
+                    return data;
+                }
+                return transpileFileSource(filename, options).then(function(value) {
+                    return entry.set(value, options);
+                });
+            }).then(function(data) {
+                if (options.onlyPath) {
+                    return data.path;
+                }
+                return data.value;
             });
         }
-
-        // désactive le cache lorsque entry ne matche pas
-        // puisqu'on a déjà testé s'il existait un cache valide
-        var transpileCodeOptions = getOptions(transpileFileOptions);
-        transpileCodeOptions.filename = filePath;
-
-        return getFileEntry(transpileCodeOptions).then(function(entry) {
-            if (entry) {
-                transpileCodeOptions.cache = false;
-                // we don't need sourceURL because the file exists on the filesystem
-                // or maybe it could be set to entry.path when sourceURL was not already false
-                transpileCodeOptions.sourceURL = false;
-
-                return memoize.async(
-                    createTranspiledCode,
-                    entry
-                )(transpileCodeOptions);
-            }
-            return createTranspiledCode(transpileCodeOptions);
-        });
+        return transpileFileSource(filename, options);
     }
 
     var transpiler = {

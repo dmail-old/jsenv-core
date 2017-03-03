@@ -1753,7 +1753,7 @@ en fonction du résultat de ces tests
             var tests = features.map(function(feature) {
                 var test = feature.test;
                 if (test) {
-                    test.name = feature.name;
+                    test.id = feature.id;
                     return test;
                 }
                 return null;
@@ -1797,13 +1797,13 @@ en fonction du résultat de ces tests
             var fixs = features.map(function(feature) {
                 var fix = feature.fix;
                 if (fix) {
-                    fix.name = feature.name;
+                    fix.id = feature.id;
                     if (fix.type === 'file') {
                         if (feature.fixFunction) {
                             fix.value = feature.fixFunction;
                         } else {
                             fix.value = function() {
-                                throw new Error('missing file fix for ' + fix.name);
+                                throw new Error('missing file fix for ' + fix.id);
                             };
                         }
                     } else if (fix.type === 'corejs') {
@@ -1832,9 +1832,9 @@ en fonction du résultat de ces tests
                 {
                     progress: function(event) {
                         var test = event.target;
-                        console.log('tested', test.name, '->', event.detail);
+                        console.log('tested', test.id, '->', event.detail);
                         records.push({
-                            name: test.name,
+                            id: test.id,
                             data: event.detail
                         });
                     }
@@ -1859,9 +1859,9 @@ en fonction du résultat de ces tests
                     // mais il sera possible que ce soit des objets vide
                     progress: function(event) {
                         var fix = event.target;
-                        console.log('fix', fix.name, '->', event.detail);
+                        console.log('fix', fix.id, '->', event.detail);
                         records[event.index] = {
-                            name: fix.name,
+                            id: fix.id,
                             data: event.detail
                         };
                     }
@@ -1891,9 +1891,9 @@ en fonction du résultat de ces tests
                         {
                             progress: function(event) {
                                 var test = event.target;
-                                console.log('test fix', test.name, '->', event.detail);
+                                console.log('test fix', test.id, '->', event.detail);
                                 var record = jsenv.Iterable.find(records, function(record) {
-                                    return record.name === test.name;
+                                    return record.id === test.id;
                                 });
                                 // if the fix has failed, prevent test from erasing
                                 // that, else let it become the result
