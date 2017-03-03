@@ -1,11 +1,3 @@
-import parent from '../feature.js';
-
-const feature = {
-    dependencies: [parent],
-    run: parent.run
-};
-export default feature;
-
 function expectLowerCaseAndAttribute(method, pass, fail) {
     var html = method.call('', '"');
     if (html !== html.toLowerCase()) {
@@ -18,7 +10,7 @@ function expectLowerCaseAndAttribute(method, pass, fail) {
 }
 export {expectLowerCaseAndAttribute};
 
-import {objectIsCoercible} from 'helper/fix.js';
+import {objectIsCoercible} from '/fix-helpers.js';
 const quoteRegexp = /"/g;
 function createHTML(firstArg, tag, attribute, value) {
     objectIsCoercible(firstArg);

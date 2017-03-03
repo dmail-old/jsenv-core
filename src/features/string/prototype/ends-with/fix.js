@@ -1,18 +1,5 @@
-import {at, expect, present} from 'helper/detect.js';
-import parent from '../feature.js';
+import {objectIsCoercible} from '/fix-helpers.js';
 
-const methodName = 'endsWith';
-const feature = {
-    dependencies: [parent],
-    run: at(parent.run, methodName),
-    test: expect(present),
-    solution: {
-        type: 'inline',
-        value: fix
-    }
-};
-
-import {objectIsCoercible} from 'helper/fix.js';
 // https://developer.mozilla.org/fr/docs/Web/JavaScript/Reference/Objets_globaux/String/endsWith
 function endsWith(searchString, position) {
     objectIsCoercible(this);
@@ -30,11 +17,12 @@ function endsWith(searchString, position) {
     return lastIndex !== -1 && lastIndex === position;
 }
 
-import {defineMethod} from 'helper/fix.js';
-function fix() {
-    defineMethod(at(parent.run).value, methodName, endsWith);
-}
+const fix = {
+    type: 'inline',
+    value() {
+        String.prototype.endsWith = endsWith;
+    }
+};
 
-export default feature;
-export {endsWith, fix};
+export default fix;
 

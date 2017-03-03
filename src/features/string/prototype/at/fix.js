@@ -1,18 +1,4 @@
-import {at as detectAt, expect, present} from 'helper/detect.js';
-import parent from '../feature.js';
-
-const path = 'at';
-const feature = {
-    dependencies: [parent],
-    run: detectAt(parent.run, path),
-    test: expect(present),
-    solution: {
-        type: 'inline',
-        value: fix
-    }
-};
-
-import {objectIsCoercible} from 'helper/fix.js';
+import {objectIsCoercible} from '/fix-helpers.js';
 // https://github.com/mathiasbynens/String.prototype.at/blob/master/at.js
 function at(position) {
     objectIsCoercible(this);
@@ -48,10 +34,11 @@ function at(position) {
     return string.slice(index, index + len);
 }
 
-import {defineMethod} from 'helper/fix.js';
-function fix() {
-    defineMethod(detectAt(parent.run).value, path, at);
-}
+const fix = {
+    type: 'inline',
+    value() {
+        String.prototype.at = at;
+    }
+};
 
-export default feature;
-export {at, fix};
+export default fix;

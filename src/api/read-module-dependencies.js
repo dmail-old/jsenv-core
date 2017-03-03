@@ -192,6 +192,11 @@ function readDependencies(filenames, options) {
             });
         });
     }
+    function findById(modules, id) {
+        return find(modules, function(module) {
+            return module.id === id;
+        });
+    }
 
     return Promise.resolve(
         locate(root, null, null)
@@ -204,9 +209,7 @@ function readDependencies(filenames, options) {
             var promisesMap = {};
             var modules = [];
             function createModule(id) {
-                var existingModule = find(modules, function(module) {
-                    return module.id === id;
-                });
+                var existingModule = findById(modules, id);
                 if (existingModule) {
                     return existingModule;
                 }
@@ -248,13 +251,12 @@ function readDependencies(filenames, options) {
                     ).then(function(ast) {
                         var astDependencies = getDependenciesFromAst(module, ast);
                         var dependencies = astDependencies.slice();
-                        if (autoParentDependency) {
-                            var parentDependencyId = autoParentDependency(module.id, rootId);
+                        return Promise.resolve(
+                            autoParentDependency ? autoParentDependency(module.id, rootId) : null
+                        ).then(function(parentDependencyId) {
                             if (parentDependencyId) {
                                 parentDependencyId = normalize(parentDependencyId);
-                                var astParentDependency = find(astDependencies, function(dependency) {
-                                    return dependency.id === parentDependencyId;
-                                });
+                                var astParentDependency = findById(astDependencies, parentDependencyId);
                                 if (astParentDependency) {
                                     // console.log('parent dependency already declared in', module.id);
                                 } else {
@@ -264,8 +266,9 @@ function readDependencies(filenames, options) {
                                     );
                                 }
                             }
-                        }
-
+                            return dependencies;
+                        });
+                    }).then(function(dependencies) {
                         return filterDependencies(dependencies).then(function(dependencies) {
                             module.dependencies = dependencies;
                             // console.log('the dependencies of', module.id, module.dependencies);

@@ -1,18 +1,4 @@
-import {at, expect, present} from 'helper/detect.js';
-import parent from '../feature.js';
-
-const methodName = 'codePointAt';
-const feature = {
-    dependencies: [parent],
-    run: at(parent.run, methodName),
-    test: expect(present),
-    solution: {
-        type: 'inline',
-        value: fix
-    }
-};
-
-import {objectIsCoercible} from 'helper/fix.js';
+import {objectIsCoercible} from '/fix-helpers.js';
 // https://developer.mozilla.org/fr/docs/Web/JavaScript/Reference/Objets_globaux/String/codePointAt
 function codePointAt(position) {
     objectIsCoercible(this);
@@ -43,10 +29,11 @@ function codePointAt(position) {
     return first;
 }
 
-import {defineMethod} from 'helper/fix.js';
-function fix() {
-    defineMethod(at(parent.run).value, methodName, codePointAt);
-}
+const fix = {
+    type: 'inline',
+    value() {
+        String.prototype.codePointAt = codePointAt;
+    }
+};
 
-export default feature;
-export {codePointAt, fix};
+export default fix;

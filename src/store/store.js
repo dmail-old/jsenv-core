@@ -1,5 +1,3 @@
-/* eslint-disable no-use-before-define */
-
 var cuid = require('cuid');
 var Path = require('path');
 

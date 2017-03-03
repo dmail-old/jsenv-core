@@ -14,6 +14,11 @@ C:/Users/Damien/Document/project/nodes_modules/jsenv
 et saura pas ou stocker ni d'ou provient file.js qui seras dans
 C:/Users/Damien/Document/project/file.js
 
+ptet qu'il faudra stocker dans branches.json à quoi est relatif le fichier à l'intérieur
+et donc fournir une option root pour spécifier ou se retrouve la racine à laquelle est relative
+le fichier
+et lorsqu'on cherche à match il faudra alors fournir cette racine pour pouvoir retrouver le fichier
+
 - minification
 pouvoir minifier polyfill.js
 
@@ -21,7 +26,7 @@ pouvoir minifier polyfill.js
 écrire le fichier sourceMap a coté du fichier concerné pour polyfill.js
 et pour tous les fichier transpilé
 
-- implémenter test.children
+- implémenter test.children & test.dependentChildren (cf destructuring/test.js)
 
 */
 
@@ -266,7 +271,15 @@ function getAllDependencies(featureIds, file) {
                     return;
                 }
                 // folderpath/a/b/file.js -> yep
-                return folderPath + '/' + relativeParts.slice(0, -2) + '/' + file;
+                var possibleParentFile = folderPath + '/' + relativeParts.slice(0, -2) + '/' + file;
+                return fsAsync.visible(possibleParentFile).then(
+                    function() {
+                        return possibleParentFile;
+                    },
+                    function() {
+                        return null;
+                    }
+                );
             }
         }
     );

@@ -9,6 +9,9 @@ module.exports = {
     "rules": {
         "no-unused-expressions": [
             "off"
+        ],
+        "no-extend-native": [
+            "off"
         ]
     }
 };
