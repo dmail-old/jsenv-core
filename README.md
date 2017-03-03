@@ -27,7 +27,7 @@ api.transpile('./file.js', features, 'node/0.12.3').then(function(transpiledFile
 ## Installation
 
 ```
-npm i https://github.com/dmail/jsenv/core
+npm i https://github.com/jsenv/core
 ```
 
 ## Basic usage
