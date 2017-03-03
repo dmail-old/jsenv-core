@@ -18,7 +18,7 @@ api.polyfill(features, 'node/0.12.3').then(function(polyfill) {
     // logs './node_modules/jsenv/cache/polyfill/ciztxodqg0000x84mdrd5crjz/polyfill.js'
 });
 
-api.transpile('./file.js', 'node/0.12.3').then(function(transpiledFile) {
+api.transpile('./file.js', features, 'node/0.12.3').then(function(transpiledFile) {
     console.log(transpiledFile);
     // logs './node_modules/jsenv/cache/transpiler/ciztybhky0000zs4m9ovbujoy/file.js'
 });
@@ -32,14 +32,14 @@ npm i https://github.com/dmail/jsenv/core
 
 ## Basic usage
 
-#### api.polyfill(featureIds, userAgentString)
+#### api.polyfill(featureIds, userAgent)
 
-Creates a .js file containing all the polyfill required to get the listed features for this userAgent.
-It returns a promise resolving to the file path.
+Creates a file with fix instructions required by this userAgent to get the listed features.  
+Returns a promise resolving to the path of the file containing instructions.
 
-#### api.transpile(filePath, featureIds, userAgentString)
+#### api.transpile(filePath, featureIds, userAgent)
 
-Create a version of the file where all feature not natively available for this userAgent are transpiled using babel.
+Creates a file transpiling what is required by this userAgent to get the listed features (transpilation is done using [babel](https://babeljs.io/)).  
 Returns a promise resolving to the path of the transpiled file.
 
 
