@@ -26,6 +26,9 @@ pouvoir minifier polyfill.js
 écrire le fichier sourceMap a coté du fichier concerné pour polyfill.js
 et pour tous les fichier transpilé
 
+- produire test-output.json de chaque feature une après l'autre pour node 0.12
+- puis faire pareil avec fix-output.json
+
 - implémenter test.children & test.dependentChildren (cf destructuring/test.js)
 
 */

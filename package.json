@@ -32,23 +32,14 @@
     "core-js-builder": "2.4.1",
     "cuid": "1.3.8",
     "istanbul": "0.4.2",
-    "jsenv-compose": "https://github.com/jsenv/compose.git",
     "useragent": "2.1.12",
-    "open": "*",
     "os-locale": "1.4.0",
     "regenerator-runtime": "0.10.3",
     "source-map": "0.5.6",
     "systemjs": "0.19.27"
   },
   "scripts": {
-    "preinstall": "npm link C:/Users/Damien/Documents/Github/compose",
-    "start": "node start.js",
-    "test": "node ./bin/run test/modules/module-test.js -test",
-    "cover": "node ./bin/run test/modules/module-test.js -test -cover",
-    "cover-console": "node ./bin/run test/modules/module-test.js -test -cover -cover-report-console",
-    "cover-html": "node ./bin/run test/modules/module-test.js -test -cover -cover-report-console -cover-report-html",
-    "cover-json": "node ./bin/run test/modules/module-test.js -test -cover -cover-report-console -cover-report-json",
-    "ci": "node ./bin/run test/modules/module-test.js -test -cover -cover-upload-codecov -cover-upload-codecov-token=f695edf1-d0f4-4799-bb08-46955137f0c3"
+    "start": "node start.js"
   },
   "repository": {
     "type": "git",

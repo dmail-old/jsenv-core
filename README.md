@@ -1,41 +1,46 @@
-# jsenv [![codecov](https://codecov.io/gh/dmail/jsenv/branch/master/graph/badge.svg?token=0aUNAZxv2B)](https://codecov.io/gh/dmail/jsenv) [![build](https://travis-ci.com/dmail/jsenv.svg?token=xrJsqdmzZ8gX9jGU8FSY)](https://travis-ci.com/dmail/jsenv)
+# jsenv
 
-This project is under development.  
-The first thing to do is to update this readme to explain what needs to be done.  
+Dynamic polyfill generation and dynamic file transpilation.
 
-## Presentation
+## Example
 
-jsenv respond to four prime requirements, I want to execute js file in order to...
+```javascript
+var api = require('jsenv');
+var features = [
+    'const',
+    'for-of',
+    'promise',
+    'symbol'
+];
 
-- ... get code output
-- ... monitor code output as I'm coding (hot reloading)
-- ... test if code behave as expected (unit tests)
-- ... see dead branch in the code (code covergae)
+api.polyfill(features, 'node/0.12.3').then(function(polyfill) {
+    console.log(polyfill);
+    // logs './node_modules/jsenv/cache/polyfill/ciztxodqg0000x84mdrd5crjz/polyfill.js'
+});
 
-In response to these requirements, jsenv has one command : `jsenv path-to-file.js`.  
-This command comes with many options letting you get the behaviour you want.    
+api.transpile('./file.js', 'node/0.12.3').then(function(transpiledFile) {
+    console.log(transpiledFile);
+    // logs './node_modules/jsenv/cache/transpiler/ciztybhky0000zs4m9ovbujoy/file.js'
+});
+```
 
-- Run only : `jsenv file.js`
-- Run + hot reloading : `jsenv file.js -monitor`
-- Run + hot reloading + unit test : `jsenv file.js -monitor -test`
-- Run + hot reloading + unit test + code coverage : `jsenv file.js -monitor -test -cover`
+## Installation
 
-### List of options
+```
+npm i https://github.com/dmail/jsenv/core
+```
 
-name:default               | description
--------------------------- | ------------------
-filename:index.js         | The file that will be runned
-platform:node             | Set platform running your JavaScript, one of 'node', 'chrome'
-monitor:false             | Watch runned file and internal dependencies to re-execute when one is modified
-test:false                | Create a unit test report for runned file and its internal dependencies
-test-report-console:true  | Generate unit test report as text in the console
-test-report-json:false    | Generate unit test report as json in the console
-cover:false               | Create a code coverage report for runned file and its internal dependencies
-cover-report-console:true | Generate code coverage report as text in the console
-cover-report-json:false   | Generate code coverage report as json in the console
-cover-report-html:false   | Generate code coverage report as html in a folder at 'index-coverage' for 'index.js'
-cover-upload-codecov:false | Send code coverage report to codecov
-cover-upload-codecov-token:process.env.CODECOV_TOKEN | Use this token as authentification on codecov
+## Basic usage
+
+#### api.polyfill(featureIds, userAgentString)
+
+Creates a .js file containing all the polyfill required to get the listed features for this userAgent.
+It returns a promise resolving to the file path.
+
+#### api.transpile(filePath, featureIds, userAgentString)
+
+Create a version of the file where all feature not natively available for this userAgent are transpiled using babel.
+Returns a promise resolving to the path of the transpiled file.
 
 
 
