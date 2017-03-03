@@ -1,5 +1,7 @@
 # jsenv
 
+Warning : Under developpment, first working version planned for the 9/03/2017.
+
 Dynamic polyfill generation and dynamic file transpilation.
 
 ## Example
