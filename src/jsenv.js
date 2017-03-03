@@ -1729,17 +1729,17 @@ en fonction du résultat de ces tests
             function isBabelFix(fix) {
                 return fix.type === 'babel';
             }
-
             function execFix(fix, pass) {
                 if (isInlineFix(fix)) {
-                    return fix.value();
+                    fix.value();
+                    return pass('inline-executed');
                 }
                 if (isFileFix(fix)) {
                     if (typeof fix.value === 'string') {
                         throw new Error('missing file solution for ' + fix.name);
                     }
                     fix.value();
-                    return true;
+                    return pass('file-executed');
                 }
                 if (isBabelFix(fix)) {
                     return pass('skipped', 'babel');
@@ -1816,7 +1816,7 @@ en fonction du résultat de ces tests
             fixs.forEach(function(fix, index) {
                 if (fix) {
                     fix.dependencies = features[index].fixDependencies.map(function(featureIndex) {
-                        return fix[featureIndex];
+                        return fixs[featureIndex];
                     });
                 }
             });

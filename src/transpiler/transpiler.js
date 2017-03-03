@@ -2,7 +2,9 @@ var store = require('../store/store.js');
 var memoize = require('../memoize.js');
 var fsAsync = require('../fs-async.js');
 
-var rootFolder = require('path').resolve(__dirname, '../../').replace(/\\/g, '/');
+var path = require('path');
+var rootFolder = path.resolve(__dirname, '../../').replace(/\\/g, '/');
+var ancestorFolder = path.resolve(rootFolder, '../').replace(/\\/g, '/');
 var cacheFolder = rootFolder + '/cache';
 var transpilerCacheFolder = cacheFolder + '/transpiler';
 
@@ -75,46 +77,45 @@ function createTranspiler(transpilerOptions) {
         var filename = options.filename;
         if (filename) {
             var nodeFilePath = getNodeFilePath(filename);
-            if (nodeFilePath.indexOf(rootFolder) === 0) {
-                var relativeFilePath = nodeFilePath.slice(rootFolder.length);
-                if (relativeFilePath[0] === '/') {
-                    relativeFilePath = relativeFilePath.slice(1);
-                }
-                var entryName;
-                if (options.as === 'module') {
-                    entryName = 'modules/' + relativeFilePath;
-                } else {
-                    entryName = relativeFilePath;
-                }
-                var sources;
-                if (options.sources) {
-                    sources = options.sources.slice();
-                } else {
-                    sources = [];
-                }
-                sources.push({
-                    path: nodeFilePath,
-                    strategy: 'mtime'
-                });
-
-                var properties = {
-                    path: transpilerCacheFolder,
-                    name: entryName,
-                    behaviour: 'branch',
-                    normalize: function(options) {
-                        return {
-                            plugins: normalizePlugins(options.plugins)
-                        };
-                    },
-                    sources: sources,
-                    mode: options.cacheMode || 'default',
-                    encode: function(result) {
-                        return result.code;
-                    }
-                };
-                var entry = store.fileSystemEntry(properties);
-                return entry;
+            if (nodeFilePath.indexOf(ancestorFolder) !== 0) {
+                console.log('node file path', nodeFilePath);
+                throw new Error('cannot transpile file not inside ' + ancestorFolder);
             }
+
+            var relativeFilePath = nodeFilePath.slice(ancestorFolder.length);
+            if (relativeFilePath[0] === '/') {
+                relativeFilePath = relativeFilePath.slice(1);
+            }
+            var entryName = relativeFilePath;
+            var sources;
+            if (options.sources) {
+                sources = options.sources.slice();
+            } else {
+                sources = [];
+            }
+            sources.push({
+                path: nodeFilePath,
+                strategy: 'mtime'
+            });
+            console.log('the name', entryName);
+
+            var properties = {
+                path: transpilerCacheFolder,
+                name: entryName,
+                behaviour: 'branch',
+                normalize: function(options) {
+                    return {
+                        plugins: normalizePlugins(options.plugins)
+                    };
+                },
+                sources: sources,
+                mode: options.cacheMode || 'default',
+                encode: function(result) {
+                    return result.code;
+                }
+            };
+            var entry = store.fileSystemEntry(properties);
+            return entry;
         }
         return null;
     }
@@ -133,6 +134,15 @@ function createTranspiler(transpilerOptions) {
             babelOptions.plugins = options.plugins;
             babelOptions.ast = true;
             babelOptions.sourceMaps = true;
+            if (options.compact) {
+                babelOptions.compact = options.compact;
+            }
+            if (options.comments) {
+                babelOptions.comments = options.comments;
+            }
+            if (options.minified) {
+                babelOptions.minified = options.minified;
+            }
             // babelOptions.sourceType = 'module';
             if (options.sourceRoot) {
                 babelOptions.sourceRoot = options.sourceRoot;
@@ -179,6 +189,7 @@ function createTranspiler(transpilerOptions) {
     }
     function transpileFile(filename, transpileFileOptions) {
         var options = getOptions(transpileFileOptions);
+        filename = path.resolve(process.cwd(), filename).replace(/\\/g, '/');
         options.filename = filename;
 
         var entry = getFileEntry(options);
@@ -207,6 +218,50 @@ function createTranspiler(transpilerOptions) {
         transpileFile: transpileFile,
         clone: function() {
             return createTranspiler(transpilerOptions);
+        },
+        minify: function() {
+            var minifiedTranspiler = createTranspiler(transpilerOptions);
+            transpilerOptions.plugins = transpilerOptions.plugins.slice();
+
+            minifiedTranspiler.options.compact = true;
+            minifiedTranspiler.options.comments = false;
+            minifiedTranspiler.options.minified = true;
+
+            minifiedTranspiler.options.plugins.push(
+                ['minify-constant-folding']
+            );
+            minifiedTranspiler.options.plugins.push(
+                ['minify-dead-code-elimination']
+            );
+            minifiedTranspiler.options.plugins.push(
+                ['minify-guarded-expressions']
+            );
+            minifiedTranspiler.options.plugins.push(
+                ['minify-infinity']
+            );
+            minifiedTranspiler.options.plugins.push(
+                ['minify-mangle-names', {keepFnName: true}]
+            );
+            minifiedTranspiler.options.plugins.push(
+                ['minify-simplify']
+            );
+            minifiedTranspiler.options.plugins.push(
+                ['minify-type-constructors']
+            );
+            minifiedTranspiler.options.plugins.push(
+                ['transform-merge-sibling-variables']
+            );
+            minifiedTranspiler.options.plugins.push(
+                ['transform-minify-booleans']
+            );
+            minifiedTranspiler.options.plugins.push(
+                ['transform-simplify-comparison-operators']
+            );
+            minifiedTranspiler.options.plugins.push(
+                'transform-undefined-to-void'
+            );
+
+            return minifiedTranspiler;
         }
     };
 
@@ -285,6 +340,7 @@ function transpileTemplateTaggedWith(transpile, TAG_NAME) {
         }
 
         return {
+            name: 'transform-template-literals-tagged-with',
             visitor: {
                 TaggedTemplateExpression: visitTaggedTemplateExpression
             }

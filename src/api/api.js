@@ -6,21 +6,9 @@ with
 https://github.com/kangax/compat-table/blob/gh-pages/data-es5.js
 https://github.com/kangax/compat-table/blob/gh-pages/data-es6.js
 
-- transpile devra pouvoir se faire sur des fichiers externe
-si on install jsenv comme dépendance de project dans
-C:/Users/Damien/Document/project
-jsenv se retrouve alors dans
-C:/Users/Damien/Document/project/nodes_modules/jsenv
-et saura pas ou stocker ni d'ou provient file.js qui seras dans
-C:/Users/Damien/Document/project/file.js
-
-ptet qu'il faudra stocker dans branches.json à quoi est relatif le fichier à l'intérieur
-et donc fournir une option root pour spécifier ou se retrouve la racine à laquelle est relative
-le fichier
-et lorsqu'on cherche à match il faudra alors fournir cette racine pour pouvoir retrouver le fichier
-
 - minification
 pouvoir minifier polyfill.js
+ca fera partie des options de api.polyfill et api.transpile
 
 - sourcemap
 écrire le fichier sourceMap a coté du fichier concerné pour polyfill.js
@@ -1080,7 +1068,7 @@ var clientMatcherOptions = {
         );
     }
 };
-function polyfill(featureIds, agent) {
+function polyfill(featureIds, agent, minify) {
     var matchOptions = clientMatcherOptions;
 
     return matcher(
@@ -1093,7 +1081,8 @@ function polyfill(featureIds, agent) {
         var groups = groupBySolution(featuresToFix, abstractFeatures);
         var buildOptions = {
             root: getFolder(),
-            transpiler: transpiler,
+            transpiler: minify ? transpiler.minify() : transpiler,
+            minify: minify,
             footer: 'jsenv.polyfill(__exports__);',
             meta: {}
         };
@@ -1134,6 +1123,7 @@ function polyfill(featureIds, agent) {
                 path: polyfillCacheFolder,
                 name: 'polyfill.js',
                 behaviour: 'branch',
+                mode: 'write-only',
                 normalize: function(abstractFeatures) {
                     return {
                         features: abstractFeatures.map(function(abstractFeature) {
@@ -1159,16 +1149,17 @@ function polyfill(featureIds, agent) {
         });
     });
 }
-// polyfill(
-//     ['object/assign'],
-//     jsenv.agent
-// ).then(function(polyfill) {
-//     console.log('polyfill', polyfill);
-// }).catch(function(e) {
-//     setTimeout(function() {
-//         throw e;
-//     });
-// });
+polyfill(
+    ['object/assign'],
+    jsenv.agent,
+    true
+).then(function(polyfill) {
+    eval(String(require('fs').readFileSync(polyfill)));
+}).catch(function(e) {
+    setTimeout(function() {
+        throw e;
+    });
+});
 
 function transpile(file, featureIds, agent) {
     file = path.resolve(file).replace(/\\/g, '/');
@@ -1186,19 +1177,19 @@ function transpile(file, featureIds, agent) {
         });
     });
 }
-transpile(
-    './test.js',
-    [
-        'const/scoped'
-    ],
-    jsenv.agent
-).then(function(file) {
-    console.log('transpiled file', file);
-}).catch(function(e) {
-    setTimeout(function() {
-        throw e;
-    });
-});
+// transpile(
+//     './test.js',
+//     [
+//         'const/scoped'
+//     ],
+//     jsenv.agent
+// ).then(function(file) {
+//     console.log('transpiled file', file);
+// }).catch(function(e) {
+//     setTimeout(function() {
+//         throw e;
+//     });
+// });
 
 function createBrowserMediator(featureIds) {
     return {

@@ -40,7 +40,18 @@ var createFileSystemEntry = (function() {
             // console.log('prevalidate', path);
 
             return Promise.all([
-                fsAsync.getFileMtime(path),
+                fsAsync.getFileMtime(path).catch(function(e) {
+                    if (e && e.code === 'ENOENT') {
+                        var data = entry.data;
+                        data.valid = false;
+                        data.reason = 'file-not-found';
+                        data.detail = {
+                            path: path
+                        };
+                        return data;
+                    }
+                    return Promise.reject(e);
+                }),
                 fsAsync.getFileMtime(sourcePath).catch(function(e) {
                     // console.log('the source error', sourcePath);
                     if (e && e.code === 'ENOENT') {

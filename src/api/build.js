@@ -36,7 +36,7 @@ var Instruction = (function() {
             this.name = '$' + id;
             preventMembersConflict.call(this, id);
         },
-        toSource: function() {
+        toSource: function(minify) {
             var source;
             if (this.members.length === 1 && this.members[0].name === '') {
                 var firstMember = this.members[0];
@@ -47,7 +47,9 @@ var Instruction = (function() {
                 source += ' = ';
                 source += uneval(this.from);
                 source += ';';
-                source += '\n';
+                if (!minify) {
+                    source += '\n';
+                }
 
                 var inlineName = this.name;
                 source += this.members.map(function(member) {
@@ -63,7 +65,7 @@ var Instruction = (function() {
                     }
                     memberSource += ';';
                     return memberSource;
-                }).join('\n');
+                }).join(minify ? '' : '\n');
             }
             return source;
         }
@@ -79,7 +81,7 @@ var Instruction = (function() {
         findMember: findMember,
         addMember: addMember,
         preventConflict: preventMembersConflict,
-        toSource: function() {
+        toSource: function(minify) {
             var source = 'import {';
             source += this.members.map(function(member) {
                 var memberSource = '';
@@ -88,7 +90,7 @@ var Instruction = (function() {
                     memberSource += ' as ' + member.as;
                 }
                 return memberSource;
-            }).join(', ');
+            }).join(minify ? ',' : ', ');
             source += '}';
             source += ' from ';
             source += "'" + this.from + "'";
@@ -112,7 +114,7 @@ var Instruction = (function() {
 var uneval = require('../uneval.js');
 require('../jsenv.js');
 var Iterable = jsenv.Iterable;
-function generateSource(abstractObjects) {
+function generateSource(abstractObjects, minify) {
     var instructions = [];
     var links = [];
     abstractObjects.forEach(function(abstractObject) {
@@ -148,8 +150,8 @@ function generateSource(abstractObjects) {
 
     function generateInstructionSource() {
         return instructions.map(function(instruction) {
-            return instruction.toSource();
-        }).join('\n');
+            return instruction.toSource(minify);
+        }).join(minify ? '' : '\n');
     }
     function getAbstractObjectVariableNameForProperty(abstractObject, property) {
         var link = Iterable.find(links, function(link) {
@@ -173,22 +175,26 @@ function generateSource(abstractObjects) {
             var objectSource = '{';
             objectSource += Object.keys(abstractObject).map(function(key) { // eslint-disable-line
                 return '"' + key + '": ' + getAbstractObjectVariableNameForProperty(abstractObject, key);
-            }).join(', ');
+            }).join(minify ? ',' : ', ');
             objectSource += '}';
             return 'collect(' + objectSource + ');';
-        }).join('\n');
+        }).join(minify ? '' : '\n');
     }
 
     return (
         generateInstructionSource() +
-        '\n\n' +
-        'var collector = [];\n' +
-        'function collect(a) {\n' +
-        '   collector.push(a);\n' +
+        (minify ? '' : '\n\n') +
+        'var collector = [];' +
+        (minify ? '' : '\n') +
+        'function collect(a) {' +
+        (minify ? '' : '\n') +
+        (minify ? '' : '\t') +
+        'collector.push(a);' +
+        (minify ? '' : '\n') +
         '}' +
-        '\n' +
+        (minify ? '' : '\n') +
         generateCollectorSources() +
-        '\n' +
+        (minify ? '' : '\n') +
         'export default collector;'
     );
 }
@@ -235,8 +241,9 @@ function buildSource(abstractObjects, options) {
         var transpiler = options.transpiler;
         var mainExportName = options.mainExportName || 'default';
         var exportsName = options.exportsName || '__exports__';
+        var minify = options.minify || false;
 
-        var moduleSource = generateSource(abstractObjects, root);
+        var moduleSource = generateSource(abstractObjects, minify);
         var entryId = 'fake-entry.js';
         var entryPath = root + '/' + entryId;
         return rollup.rollup({
@@ -297,6 +304,9 @@ function buildSource(abstractObjects, options) {
                                         map: result.map
                                         // ast: result.ast.program
                                     };
+                                }).catch(function(e) {
+                                    console.log('error during transpilation', e.stack);
+                                    return Promise.reject(e);
                                 });
                             }
                         }
@@ -306,7 +316,8 @@ function buildSource(abstractObjects, options) {
         }).then(function(bundle) {
             var footer = exportsName + ';';
             if (options.footer) {
-                footer += '\n' + options.footer;
+                footer += minify ? '' : '\n';
+                footer += options.footer;
             }
 
             var result = bundle.generate({
@@ -315,12 +326,13 @@ function buildSource(abstractObjects, options) {
                 // the one where they don't have use strict
                 useStrict: false,
                 moduleName: exportsName,
-                indent: true,
+                indent: !options.minify,
                 exports: 'named',
                 banner: 'var ' + exportsName + '= {};',
                 // intro: '"intro";',
                 outro: (
-                    exportsName + '[' + uneval(mainExportName) + '] = collector;\n' +
+                    exportsName + '[' + uneval(mainExportName) + '] = collector;' +
+                    (minify ? '' : '\n') +
                     exportsName + '.meta = ' + uneval(options.meta || {}) + ';'
                 ),
                 footer: footer
