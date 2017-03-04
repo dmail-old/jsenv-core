@@ -28,7 +28,7 @@ const test = {
             }
         },
         {
-            name: 'scoped-for-in-expression',
+            name: 'scoped-expression-for-in',
             run: transpile`(function(value) {
                 var scopes = [];
                 for(const i in value) {

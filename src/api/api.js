@@ -883,23 +883,23 @@ function createOwnMediator(featureIds, agent) {
         return data;
     }
 }
-// var ownMediator = createOwnMediator(
-//     [
-//         // 'promise/unhandled-rejection',
-//         // 'promise/rejection-handled'
-//         // 'const/scoped'
-//         'const/scoped'
-//     ],
-//     String(jsenv.agent)
-// );
-// var client = jsenv.createImplementationClient(ownMediator);
-// client.fix().then(function() {
-//     console.log('ok');
-// }).catch(function(e) {
-//     setTimeout(function() {
-//         throw e;
-//     });
-// });
+var ownMediator = createOwnMediator(
+    [
+        // 'promise/unhandled-rejection',
+        // 'promise/rejection-handled'
+        // 'const/scoped'
+        'const'
+    ],
+    String(jsenv.agent)
+);
+var client = jsenv.createImplementationClient(ownMediator);
+client.test().then(function() {
+    console.log('ok');
+}).catch(function(e) {
+    setTimeout(function() {
+        throw e;
+    });
+});
 
 function getClosestAgentForFeature(featureId, agent) {
     var featureFolderPath = pathFromId(featureId);
@@ -1152,17 +1152,17 @@ function polyfill(featureIds, agent, minify) {
         });
     });
 }
-polyfill(
-    ['object/assign'],
-    jsenv.agent,
-    true
-).then(function(polyfill) {
-    eval(String(require('fs').readFileSync(polyfill)));
-}).catch(function(e) {
-    setTimeout(function() {
-        throw e;
-    });
-});
+// polyfill(
+//     ['object/assign'],
+//     jsenv.agent,
+//     true
+// ).then(function(polyfill) {
+//     eval(String(require('fs').readFileSync(polyfill)));
+// }).catch(function(e) {
+//     setTimeout(function() {
+//         throw e;
+//     });
+// });
 
 function transpile(file, featureIds, agent) {
     file = path.resolve(file).replace(/\\/g, '/');

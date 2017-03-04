@@ -431,7 +431,7 @@ var createFileSystemEntry = (function() {
                             data.detail = {
                                 path: path
                             };
-                            return data;
+                            return Promise.reject(data);
                         }
                         return Promise.reject(e);
                     });

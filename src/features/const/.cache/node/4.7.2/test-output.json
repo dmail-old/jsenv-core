@@ -1,12 +1,17 @@
 {
 	"sources": [
 		{
-			"path": "../../../../feature.js",
-			"eTag": "\"1cb-Z+QtOjuj9QMx8fI1u/NUbWYlPfk\""
+			"path": "../../../test.js",
+			"eTag": "\"c8b-4USDzG+Ls06KTvBIoW72U36sgDA\""
 		}
 	],
 	"value": {
-		"status": "passed",
-		"reason": "returned-true"
+		"status": "failed",
+		"reason": "scoped-scoped-unexpected-throw",
+		"detail": {
+			"name": "SyntaxError",
+			"message": "Identifier 'a' has already been declared",
+			"stack": "SyntaxError: Identifier 'a' has already been declared\n    at eval (eval at <anonymous> (eval at fromServer (C:\\Users\\Damien\\Documents\\GitHub\\core\\src\\api\\api.js:878:25)), <anonymous>:1:10)\n    at test.children.complete (eval at fromServer (C:\\Users\\Damien\\Documents\\GitHub\\core\\src\\api\\api.js:878:25), <anonymous>:233:32)\n    at execTest (C:\\Users\\Damien\\Documents\\GitHub\\core\\src\\jsenv.js:1689:43)\n    at execChild (C:\\Users\\Damien\\Documents\\GitHub\\core\\src\\jsenv.js:1768:47)\n    at C:\\Users\\Damien\\Documents\\GitHub\\core\\src\\jsenv.js:1475:28\n    at Array.map (native)\n    at Object.parallelAsync (C:\\Users\\Damien\\Documents\\GitHub\\core\\src\\jsenv.js:1474:46)\n    at C:\\Users\\Damien\\Documents\\GitHub\\core\\src\\jsenv.js:1775:44\n    at Immediate._onImmediate (C:\\Users\\Damien\\Documents\\GitHub\\core\\src\\jsenv.js:1192:37)\n    at processImmediate [as _immediateCallback] (timers.js:396:17)"
+		}
 	}
 }

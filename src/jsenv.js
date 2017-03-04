@@ -1617,6 +1617,7 @@ en fonction du résultat de ces tests
 
         return {
             serieAsync: asyncMethods.serie,
+            parallelAsync: asyncMethods.parallel,
             groupByDependencyDepth: groupByDependencyDepth,
             collectDependencies: collectDependencies,
             map: function(nodes, fn, options) {
@@ -1746,6 +1747,7 @@ en fonction du résultat de ces tests
                                 value = pass('resolved', value);
                             }
                             nameReason(value);
+                            console.log('naming from resolve', name, value.reason);
                             if (value.status === 'failed') {
                                 return Promise.reject(value);
                             }
@@ -1757,19 +1759,39 @@ en fonction du résultat de ces tests
                                 value = fail('rejected', value);
                             }
                             nameReason(value);
+                            console.log('naming from reject', name, value.reason);
                             return Promise.reject(value);
                         }
                     );
                 }
                 function execChild(child) {
-                    return castThenableOutput(jsenv.execTest(child), child);
+                    return castThenableOutput(execTest(child, pass, fail), child);
                 }
+                // ok bon faut un truc mieux
+                // les tests composite doivent retourner comment ils se sont passées
+                // en mode {output: testOutput, chidlren: chidlrenOutput}
+                // par contre lorsqu'un test fail s'est children ne doivent pas s'éxécuter
+                // les dépendent children non plus
                 return castThenableOutput(testThenable, test).then(function(output) {
                     var children = test.children;
                     if (children) {
-                        return jsenv.graph.serieAsync(children, execChild).then(function() {
+                        return jsenv.graph.parallelAsync(children, execChild).then(function(childrenOutputs) {
                             var dependentChildren = test.dependentChildren;
-                            return jsenv.graph.serieAsync(dependentChildren, execChild);
+                            if (dependentChildren) {
+                                return jsenv.graph.parallelAsync(dependentChildren, execChild).then(
+                                    function(dependentsOutputs) {
+                                        return {
+                                            output: output,
+                                            children: childrenOutputs,
+                                            dependents: dependentsOutputs
+                                        };
+                                    }
+                                );
+                            }
+                            return {
+                                output: output,
+                                children: childrenOutputs
+                            };
                         });
                     }
                     return output;
