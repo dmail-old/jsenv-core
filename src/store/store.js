@@ -329,6 +329,9 @@ var createFileSystemEntry = (function() {
         unwrap: function(value) {
             return value;
         },
+        save: function(path, value) {
+            return fsAsync.setFileContent(path, value);
+        },
         branchMatch: function(branch, normalizedArgs) {
             return JSON.stringify(branch.args) === JSON.stringify(normalizedArgs);
         },
@@ -516,7 +519,7 @@ var createFileSystemEntry = (function() {
                 var path = values[0];
                 var content = values[1];
                 data.path = path;
-                return fsAsync.setFileContent(path, content);
+                return entry.save(path, content);
             }).then(function() {
                 return data;
             });

@@ -1,6 +1,7 @@
 var store = require('../store/store.js');
 var memoize = require('../memoize.js');
 var fsAsync = require('../fs-async.js');
+var locateSourceMap = require('../api/source-map-locate.js');
 
 var path = require('path');
 var rootFolder = path.resolve(__dirname, '../../').replace(/\\/g, '/');
@@ -78,7 +79,7 @@ function createTranspiler(transpilerOptions) {
         if (filename) {
             var nodeFilePath = getNodeFilePath(filename);
             if (nodeFilePath.indexOf(ancestorFolder) !== 0) {
-                console.log('node file path', nodeFilePath);
+                // console.log('node file path', nodeFilePath);
                 throw new Error('cannot transpile file not inside ' + ancestorFolder);
             }
 
@@ -110,8 +111,18 @@ function createTranspiler(transpilerOptions) {
                 },
                 sources: sources,
                 mode: options.cacheMode || 'default',
-                encode: function(result) {
-                    return result.code;
+                save: function(filename, result) {
+                    if (options.sourceMaps) {
+                        var relativeSourceMapUrl = path.basename(filename) + '.map';
+                        var sourceMapUrl = path.dirname(filename) + '/' + relativeSourceMapUrl;
+                        result.code += '\n//# sourceMappingURL=' + relativeSourceMapUrl;
+                        locateSourceMap(result.map, filename);
+                        return Promise.all([
+                            fsAsync.setFileContent(filename, result.code),
+                            fsAsync.setFileContent(sourceMapUrl, JSON.stringify(result.map))
+                        ]);
+                    }
+                    return fsAsync.setFileContent(filename, result.code);
                 }
             };
             var entry = store.fileSystemEntry(properties);
@@ -221,43 +232,54 @@ function createTranspiler(transpilerOptions) {
         },
         minify: function() {
             var minifiedTranspiler = createTranspiler(transpilerOptions);
-            transpilerOptions.plugins = transpilerOptions.plugins.slice();
+            var minifiedOptions = minifiedTranspiler.options;
+            var minifiedPlugins = minifiedOptions.plugins.slice();
+            minifiedOptions.plugins = minifiedPlugins;
 
-            minifiedTranspiler.options.compact = true;
-            minifiedTranspiler.options.comments = false;
-            minifiedTranspiler.options.minified = true;
-
-            minifiedTranspiler.options.plugins.push(
+            minifiedOptions.compact = true;
+            minifiedOptions.comments = false;
+            minifiedOptions.minified = true;
+            minifiedPlugins.push(
                 ['minify-constant-folding']
             );
-            minifiedTranspiler.options.plugins.push(
-                ['minify-dead-code-elimination']
+            minifiedPlugins.push(
+                [
+                    'minify-dead-code-elimination',
+                    {
+                        "keepFnName": true,
+                        "keepFnArgs": true,
+                        "keepClassName": true
+                    }
+                ]
             );
-            minifiedTranspiler.options.plugins.push(
+            minifiedPlugins.push(
                 ['minify-guarded-expressions']
             );
-            minifiedTranspiler.options.plugins.push(
-                ['minify-infinity']
+            minifiedPlugins.push(
+                [
+                    'minify-mangle-names',
+                    {
+                        keepFnName: true,
+                        keepClassName: true
+                    }
+                ]
             );
-            minifiedTranspiler.options.plugins.push(
-                ['minify-mangle-names', {keepFnName: true}]
-            );
-            minifiedTranspiler.options.plugins.push(
+            minifiedPlugins.push(
                 ['minify-simplify']
             );
-            minifiedTranspiler.options.plugins.push(
+            minifiedPlugins.push(
                 ['minify-type-constructors']
             );
-            minifiedTranspiler.options.plugins.push(
+            minifiedPlugins.push(
                 ['transform-merge-sibling-variables']
             );
-            minifiedTranspiler.options.plugins.push(
+            minifiedPlugins.push(
                 ['transform-minify-booleans']
             );
-            minifiedTranspiler.options.plugins.push(
+            minifiedPlugins.push(
                 ['transform-simplify-comparison-operators']
             );
-            minifiedTranspiler.options.plugins.push(
+            minifiedPlugins.push(
                 'transform-undefined-to-void'
             );
 

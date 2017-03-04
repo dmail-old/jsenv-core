@@ -6,14 +6,6 @@ with
 https://github.com/kangax/compat-table/blob/gh-pages/data-es5.js
 https://github.com/kangax/compat-table/blob/gh-pages/data-es6.js
 
-- minification
-pouvoir minifier polyfill.js
-ca fera partie des options de api.polyfill et api.transpile
-
-- sourcemap
-écrire le fichier sourceMap a coté du fichier concerné pour polyfill.js
-et pour tous les fichier transpilé
-
 - produire test-output.json de chaque feature une après l'autre pour node 0.12
 - puis faire pareil avec fix-output.json
 
@@ -29,6 +21,7 @@ var store = require('../store/store.js');
 var fsAsync = require('../fs-async.js');
 var memoize = require('../memoize.js');
 var createTranspiler = require('../transpiler/transpiler.js');
+var locateSourceMap = require('./source-map-locate.js');
 
 var rootFolder = path.resolve(__dirname, '../../').replace(/\\/g, '/');
 var cacheFolder = rootFolder + '/cache';
@@ -347,7 +340,7 @@ function getTestInstructions(featureIds, agent) {
                 root: getFolder()
             }
         ).then(function(bundle) {
-            return bundle.source;
+            return bundle.code;
         });
     });
 }
@@ -833,7 +826,7 @@ function getFixInstructions(featureIds, agent) {
                 abstractFeatures,
                 buildOptions
             ).then(function(bundle) {
-                return bundle.source;
+                return bundle.code;
             });
         });
     });
@@ -1131,7 +1124,17 @@ function polyfill(featureIds, agent, minify) {
                         })
                     };
                 },
-                sources: sources
+                sources: sources,
+                save: function(filename, result) {
+                    var relativeSourceMapUrl = path.basename(filename) + '.map';
+                    var sourceMapUrl = path.dirname(filename) + '/' + relativeSourceMapUrl;
+                    result.code += '\n//# sourceMappingURL=' + relativeSourceMapUrl;
+                    locateSourceMap(result.map, filename);
+                    return Promise.all([
+                        fsAsync.setFileContent(filename, result.code),
+                        fsAsync.setFileContent(sourceMapUrl, JSON.stringify(result.map))
+                    ]);
+                }
             });
             return entry.get(abstractFeatures).then(function(data) {
                 if (data.valid) {
@@ -1141,7 +1144,7 @@ function polyfill(featureIds, agent, minify) {
                     abstractFeatures,
                     buildOptions
                 ).then(function(bundle) {
-                    return entry.set(bundle.source, abstractFeatures).then(function(data) {
+                    return entry.set(bundle, abstractFeatures).then(function(data) {
                         return data.path;
                     });
                 });
