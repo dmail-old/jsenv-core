@@ -1616,6 +1616,7 @@ en fonction du résultat de ces tests
         }
 
         return {
+            serieAsync: asyncMethods.serie,
             groupByDependencyDepth: groupByDependencyDepth,
             collectDependencies: collectDependencies,
             map: function(nodes, fn, options) {
@@ -1686,7 +1687,7 @@ en fonction du résultat de ces tests
                     try {
                         testReturnValue = testTransformer(compileResult, pass, fail);
                     } catch (e) {
-                        testReturnValue = fail('unexpected-test-throw', e);
+                        testReturnValue = fail('unexpected-throw', e);
                     }
                 }
 
@@ -1698,7 +1699,8 @@ en fonction du résultat de ces tests
                         timeout = null;
                     }
                 };
-                return Thenable.race([
+
+                var testThenable = Thenable.race([
                     Thenable.resolve(testReturnValue).then(
                         function(value) {
                             clean();
@@ -1715,6 +1717,63 @@ en fonction du résultat de ces tests
                         }, maxDuration);
                     })
                 ]);
+
+                var Output = jsenv.Output;
+                function castThenableOutput(thenable, test) {
+                    var name = test.name || 'test';
+
+                    function cast(value) {
+                        if (value === true) {
+                            return pass('returned-true');
+                        }
+                        if (value === false) {
+                            return fail('returned-false');
+                        }
+                        return value;
+                    }
+                    function nameReason(output) {
+                        if (output.reason) {
+                            output.reason = name + '-' + output.reason;
+                        } else {
+                            output.reason = name + '-without-reason';
+                        }
+                    }
+
+                    return thenable.then(
+                        function(value) {
+                            value = cast(value);
+                            if (Output.is(value) === false) {
+                                value = pass('resolved', value);
+                            }
+                            nameReason(value);
+                            if (value.status === 'failed') {
+                                return Promise.reject(value);
+                            }
+                            return value;
+                        },
+                        function(value) {
+                            value = cast(value);
+                            if (Output.is(value) === false) {
+                                value = fail('rejected', value);
+                            }
+                            nameReason(value);
+                            return Promise.reject(value);
+                        }
+                    );
+                }
+                function execChild(child) {
+                    return castThenableOutput(jsenv.execTest(child), child);
+                }
+                return castThenableOutput(testThenable, test).then(function(output) {
+                    var children = test.children;
+                    if (children) {
+                        return jsenv.graph.serieAsync(children, execChild).then(function() {
+                            var dependentChildren = test.dependentChildren;
+                            return jsenv.graph.serieAsync(dependentChildren, execChild);
+                        });
+                    }
+                    return output;
+                });
             }
 
             return execTest;
