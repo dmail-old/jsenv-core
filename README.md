@@ -1,4 +1,4 @@
-# jsenv
+# jsenv-core
 
 Warning : Under developpment, first working version planned for the 9/03/2017.
 
@@ -7,7 +7,7 @@ Dynamic polyfill generation and dynamic file transpilation.
 ## Example
 
 ```javascript
-var api = require('jsenv');
+var jsenv = require('jsenv-core');
 var features = [
     'const',
     'for-of',
@@ -15,12 +15,12 @@ var features = [
     'symbol'
 ];
 
-api.polyfill(features, 'node/0.12.3').then(function(polyfill) {
+jsenv.polyfill(features, 'node/0.12.3').then(function(polyfill) {
     console.log(polyfill);
     // logs './node_modules/jsenv/cache/polyfill/ciztxodqg0000x84mdrd5crjz/polyfill.js'
 });
 
-api.transpile('./file.js', features, 'node/0.12.3').then(function(transpiledFile) {
+jsenv.transpile('./file.js', features, 'node/0.12.3').then(function(transpiledFile) {
     console.log(transpiledFile);
     // logs './node_modules/jsenv/cache/transpiler/ciztybhky0000zs4m9ovbujoy/file.js'
 });
@@ -34,12 +34,12 @@ npm i https://github.com/jsenv/core
 
 ## Basic usage
 
-#### api.polyfill(featureIds, userAgent)
+#### jsenv.polyfill(featureIds, userAgent)
 
 Creates a file with fix instructions required by this userAgent to get the listed features.  
 Returns a promise resolving to the path of the file containing instructions.
 
-#### api.transpile(filePath, featureIds, userAgent)
+#### jsenv.transpile(filePath, featureIds, userAgent)
 
 Creates a file transpiling what is required by this userAgent to get the listed features (transpilation is done using [babel](https://babeljs.io/)).  
 Returns a promise resolving to the path of the transpiled file.
