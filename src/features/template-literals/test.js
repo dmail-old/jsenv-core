@@ -1,6 +1,6 @@
 import '/object/is-frozen/test.js';
 
-import {transpile, sameValues} from '/test-helpers.js';
+import {transpile, sameValues, every} from '/test-helpers.js';
 
 const test = {
     run: transpile`(function(a) {
@@ -78,7 +78,7 @@ const test = {
                         sameValues(calledWith.slice(1), [value])
                     );
                 },
-                function() {
+                function(fn) {
                     var parts;
                     function tag() {
                         parts = arguments[0];
