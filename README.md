@@ -15,14 +15,14 @@ var features = [
     'symbol'
 ];
 
-jsenv.polyfill(features, 'node/0.12.3').then(function(polyfill) {
+jsenv.polyfill(features, 'firefox/44.0').then(function(polyfill) {
     console.log(polyfill);
-    // logs './node_modules/jsenv/cache/polyfill/ciztxodqg0000x84mdrd5crjz/polyfill.js'
+    // logs './node_modules/jsenv-core/cache/polyfill/ciztxodqg0000x84mdrd5crjz/polyfill.js'
 });
 
-jsenv.transpile('./file.js', features, 'node/0.12.3').then(function(transpiledFile) {
+jsenv.transpile('./file.js', features, 'chrome/52.5.10').then(function(transpiledFile) {
     console.log(transpiledFile);
-    // logs './node_modules/jsenv/cache/transpiler/ciztybhky0000zs4m9ovbujoy/file.js'
+    // logs './node_modules/jsenv-core/cache/transpiler/ciztybhky0000zs4m9ovbujoy/file.js'
 });
 ```
 
