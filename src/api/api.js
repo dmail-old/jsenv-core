@@ -6,10 +6,12 @@ with
 https://github.com/kangax/compat-table/blob/gh-pages/data-es5.js
 https://github.com/kangax/compat-table/blob/gh-pages/data-es6.js
 
+- implémenter test.children & test.dependentChildren (cf destructuring/test.js)
+
+- everyAsync dans test helpers
+
 - produire test-output.json de chaque feature une après l'autre pour node 0.12
 - puis faire pareil avec fix-output.json
-
-- implémenter test.children & test.dependentChildren (cf destructuring/test.js)
 
 */
 

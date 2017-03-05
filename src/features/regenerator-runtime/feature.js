@@ -1,13 +1,8 @@
-import {at, present} from 'helper/detect.js';
-const objectName = 'regeneratorRuntime';
+import {at, present} from '/test-helpers.js';
+
 const test = {
-    run: at(objectName),
+    run: at('regeneratorRuntime'),
     complete: present
 };
-export {test};
 
-const solution = {
-    type: 'file',
-    value: '${rootFolder}/node_modules/regenerator-runtime/runtime.js'
-};
-export {solution};
+export default test;

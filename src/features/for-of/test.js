@@ -1,6 +1,6 @@
-import '/array/prototype/symbol-iterator/test.js';
-import '/string/prototype/symbol-iterator/test.js';
+import '/symbol/iterator/test.js';
 import '/object/create/test.js';
+
 import {transpile, sameValues, createIterableObject, every} from '/test-helpers.js';
 
 const test = {

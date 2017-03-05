@@ -1,8 +1,8 @@
-import {transpile, sameValues, expectThrow, every, createIterableObject} from '/test-helpers.js';
+import '/object/assign/test.js';
 import '/symbol/iterator/test.js';
-import '/array/prototype/symbol-iterator.js';
-import '/string/prototype/symbol-iterator.js';
 import '/object/create/test.js';
+
+import {transpile, sameValues, expectThrow, every, createIterableObject} from '/test-helpers.js';
 
 const test = {
     run: transpile`(function(value) {

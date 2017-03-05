@@ -1,4 +1,5 @@
 import '/object/is-frozen/test.js';
+
 import {transpile, sameValues} from '/test-helpers.js';
 
 const test = {
