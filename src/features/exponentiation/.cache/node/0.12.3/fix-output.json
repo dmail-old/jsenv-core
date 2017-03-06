@@ -1,0 +1,40 @@
+{
+	"sources": [
+		{
+			"path": "../../../fix.js",
+			"eTag": "\"68-5pz+X04+s269ukPumXDEsbQqnv8\""
+		}
+	],
+	"value": {
+		"status": "passed",
+		"reason": "done",
+		"detail": {
+			"compiles": {
+				"status": "passed",
+				"reason": "resolved"
+			},
+			"runs": {
+				"status": "passed",
+				"reason": "returned-true"
+			},
+			"assignment": {
+				"status": "passed",
+				"reason": "done",
+				"detail": {
+					"compiles": {
+						"status": "passed",
+						"reason": "resolved"
+					},
+					"runs": {
+						"status": "passed",
+						"reason": "returned-true"
+					}
+				}
+			},
+			"throw-on-negative-without-parenthesis": {
+				"status": "passed",
+				"reason": "returned-true"
+			}
+		}
+	}
+}

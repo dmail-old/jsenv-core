@@ -1,0 +1,82 @@
+{
+	"sources": [
+		{
+			"path": "../../../fix.js",
+			"eTag": "\"13b-APszvdhJkoVDko0ezQxdUw99qMc\""
+		}
+	],
+	"value": {
+		"status": "passed",
+		"reason": "done",
+		"detail": {
+			"compiles": {
+				"status": "passed",
+				"reason": "resolved"
+			},
+			"runs": {
+				"status": "passed",
+				"reason": "returned-true"
+			},
+			"expression mustache": {
+				"status": "passed",
+				"reason": "done",
+				"detail": {
+					"compiles": {
+						"status": "passed",
+						"reason": "resolved"
+					},
+					"runs": {
+						"status": "passed",
+						"reason": "returned-true"
+					}
+				}
+			},
+			"expression use toString method": {
+				"status": "passed",
+				"reason": "done",
+				"detail": {
+					"compiles": {
+						"status": "passed",
+						"reason": "resolved"
+					},
+					"runs": {
+						"status": "passed",
+						"reason": "returned-true"
+					}
+				}
+			},
+			"line break are normalized to linefeed": {
+				"status": "passed",
+				"reason": "done",
+				"detail": {
+					"compiles": {
+						"status": "passed",
+						"reason": "resolved"
+					},
+					"runs": {
+						"status": "passed",
+						"reason": "returned-true"
+					}
+				}
+			},
+			"tagged": {
+				"status": "passed",
+				"reason": "done",
+				"detail": {
+					"compiles": {
+						"status": "passed",
+						"reason": "resolved"
+					},
+					"runs": {
+						"status": "passed",
+						"reason": "returned-true"
+					},
+					"parts & parts.raw are frozen": {
+						"status": "passed",
+						"reason": "returned-true"
+					}
+				}
+			}
+		}
+	}
+}

@@ -1,0 +1,13 @@
+{
+	"sources": [
+		{
+			"path": "../../../test.js",
+			"eTag": "\"1869-psPyE0h/PD31mon2DbNBgu8AOlc\""
+		}
+	],
+	"value": {
+		"status": "failed",
+		"reason": "dependency-is-failed",
+		"detail": "for-of"
+	}
+}

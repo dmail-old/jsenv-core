@@ -1,0 +1,466 @@
+{
+	"sources": [
+		{
+			"path": "../../../fix.js",
+			"eTag": "\"d8-2FLoKxooWlsK+rdm6qd9Ytkv5Mw\""
+		}
+	],
+	"value": {
+		"status": "passed",
+		"reason": "done",
+		"detail": {
+			"assignment": {
+				"status": "passed",
+				"reason": "done",
+				"detail": {
+					"array-notation": {
+						"status": "passed",
+						"reason": "done",
+						"detail": {
+							"compiles": {
+								"status": "passed",
+								"reason": "resolved"
+							},
+							"runs": {
+								"status": "passed",
+								"reason": "returned-true"
+							},
+							"chain": {
+								"status": "passed",
+								"reason": "done",
+								"detail": {
+									"compiles": {
+										"status": "passed",
+										"reason": "resolved"
+									},
+									"runs": {
+										"status": "passed",
+										"reason": "returned-true"
+									}
+								}
+							},
+							"empty": {
+								"status": "passed",
+								"reason": "done",
+								"detail": {
+									"compiles": {
+										"status": "passed",
+										"reason": "resolved"
+									},
+									"runs": {
+										"status": "passed",
+										"reason": "resolved"
+									}
+								}
+							},
+							"expression-return": {
+								"status": "passed",
+								"reason": "done",
+								"detail": {
+									"compiles": {
+										"status": "passed",
+										"reason": "resolved"
+									},
+									"runs": {
+										"status": "passed",
+										"reason": "returned-true"
+									}
+								}
+							},
+							"rest-nest": {
+								"status": "passed",
+								"reason": "done",
+								"detail": {
+									"compiles": {
+										"status": "passed",
+										"reason": "resolved"
+									},
+									"runs": {
+										"status": "passed",
+										"reason": "returned-true"
+									}
+								}
+							}
+						}
+					},
+					"object-notation": {
+						"status": "passed",
+						"reason": "done",
+						"detail": {
+							"compiles": {
+								"status": "passed",
+								"reason": "resolved"
+							},
+							"runs": {
+								"status": "passed",
+								"reason": "returned-true"
+							},
+							"chain": {
+								"status": "passed",
+								"reason": "done",
+								"detail": {
+									"compiles": {
+										"status": "passed",
+										"reason": "resolved"
+									},
+									"runs": {
+										"status": "passed",
+										"reason": "returned-true"
+									}
+								}
+							},
+							"empty": {
+								"status": "passed",
+								"reason": "done",
+								"detail": {
+									"compiles": {
+										"status": "passed",
+										"reason": "resolved"
+									},
+									"runs": {
+										"status": "passed",
+										"reason": "resolved"
+									}
+								}
+							},
+							"expression-return": {
+								"status": "passed",
+								"reason": "done",
+								"detail": {
+									"compiles": {
+										"status": "passed",
+										"reason": "resolved"
+									},
+									"runs": {
+										"status": "passed",
+										"reason": "returned-true"
+									}
+								}
+							},
+							"rest-nest": {
+								"status": "passed",
+								"reason": "done",
+								"detail": {
+									"compiles": {
+										"status": "passed",
+										"reason": "resolved"
+									},
+									"runs": {
+										"status": "passed",
+										"reason": "returned-true"
+									}
+								}
+							},
+							"throw-left-parenthesis": {
+								"status": "passed",
+								"reason": "returned-true"
+							}
+						}
+					}
+				}
+			},
+			"declaration": {
+				"status": "passed",
+				"reason": "done",
+				"detail": {
+					"array-notation": {
+						"status": "passed",
+						"reason": "done",
+						"detail": {
+							"compiles": {
+								"status": "passed",
+								"reason": "resolved"
+							},
+							"runs": {
+								"status": "passed",
+								"reason": "returned-true"
+							},
+							"default": {
+								"status": "passed",
+								"reason": "done",
+								"detail": {
+									"compiles": {
+										"status": "passed",
+										"reason": "resolved"
+									},
+									"runs": {
+										"status": "passed",
+										"reason": "returned-true"
+									}
+								}
+							},
+							"expression-return": {
+								"status": "passed",
+								"reason": "done",
+								"detail": {
+									"compiles": {
+										"status": "passed",
+										"reason": "resolved"
+									},
+									"runs": {
+										"status": "passed",
+										"reason": "returned-true"
+									}
+								}
+							},
+							"iterable": {
+								"status": "passed",
+								"reason": "done",
+								"detail": {
+									"compiles": {
+										"status": "passed",
+										"reason": "resolved"
+									},
+									"runs": {
+										"status": "passed",
+										"reason": "returned-true"
+									}
+								}
+							},
+							"nested": {
+								"status": "passed",
+								"reason": "done",
+								"detail": {
+									"compiles": {
+										"status": "passed",
+										"reason": "resolved"
+									},
+									"runs": {
+										"status": "passed",
+										"reason": "returned-true"
+									}
+								}
+							},
+							"rest": {
+								"status": "passed",
+								"reason": "done",
+								"detail": {
+									"compiles": {
+										"status": "passed",
+										"reason": "resolved"
+									},
+									"runs": {
+										"status": "passed",
+										"reason": "returned-true"
+									}
+								}
+							},
+							"sparse": {
+								"status": "passed",
+								"reason": "done",
+								"detail": {
+									"compiles": {
+										"status": "passed",
+										"reason": "resolved"
+									},
+									"runs": {
+										"status": "passed",
+										"reason": "returned-true"
+									}
+								}
+							},
+							"statement-catch": {
+								"status": "passed",
+								"reason": "done",
+								"detail": {
+									"compiles": {
+										"status": "passed",
+										"reason": "resolved"
+									},
+									"runs": {
+										"status": "passed",
+										"reason": "returned-true"
+									}
+								}
+							},
+							"statement-for-in": {
+								"status": "passed",
+								"reason": "done",
+								"detail": {
+									"compiles": {
+										"status": "passed",
+										"reason": "resolved"
+									},
+									"runs": {
+										"status": "passed",
+										"reason": "returned-true"
+									}
+								}
+							},
+							"statement-for-of": {
+								"status": "passed",
+								"reason": "done",
+								"detail": {
+									"compiles": {
+										"status": "passed",
+										"reason": "resolved"
+									},
+									"runs": {
+										"status": "passed",
+										"reason": "returned-true"
+									}
+								}
+							},
+							"trailing-commas": {
+								"status": "passed",
+								"reason": "done",
+								"detail": {
+									"compiles": {
+										"status": "passed",
+										"reason": "resolved"
+									},
+									"runs": {
+										"status": "passed",
+										"reason": "returned-true"
+									}
+								}
+							}
+						}
+					},
+					"object-notation": {
+						"status": "passed",
+						"reason": "done",
+						"detail": {
+							"compiles": {
+								"status": "passed",
+								"reason": "resolved"
+							},
+							"runs": {
+								"status": "passed",
+								"reason": "returned-true"
+							},
+							"return-prototype-on-primitives": {
+								"status": "passed",
+								"reason": "returned-true"
+							},
+							"throw-on-null": {
+								"status": "passed",
+								"reason": "returned-true"
+							},
+							"throw-on-undefined": {
+								"status": "passed",
+								"reason": "returned-true"
+							},
+							"computed-properties": {
+								"status": "passed",
+								"reason": "done",
+								"detail": {
+									"compiles": {
+										"status": "passed",
+										"reason": "resolved"
+									},
+									"runs": {
+										"status": "passed",
+										"reason": "returned-true"
+									}
+								}
+							},
+							"default": {
+								"status": "passed",
+								"reason": "done",
+								"detail": {
+									"compiles": {
+										"status": "passed",
+										"reason": "resolved"
+									},
+									"runs": {
+										"status": "passed",
+										"reason": "returned-true"
+									},
+									"let-temporal-dead-zone": {
+										"status": "passed",
+										"reason": "returned-true"
+									}
+								}
+							},
+							"double-dot-as": {
+								"status": "passed",
+								"reason": "done",
+								"detail": {
+									"compiles": {
+										"status": "passed",
+										"reason": "resolved"
+									},
+									"runs": {
+										"status": "passed",
+										"reason": "returned-true"
+									}
+								}
+							},
+							"statement-catch": {
+								"status": "passed",
+								"reason": "done",
+								"detail": {
+									"compiles": {
+										"status": "passed",
+										"reason": "resolved"
+									},
+									"runs": {
+										"status": "passed",
+										"reason": "returned-true"
+									}
+								}
+							},
+							"trailing-commas": {
+								"status": "passed",
+								"reason": "done",
+								"detail": {
+									"compiles": {
+										"status": "passed",
+										"reason": "resolved"
+									},
+									"runs": {
+										"status": "passed",
+										"reason": "returned-true"
+									}
+								}
+							}
+						}
+					},
+					"array-notation-chain-object-notation": {
+						"status": "passed",
+						"reason": "done",
+						"detail": {
+							"compiles": {
+								"status": "passed",
+								"reason": "resolved"
+							},
+							"runs": {
+								"status": "passed",
+								"reason": "returned-true"
+							}
+						}
+					},
+					"array-notation-nest-object-notation": {
+						"status": "passed",
+						"reason": "done",
+						"detail": {
+							"compiles": {
+								"status": "passed",
+								"reason": "resolved"
+							},
+							"runs": {
+								"status": "passed",
+								"reason": "returned-true"
+							}
+						}
+					},
+					"object-notation-nest-array-notation": {
+						"status": "passed",
+						"reason": "done",
+						"detail": {
+							"comiles": {
+								"status": "passed",
+								"reason": "resolved"
+							},
+							"runs": {
+								"status": "passed",
+								"reason": "returned-true"
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+}

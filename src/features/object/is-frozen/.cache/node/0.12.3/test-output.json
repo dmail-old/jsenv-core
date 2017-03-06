@@ -1,0 +1,18 @@
+{
+	"sources": [
+		{
+			"path": "../../../test.js",
+			"eTag": "\"93-LET7OK2shAdO3W31Cz2PD3qLcGc\""
+		}
+	],
+	"value": {
+		"status": "passed",
+		"reason": "done",
+		"detail": {
+			"presence": {
+				"status": "passed",
+				"reason": "returned-true"
+			}
+		}
+	}
+}

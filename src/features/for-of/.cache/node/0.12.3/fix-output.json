@@ -1,0 +1,54 @@
+{
+	"sources": [
+		{
+			"path": "../../../fix.js",
+			"eTag": "\"5e-797dqGwCKwPh9DFxHXygmYpzeO0\""
+		}
+	],
+	"value": {
+		"status": "passed",
+		"reason": "done",
+		"detail": {
+			"compiles": {
+				"status": "passed",
+				"reason": "resolved"
+			},
+			"works with array": {
+				"status": "passed",
+				"reason": "returned-true"
+			},
+			"works with iterable": {
+				"status": "passed",
+				"reason": "returned-true"
+			},
+			"iterable return method called on break": {
+				"status": "passed",
+				"reason": "done",
+				"detail": {
+					"compiles": {
+						"status": "passed",
+						"reason": "resolved"
+					},
+					"runs": {
+						"status": "passed",
+						"reason": "returned-true"
+					}
+				}
+			},
+			"iterable return method called on throw": {
+				"status": "passed",
+				"reason": "done",
+				"detail": {
+					"compiles": {
+						"status": "passed",
+						"reason": "resolved"
+					},
+					"runs": {
+						"status": "passed",
+						"reason": "returned-true"
+					}
+				}
+			}
+		}
+	}
+}

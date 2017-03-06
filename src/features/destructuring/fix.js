@@ -1,8 +1,6 @@
-import '/symbol/iterator/fix.js';
-import '/array/prototype/symbol-iterator.js';
-import '/string/prototype/symbol-iterator.js';
+import '/array/prototype/symbol/iterator/fix.js';
 import '/object/create/fix.js';
-import '/let/fix.js';
+import '/block-scoping/fix.js';
 
 const fix = {
     type: 'babel',

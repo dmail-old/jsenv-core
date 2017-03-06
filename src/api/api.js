@@ -6,12 +6,22 @@ with
 https://github.com/kangax/compat-table/blob/gh-pages/data-es5.js
 https://github.com/kangax/compat-table/blob/gh-pages/data-es6.js
 
+- tester de mettre plusieur truc ensemble, et de volontairmeent mettre for-of après let ou const par ex
+
+- systemjs
+une fois que systemjs marche on se met en mode ok magel
+on est censé être capable de transpiler dynamiquement et donc de redémarrer le serveur qu'on avait avant
+
+- une fois que ce serveur tourne on met en place
+un truc genre compatibility-client.html qui essayera de communiquer avec ledit serveur
+afin de pouvoir tester firefox/chrome etc
+
+- a priori si on a un résultat de test positif pour array/from pour node0.12 on ne relance pas le test si
+la version actuelle de node est ulétieure
+le corollaire est que lorsqu'on écrit un test dans le filesystem pour une version plus ancienne
+donc le test est OK, les versions ultérieures peuvent être supprimées
+
 - produire test-output.json de chaque feature une après l'autre pour node 0.12
-
-- puis faire pareil avec fix-output.json
-
-- faudra s'assure que polyfill.js envoit bien regenrator-runtime
-lorsqu'on demande seulement function/generator
 
 */
 
@@ -631,6 +641,7 @@ function filterBySolution(features, solution, abstractFeatures) {
     var i = 0;
     var j = features.length;
     var matches = [];
+    var index = 0;
     while (i < j) {
         var feature = features[i];
         var existingFix = Iterable.find(matches, function(match) { // eslint-disable-line
@@ -639,7 +650,13 @@ function filterBySolution(features, solution, abstractFeatures) {
         if (existingFix) {
             // remove ducplicate fix from abstractFeatures (no need to fix them)
             if (abstractFeatures) {
-                abstractFeatures.split(i, 1);
+                // also remove the fix dependending on this one
+                abstractFeatures.forEach(function(abstractFeature) { // eslint-disable-line
+                    if ('fixDependencies' in abstractFeature) {
+                        Iterable.remove(abstractFeature.fixDependencies.from, index + 1);
+                    }
+                });
+                abstractFeatures.splice(i, 1);
             }
             features.splice(i, 1);
             j--;
@@ -650,6 +667,7 @@ function filterBySolution(features, solution, abstractFeatures) {
         } else {
             i++;
         }
+        index++;
     }
     return matches;
 }
@@ -908,20 +926,20 @@ function createOwnMediator(featureIds, agent) {
         return data;
     }
 }
-// var ownMediator = createOwnMediator(
-//     [
-//         'function/async'
-//     ],
-//     jsenv.agent
-// );
-// var client = jsenv.createImplementationClient(ownMediator);
-// client.scan().then(function() {
-//     console.log(Array.from);
-// }).catch(function(e) {
-//     setTimeout(function() {
-//         throw e;
-//     });
-// });
+var ownMediator = createOwnMediator(
+    [
+        'template-literals'
+    ],
+    jsenv.agent
+);
+var client = jsenv.createImplementationClient(ownMediator);
+client.scan().then(function() {
+    console.log(Array.from);
+}).catch(function(e) {
+    setTimeout(function() {
+        throw e;
+    });
+});
 
 function getBestRegisteredAgent(featureId, agent) {
     var featureFolderPath = pathFromId(featureId);
@@ -1175,7 +1193,7 @@ function polyfill(featureIds, agent, minify) {
     });
 }
 // polyfill(
-//     ['object/assign'],
+//     ['function/generator'],
 //     jsenv.agent,
 //     true
 // ).then(function(polyfill) {

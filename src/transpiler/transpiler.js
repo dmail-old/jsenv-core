@@ -304,17 +304,16 @@ function transpileTemplateTaggedWith(transpile, TAG_NAME) {
 
         function transpileTemplate(strings) {
             var result;
-            var raw = strings.raw;
+            // var raw = strings.raw;
             var i = 0;
-            var j = raw.length;
-            result = raw[i];
+            var j = strings.length;
+            result = strings[i];
             i++;
             while (i < j) {
                 result += arguments[i];
-                result += raw[i];
+                result += strings[i];
                 i++;
             }
-
             try {
                 return transpile(result).code;
             } catch (e) {
@@ -353,7 +352,7 @@ function transpileTemplateTaggedWith(transpile, TAG_NAME) {
 
             var args = [];
             var templateObject = state.file.addTemplateObject(
-                'taggedTemplateLiteral',
+                'taggedTemplateLiteralLoose',
                 t.arrayExpression([
                     t.stringLiteral(transpiled)
                 ]),

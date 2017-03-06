@@ -286,9 +286,9 @@ const SourceCode = (function() {
         }
 
         // eats leading and trailing whitespace too (trim)
-        source = source.replace(/^[\s\uFEFF\xA0]+|[\s\uFEFF\xA0]+$/g, '');
+        // source = source.replace(/^[\s\uFEFF\xA0]+|[\s\uFEFF\xA0]+$/g, '');
         // handle escaped newlines at the end to ensure they don't get stripped too
-        source = source.replace(/\\n/g, "\n");
+        // source = source.replace(/\\n/g, '\n');
 
         this.source = source;
     }
@@ -313,17 +313,18 @@ const SourceCode = (function() {
     };
 })();
 function transpile(strings) {
-    var raw = strings.raw;
+    // var raw = strings.raw;
     var i = 0;
-    var j = raw.length;
-    var result = raw[i];
+    var j = strings.length;
+    var result = strings[i];
     i++;
     while (i < j) {
         result += arguments[i];
-        result += raw[i];
+        result += strings[i];
         i++;
     }
     const sourceCode = SourceCode.create(result);
+    // console.log('the result', result, sourceCode.source);
     return function(_, transmit) {
         var value;
         try {

@@ -1,0 +1,23 @@
+{
+	"sources": [
+		{
+			"path": "../../../test.js",
+			"eTag": "\"cf9-M3u1yGb7YQ1kICsMtET4Zqjcof4\""
+		}
+	],
+	"value": {
+		"status": "failed",
+		"reason": "expectation failed: compiles",
+		"detail": {
+			"compiles": {
+				"status": "failed",
+				"reason": "rejected",
+				"detail": {
+					"name": "SyntaxError",
+					"message": "Unexpected token ILLEGAL",
+					"stack": "SyntaxError: Unexpected token ILLEGAL\n    at SourceCode.compile (eval at fromServer (C:\\Users\\Damien\\Documents\\GitHub\\core\\src\\api\\api.js:925:25), <anonymous>:284:30)\n    at Object.eval (eval at fromServer (C:\\Users\\Damien\\Documents\\GitHub\\core\\src\\api\\api.js:925:25), <anonymous>:317:33)\n    at next (eval at fromServer (C:\\Users\\Damien\\Documents\\GitHub\\core\\src\\api\\api.js:925:25), <anonymous>:36:52)\n    at eval (eval at fromServer (C:\\Users\\Damien\\Documents\\GitHub\\core\\src\\api\\api.js:925:25), <anonymous>:74:17)\n    at execTest (C:\\Users\\Damien\\Documents\\GitHub\\core\\src\\jsenv.js:1645:24)\n    at C:\\Users\\Damien\\Documents\\GitHub\\core\\src\\jsenv.js:1569:36\n    at C:\\Users\\Damien\\Documents\\GitHub\\core\\src\\jsenv.js:1486:29\n    at new Thenable (C:\\Users\\Damien\\Documents\\GitHub\\core\\src\\jsenv.js:1079:21)\n    at Object.chainAsync [as chain] (C:\\Users\\Damien\\Documents\\GitHub\\core\\src\\jsenv.js:1485:24)\n    at C:\\Users\\Damien\\Documents\\GitHub\\core\\src\\jsenv.js:1559:45"
+				}
+			}
+		}
+	}
+}

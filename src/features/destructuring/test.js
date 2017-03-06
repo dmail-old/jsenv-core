@@ -1,8 +1,6 @@
-import '/symbol/iterator/test.js';
-import '/array/prototype/symbol-iterator.js';
-import '/string/prototype/symbol-iterator.js';
+import '/array/prototype/symbol/iterator/test.js';
 import '/object/create/test.js';
-import '/let/test.js';
+import '/block-scoping/test.js';
 
 import {expect, transpile, expectThrow, sameValues, createIterableObject} from '/test-helpers.js';
 
@@ -71,7 +69,7 @@ const test = expect({
             })
         }),
         'object-notation': expect({
-            'compiles': () => transpile`(function(value) {
+            'compiles': transpile`(function(value) {
                 ({a} = {a: value});
                 return a;
             })`,
@@ -81,7 +79,7 @@ const test = expect({
                 return result === value;
             },
             'chain': expect({
-                'compiles': () => transpile`(function(value) {
+                'compiles': transpile`(function(value) {
                     var a, b;
                     ({a} = {b} = {a: value, b: value});
                     return [a, b];
@@ -93,13 +91,13 @@ const test = expect({
                 }
             }),
             'empty': expect({
-                'compiles': () => transpile`(function() {
+                'compiles': transpile`(function() {
                     ({} = {a:1, b:2});
                 })`,
                 'runs': fn => fn()
             }),
             'expression-return': expect({
-                'compiles': () => transpile`(function(value) {
+                'compiles': transpile`(function(value) {
                     var a;
                     return ({a} = value);
                 })`,
@@ -110,7 +108,7 @@ const test = expect({
                 }
             }),
             'rest-nest': expect({
-                'compiles': () => transpile`(function(first, middle, last) {
+                'compiles': transpile`(function(first, middle, last) {
                     var value = [first, middle, last];
                     var head;
                     var tail;
@@ -131,13 +129,11 @@ const test = expect({
                 }
             }),
             'throw-left-parenthesis': expectThrow(
-                () => transpile`(function(value) {
+                transpile`(function(value) {
                     var a;
                     ({a}) = value;
                 })`,
-                {
-                    name: 'SyntaxError'
-                }
+                {name: 'SyntaxError'}
             )
         })
     }),
@@ -147,7 +143,7 @@ const test = expect({
                 var [a] = value;
                 return a;
             })`,
-            'runs': fn => {
+            'runs'(fn) {
                 var value = 1;
                 var result = fn([value]);
                 return result === value;
@@ -249,47 +245,47 @@ const test = expect({
                 }
             }),
             'statement-catch': expect({
-                'compiles': () => transpile`(function(value) {
+                'compiles': transpile`(function(value) {
                     try {
                         throw value;
                     } catch ([a]) {
                         return a;
                     }
                 })`,
-                'runs': fn => {
+                'runs'(fn) {
                     var value = 1;
                     var result = fn([value]);
                     return result === value;
                 }
             }),
             'statement-for-in': expect({
-                'compiles': () => transpile`(function(value) {
+                'compiles': transpile`(function(value) {
                     for (var [a, b] in value);
                     return [a, b];
                 })`,
-                'runs': fn => {
+                'runs'(fn) {
                     var value = {fo: 1};
                     var result = fn(value);
                     return sameValues(result, ['f', 'o']);
                 }
             }),
             'statement-for-of': expect({
-                'compiles': () => transpile`(function(iterable) {
+                'compiles': transpile`(function(iterable) {
                     for(var [a, b] of iterable);
                     return [a, b];
                 })`,
-                'runs': fn => {
+                'runs'(fn) {
                     var data = [0, 1];
                     var result = fn([data]);
                     return sameValues(result, data);
                 }
             }),
             'trailing-commas': expect({
-                'compiles': () => transpile`(function(value) {
+                'compiles': transpile`(function(value) {
                     var [a,] = value;
                     return a;
                 })`,
-                'runs': fn => {
+                'runs'(fn) {
                     var value = 0;
                     var result = fn([value]);
                     return result === value;
@@ -301,12 +297,12 @@ const test = expect({
                 var {a} = value;
                 return a;
             })`,
-            'runs': fn => {
+            'runs'(fn) {
                 var value = 1;
                 var result = fn({a: value});
                 return result === value;
             },
-            'return-prototype-on-primitive': fn => {
+            'return-prototype-on-primitives'(fn) {
                 var value = 2;
                 // the expected behaviour is
                 // var {a} = 2;
@@ -336,7 +332,7 @@ const test = expect({
                     var {[name]: a} = value;
                     return a;
                 })`,
-                'runs': fn => {
+                'runs'(fn) {
                     var name = 'a';
                     var value = 1;
                     var object = {};
@@ -443,34 +439,6 @@ const test = expect({
                 var value = 1;
                 var result = fn({a: [value]});
                 return result === value;
-            }
-        })
-    }),
-    'parameters': expect({
-        'array-notation': expect({
-            'compiles': transpile`(function([a]) {
-                return a;
-            })`,
-            'runs'(fn) {
-                var value = 1;
-                var result = fn([value]);
-                return result === value;
-            },
-            'length'(fn) {
-                return fn.length === 1;
-            }
-        }),
-        'object-notation': expect({
-            'compiles': transpile`(function({a}) {
-                return a;
-            })`,
-            'runs'(fn) {
-                var value = 1;
-                var result = fn({a: value});
-                return result === value;
-            },
-            'length'(fn) {
-                return fn.length === 1;
             }
         })
     })

@@ -1,0 +1,130 @@
+{
+	"sources": [
+		{
+			"path": "../../../fix.js",
+			"eTag": "\"a3-19f55c5EOTutg+cMLpAomNRaV+U\""
+		}
+	],
+	"value": {
+		"status": "passed",
+		"reason": "done",
+		"detail": {
+			"default": {
+				"status": "passed",
+				"reason": "done",
+				"detail": {
+					"compiles": {
+						"status": "passed",
+						"reason": "resolved"
+					},
+					"runs": {
+						"status": "passed",
+						"reason": "returned-true"
+					},
+					"works with explicit undefined": {
+						"status": "passed",
+						"reason": "returned-true"
+					},
+					"does not mutate arguments": {
+						"status": "passed",
+						"reason": "done",
+						"detail": {
+							"compiles": {
+								"status": "passed",
+								"reason": "resolved"
+							},
+							"runs": {
+								"status": "passed",
+								"reason": "returned-true"
+							}
+						}
+					},
+					"can refer previous argument": {
+						"status": "passed",
+						"reason": "done",
+						"detail": {
+							"compiles": {
+								"status": "passed",
+								"reason": "resolved"
+							},
+							"runs": {
+								"status": "passed",
+								"reason": "returned-true"
+							}
+						}
+					}
+				}
+			},
+			"rest": {
+				"status": "passed",
+				"reason": "done",
+				"detail": {
+					"compiles": {
+						"status": "passed",
+						"reason": "resolved"
+					},
+					"runs": {
+						"status": "passed",
+						"reason": "returned-true"
+					},
+					"does not count in function length": {
+						"status": "passed",
+						"reason": "done",
+						"detail": {
+							"compiles": {
+								"status": "passed",
+								"reason": "resolved"
+							},
+							"runs": {
+								"status": "passed",
+								"reason": "returned-true"
+							}
+						}
+					}
+				}
+			},
+			"destructuring": {
+				"status": "passed",
+				"reason": "done",
+				"detail": {
+					"array-notation": {
+						"status": "passed",
+						"reason": "done",
+						"detail": {
+							"compiles": {
+								"status": "passed",
+								"reason": "resolved"
+							},
+							"runs": {
+								"status": "passed",
+								"reason": "returned-true"
+							},
+							"length": {
+								"status": "passed",
+								"reason": "returned-true"
+							}
+						}
+					},
+					"object-notation": {
+						"status": "passed",
+						"reason": "done",
+						"detail": {
+							"compiles": {
+								"status": "passed",
+								"reason": "resolved"
+							},
+							"runs": {
+								"status": "passed",
+								"reason": "returned-true"
+							},
+							"length": {
+								"status": "passed",
+								"reason": "returned-true"
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+}

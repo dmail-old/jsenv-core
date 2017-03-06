@@ -1,0 +1,13 @@
+{
+	"sources": [
+		{
+			"path": "../../../test.js",
+			"eTag": "\"d7c-jvUKQL1D4iNpyyc9eKw5hVUrZWM\""
+		}
+	],
+	"value": {
+		"status": "failed",
+		"reason": "dependency-is-failed",
+		"detail": "block-scoping"
+	}
+}

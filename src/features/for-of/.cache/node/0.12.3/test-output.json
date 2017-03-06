@@ -1,0 +1,40 @@
+{
+	"sources": [
+		{
+			"path": "../../../test.js",
+			"eTag": "\"86c-19aEQBNkoHgvoCkLrvtRJjxK8Yo\""
+		}
+	],
+	"value": {
+		"status": "failed",
+		"reason": "expectation failed: iterable return method called on break",
+		"detail": {
+			"compiles": {
+				"status": "passed",
+				"reason": "resolved"
+			},
+			"works with array": {
+				"status": "passed",
+				"reason": "returned-true"
+			},
+			"works with iterable": {
+				"status": "passed",
+				"reason": "returned-true"
+			},
+			"iterable return method called on break": {
+				"status": "failed",
+				"reason": "expectation failed: runs",
+				"detail": {
+					"compiles": {
+						"status": "passed",
+						"reason": "resolved"
+					},
+					"runs": {
+						"status": "failed",
+						"reason": "returned-false"
+					}
+				}
+			}
+		}
+	}
+}
