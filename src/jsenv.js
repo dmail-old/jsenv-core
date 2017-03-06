@@ -1118,9 +1118,15 @@ ainsi que quelques utilitaires comme assign, Iterable et Predicate
                 if (isThenable(value)) {
                     if (value === this) {
                         throw new TypeError('A promise cannot be resolved with itself');
-                    } else {
+                    } else if (value instanceof Thenable) {
                         this.status = 'resolved';
                         this.value = value;
+                        callThenable(
+                            value,
+                            bindAndOnce(resolveThenable, this),
+                            bindAndOnce(rejectThenable, this)
+                        );
+                    } else {
                         callThenable(
                             value,
                             bindAndOnce(resolveThenable, this),
@@ -1260,7 +1266,7 @@ ainsi que quelques utilitaires comme assign, Iterable et Predicate
             });
         };
         Thenable.race = function race(iterable) {
-            return new this(function(resolve, reject) {
+            return new this(function raceExecutor(resolve, reject) {
                 forOf(iterable, function(thenable) {
                     thenable.then(resolve, reject);
                 });
@@ -1536,7 +1542,7 @@ en fonction du résultat de ces tests
                 var result = Iterable.find(results, function(result) {
                     return result.node === node;
                 });
-                return result && result.status === 'failed';
+                return result && result.data.status === 'failed';
             }
             function dependencyIsFailed(dependency) {
                 return (
@@ -1550,17 +1556,17 @@ en fonction du résultat de ces tests
             // but I want it async when I test so that test can be async
             var serie = methods.serie(groups, function(group) {
                 return methods.parallel(group, function(node) {
-                    if ('dependencies' in node) {
-                        var dependencies = node.dependencies;
-                        var failedDependency = Iterable.find(dependencies, dependencyIsFailed, node);
-                        if (failedDependency) {
-                            return fail('dependency-is-failed', failedDependency.name);
-                        }
-                    }
-
                     var execution = methods.chain(
                         function() {
-                            return fn(node, pass, fail);
+                            if ('dependencies' in node) {
+                                var dependencies = node.dependencies;
+                                var failedDependency = Iterable.find(dependencies, dependencyIsFailed, node);
+                                if (failedDependency) {
+                                    return fail('dependency-is-failed', failedDependency.id);
+                                }
+                            }
+
+                            return fn(node);
                         },
                         function(value) {
                             value = Output.cast(value);
