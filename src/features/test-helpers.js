@@ -1,3 +1,131 @@
+const Thenable = jsenv.Thenable;
+const Output = jsenv.Output;
+
+const pass = Output.pass;
+export {pass};
+
+const fail = Output.fail;
+export {fail};
+
+const defaultMaxTestDuration = 100;
+function expect(testMap) {
+    const tests = Object.keys(testMap).map(function(testName) {
+        return {
+            name: testName,
+            test: testMap[testName]
+        };
+    });
+
+    return function() {
+        let i = 0;
+        const j = tests.length;
+        let transmittedValue;
+        let currentTest;
+        const compositeOutput = Output.create({
+            status: 'passed',
+            reason: 'no-test',
+            detail: {}
+        });
+
+        function transmit(value) {
+            transmittedValue = value;
+        }
+
+        function next() {
+            if (i === j) {
+                compositeOutput.status = 'passed';
+                compositeOutput.reason = 'done';
+                return compositeOutput;
+            }
+            currentTest = tests[i];
+            i++;
+
+            let testValue;
+            let testStatus;
+            try {
+                testValue = currentTest.test(transmittedValue, transmit);
+                testStatus = 'returned';
+            } catch (e) {
+                testValue = e;
+                testStatus = 'throwed';
+            }
+
+            let maxDuration = defaultMaxTestDuration;
+            let timeout;
+            let clean = function() {
+                if (timeout) {
+                    clearTimeout(timeout);
+                    timeout = null;
+                }
+            };
+            return Thenable.race([
+                Thenable[testStatus === 'returned' ? 'resolve' : 'reject'](testValue).then(
+                    function(value) {
+                        clean();
+                        if (value === true) {
+                            return pass('returned-true');
+                        }
+                        if (value === false) {
+                            return fail('returned-false');
+                        }
+                        if (Output.is(value)) {
+                            return value;
+                        }
+                        return pass('resolved', value);
+                    },
+                    function(value) {
+                        clean();
+                        return fail('rejected', value);
+                    }
+                ),
+                new Thenable(function(resolve) {
+                    timeout = setTimeout(function() {
+                        resolve(fail('timeout', maxDuration));
+                    }, maxDuration);
+                })
+            ]).then(function(output) {
+                compositeOutput.detail[currentTest.name] = output;
+                if (output.status === 'failed') {
+                    compositeOutput.status = 'failed';
+                    compositeOutput.reason = 'expectation failed: ' + currentTest.name;
+                    return compositeOutput;
+                }
+                return next();
+            });
+        }
+
+        return next();
+    };
+}
+export {expect};
+
+// function pipeAsync(thenable, iterable) {
+//     var i = 0;
+//     var j = iterable.length;
+//     var currentThenable = thenable;
+//     var Output = jsenv.Output;
+//     var pass = Output.pass;
+//     var fail = Output.fail;
+
+//     function transform(value) {
+//         currentThenable = Promise.resolve(value);
+//     }
+//     function next(value) {
+//         if (i === j) {
+//             return value;
+//         }
+//         if (i > 0 && value && value.status === 'failed') {
+//             return value;
+//         }
+//         var fn = iterable[i];
+//         i++;
+//         return fn(currentThenable, pass, fail, transform).then(next);
+//     }
+//     return new Promise(function(resolve) {
+//         resolve(next());
+//     });
+// }
+
 const Target = (function() {
     function Target(executor) {
         var target = this;
@@ -106,6 +234,19 @@ function at() {
 }
 export {at};
 
+function presence() {
+    const read = at.apply(null, arguments);
+    return function(_, transmit) {
+        const target = read();
+        if (target.reached) {
+            transmit(target.value);
+            return true;
+        }
+        return false;
+    };
+}
+export {presence};
+
 const SourceCode = (function() {
     function SourceCode(source) {
         // https://github.com/dmnd/dedent/blob/master/dedent.js
@@ -174,58 +315,19 @@ function transpile(strings) {
         result += raw[i];
         i++;
     }
-    return SourceCode.create(result);
-}
-export {transpile};
-
-function pipeAsync(thenable, iterable) {
-    var i = 0;
-    var j = iterable.length;
-    var currentThenable = thenable;
-    var Output = jsenv.Output;
-    var pass = Output.pass;
-    var fail = Output.fail;
-
-    function transform(value) {
-        currentThenable = Promise.resolve(value);
-    }
-    function next(value) {
-        if (i === j) {
-            return value;
+    const sourceCode = SourceCode.create(result);
+    return function(_, transmit) {
+        var value;
+        try {
+            value = sourceCode.compile();
+            transmit(value);
+        } catch (e) {
+            throw e;
         }
-        if (i > 0 && value && value.status === 'failed') {
-            return value;
-        }
-        var fn = iterable[i];
-        i++;
-        return fn(currentThenable, pass, fail, transform).then(next);
-    }
-    return new Promise(function(resolve) {
-        resolve(next());
-    });
-}
-function expect() {
-    var expectations = arguments;
-
-    return function(thenable) {
-        return pipeAsync(thenable, expectations);
+        return value;
     };
 }
-export {expect};
-
-function present(target, pass, fail) {
-    if (Target.is(target)) {
-        if (target.reached) {
-            return pass('present');
-        }
-        return fail('missing');
-    }
-    return fail('expecting-target-object');
-}
-export {present};
-
-const every = jsenv.Output.every;
-export {every};
+export {transpile};
 
 function collectKeys(value) {
     var keys = [];

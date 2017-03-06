@@ -1,3 +1,25 @@
+function defineNonEnumerableProperty(object, property, value) {
+    if (Object.defineProperty) {
+        Object.defineProperty(object, property, {
+            writable: true,
+            configurable: true,
+            enumerable: false,
+            value: value
+        });
+    } else {
+        object[property] = value;
+    }
+}
+export {defineNonEnumerableProperty as define};
+
+function fixProperty(object, property, value) {
+    return function() {
+        defineNonEnumerableProperty(object, property, value);
+        return jsenv.Output.pass('property-is-defined');
+    };
+}
+export {fixProperty};
+
 const objectPropertyIsEnumerable = Object.prototype.propertyIsEnumerable;
 function isEnumerable(object, key) {
     return objectPropertyIsEnumerable.call(object, key);

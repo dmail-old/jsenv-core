@@ -1,0 +1,18 @@
+{
+	"sources": [
+		{
+			"path": "../../../fix.js",
+			"eTag": "\"56-DlLvOVv0boUHaSqzDla6Djc4gVk\""
+		}
+	],
+	"value": {
+		"status": "passed",
+		"reason": "done",
+		"detail": {
+			"presence": {
+				"status": "passed",
+				"reason": "returned-true"
+			}
+		}
+	}
+}

@@ -5,16 +5,6 @@ import '/object/create/test.js';
 import {transpile, sameValues, expectThrow, every, createIterableObject} from '/test-helpers.js';
 
 const test = {
-    run: transpile`(function(value) {
-        const result = value;
-        return result;
-    })`,
-    complete(fn) {
-        var value = 1;
-        var result = fn(value);
-        return result === value;
-    },
-
     children: [
         {
             name: 'array-notation',

@@ -6,10 +6,6 @@ with
 https://github.com/kangax/compat-table/blob/gh-pages/data-es5.js
 https://github.com/kangax/compat-table/blob/gh-pages/data-es6.js
 
-- implémenter test.children & test.dependentChildren (cf destructuring/test.js)
-
-- everyAsync dans test helpers
-
 - produire test-output.json de chaque feature une après l'autre pour node 0.12
 - puis faire pareil avec fix-output.json
 
@@ -167,10 +163,10 @@ function recordIsInvalid(record) {
 function recordIsFailed(record) {
     return record.data.value.status === 'failed';
 }
-function getStatus(featureId, agent, includeFix, enableClosestAgent) {
+function getStatus(featureId, agent, includeFix, enableBestRegisteredAgent) {
     var featureAgentPromise;
-    if (enableClosestAgent) {
-        featureAgentPromise = getClosestAgentForFeature(featureId, agent);
+    if (enableBestRegisteredAgent) {
+        featureAgentPromise = getBestRegisteredAgent(featureId, agent);
     } else {
         featureAgentPromise = Promise.resolve(agent);
     }
@@ -284,7 +280,7 @@ function matchNodes(featureIds, agent, options) {
                 featureId,
                 agent,
                 options.needFixStatus,
-                options.inheritClosestStatus
+                options.allowRelatedStatus
             );
         }).then(function(statuses) {
             if (options.ensure) {
@@ -459,6 +455,7 @@ var coreJSSolution = {
                 );
             }
         });
+        console.log('the module names', moduleNames);
         var banner = Iterable.reduce(features, function(previous, feature) {
             if (feature.fix.beforeFix) {
                 previous += '\n' + feature.fix.beforeFix;
@@ -473,7 +470,6 @@ var coreJSSolution = {
             }
 
             if (moduleNames.length) {
-                console.log('concat corejs modules', moduleNames);
                 var buildCoreJS = require('core-js-builder');
                 var promise = buildCoreJS({
                     modules: moduleNames,
@@ -498,6 +494,7 @@ var coreJSSolution = {
                             banner: banner
                         };
                     },
+                    behaviour: 'branch',
                     path: corejsCacheFolder,
                     name: 'build.js'
                 }
@@ -890,20 +887,20 @@ var ownMediator = createOwnMediator(
         // 'promise/unhandled-rejection',
         // 'promise/rejection-handled'
         // 'const/scoped'
-        'const'
+        'array/from'
     ],
-    String(jsenv.agent)
+    jsenv.agent
 );
 var client = jsenv.createImplementationClient(ownMediator);
-client.test().then(function() {
-    console.log('ok');
+client.fix().then(function() {
+    console.log(Array.from);
 }).catch(function(e) {
     setTimeout(function() {
         throw e;
     });
 });
 
-function getClosestAgentForFeature(featureId, agent) {
+function getBestRegisteredAgent(featureId, agent) {
     var featureFolderPath = pathFromId(featureId);
     var featureCachePath = featureFolderPath + '/.cache';
 
@@ -1003,9 +1000,9 @@ function getClosestAgentForFeature(featureId, agent) {
         return missing;
     }
 
-    var closestAgent = jsenv.createAgent(agent.name, agent.version);
+    var closestPreviousAgent = jsenv.createAgent(agent.name, agent.version);
     return adaptAgentName(
-        closestAgent,
+        closestPreviousAgent,
         featureCachePath
     ).catch(function(e) {
         if (e && e.code === 'ENOENT') {
@@ -1014,8 +1011,8 @@ function getClosestAgentForFeature(featureId, agent) {
         return Promise.reject(e);
     }).then(function() {
         return adaptVersion(
-            closestAgent.version,
-            featureCachePath + '/' + closestAgent.name
+            closestPreviousAgent.version,
+            featureCachePath + '/' + closestPreviousAgent.name
         ).catch(function(e) {
             if (e && e.code === 'ENOENT') {
                 return Promise.reject(missingVersion());
@@ -1023,7 +1020,7 @@ function getClosestAgentForFeature(featureId, agent) {
             return Promise.reject(e);
         });
     }).then(function() {
-        return closestAgent;
+        return closestPreviousAgent;
     });
 }
 // getClosestAgentForFeature(
@@ -1038,7 +1035,7 @@ function getClosestAgentForFeature(featureId, agent) {
 var clientMatcherOptions = {
     file: 'fix.js',
     needFixStatus: true,
-    inheritClosestStatus: true,
+    allowRelatedStatus: true,
     // ensure: function(nodes, statuses) {
     //     var featureWithFailedTestAndFailedFix = Iterable.filterBy(
     //         nodes,
@@ -1313,7 +1310,7 @@ api.createBrowserMediator = createBrowserMediator;
 
 api.getFolder = getFolder;
 api.getFeaturePath = pathFromId;
-api.getClosestAgent = getClosestAgentForFeature;
+api.getBestRegisteredAgent = getBestRegisteredAgent;
 api.listAll = listAll;
 api.build = build;
 api.transpiler = transpiler;

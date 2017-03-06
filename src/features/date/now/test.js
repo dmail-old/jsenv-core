@@ -1,8 +1,7 @@
-import {at, present} from '/test-helpers.js';
+import {expect, presence} from '/test-helpers.js';
 
-const test = {
-    run: at('Date', 'now'),
-    complete: present
-};
+const test = expect({
+    'presence': presence('Date', 'now')
+});
 
 export default test;

@@ -98,7 +98,7 @@ function createTranspiler(transpilerOptions) {
                 path: nodeFilePath,
                 strategy: 'mtime'
             });
-            console.log('the name', entryName);
+            // console.log('the name', entryName);
 
             var properties = {
                 path: transpilerCacheFolder,

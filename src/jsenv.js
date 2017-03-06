@@ -1635,169 +1635,9 @@ en fonction du résultat de ces tests
 
     jsenv.provide(function createImplementationClient() {
         var execTest = (function() {
-            var defaultMaxDuration = 100;
-
-            function compileTest(test) {
-                var value;
-                if (test.hasOwnProperty('run')) {
-                    var run = test.run;
-                    if (typeof run === 'object') {
-                        if (run === null) {
-                            value = run;
-                        } else if (typeof run.compile === 'function') {
-                            value = run.compile();
-                        } else {
-                            value = run;
-                        }
-                    } else if (typeof run === 'function') {
-                        value = run.call(test);
-                    } else {
-                        value = run;
-                    }
-                }
-                return value;
+            function execTest(test) {
+                return test();
             }
-            function execTest(test, pass, fail) {
-                var compileResult;
-                var isCrashed;
-                try {
-                    compileResult = compileTest(test);
-                    isCrashed = false;
-                } catch (e) {
-                    compileResult = e;
-                    isCrashed = true;
-                }
-
-                var testReturnValue;
-                var testTransformer;
-                if (isCrashed === false) {
-                    if (test.hasOwnProperty('complete')) {
-                        testTransformer = test.complete;
-                    } else {
-                        testReturnValue = fail('unexpected-compile-return', compileResult);
-                    }
-                } else if (isCrashed === true) {
-                    if (test.hasOwnProperty('crash')) {
-                        testTransformer = test.crash;
-                    } else {
-                        testReturnValue = fail('unexpected-compile-throw', compileResult);
-                    }
-                }
-
-                if (testTransformer) {
-                    try {
-                        testReturnValue = testTransformer(compileResult, pass, fail);
-                    } catch (e) {
-                        testReturnValue = fail('unexpected-throw', e);
-                    }
-                }
-
-                var maxDuration = test.hasOwnProperty('maxDuration') ? test.maxDuration : defaultMaxDuration;
-                var timeout;
-                var clean = function() {
-                    if (timeout) {
-                        clearTimeout(timeout);
-                        timeout = null;
-                    }
-                };
-
-                var testThenable = Thenable.race([
-                    Thenable.resolve(testReturnValue).then(
-                        function(value) {
-                            clean();
-                            return value;
-                        },
-                        function(value) {
-                            clean();
-                            return value;
-                        }
-                    ),
-                    new Thenable(function(resolve) {
-                        timeout = setTimeout(function() {
-                            resolve(fail('timeout', maxDuration));
-                        }, maxDuration);
-                    })
-                ]);
-
-                var Output = jsenv.Output;
-                function castThenableOutput(thenable, test) {
-                    var name = test.name || 'test';
-
-                    function cast(value) {
-                        if (value === true) {
-                            return pass('returned-true');
-                        }
-                        if (value === false) {
-                            return fail('returned-false');
-                        }
-                        return value;
-                    }
-                    function nameReason(output) {
-                        if (output.reason) {
-                            output.reason = name + '-' + output.reason;
-                        } else {
-                            output.reason = name + '-without-reason';
-                        }
-                    }
-
-                    return thenable.then(
-                        function(value) {
-                            value = cast(value);
-                            if (Output.is(value) === false) {
-                                value = pass('resolved', value);
-                            }
-                            nameReason(value);
-                            console.log('naming from resolve', name, value.reason);
-                            if (value.status === 'failed') {
-                                return Promise.reject(value);
-                            }
-                            return value;
-                        },
-                        function(value) {
-                            value = cast(value);
-                            if (Output.is(value) === false) {
-                                value = fail('rejected', value);
-                            }
-                            nameReason(value);
-                            console.log('naming from reject', name, value.reason);
-                            return Promise.reject(value);
-                        }
-                    );
-                }
-                function execChild(child) {
-                    return castThenableOutput(execTest(child, pass, fail), child);
-                }
-                // ok bon faut un truc mieux
-                // les tests composite doivent retourner comment ils se sont passées
-                // en mode {output: testOutput, chidlren: chidlrenOutput}
-                // par contre lorsqu'un test fail s'est children ne doivent pas s'éxécuter
-                // les dépendent children non plus
-                return castThenableOutput(testThenable, test).then(function(output) {
-                    var children = test.children;
-                    if (children) {
-                        return jsenv.graph.parallelAsync(children, execChild).then(function(childrenOutputs) {
-                            var dependentChildren = test.dependentChildren;
-                            if (dependentChildren) {
-                                return jsenv.graph.parallelAsync(dependentChildren, execChild).then(
-                                    function(dependentsOutputs) {
-                                        return {
-                                            output: output,
-                                            children: childrenOutputs,
-                                            dependents: dependentsOutputs
-                                        };
-                                    }
-                                );
-                            }
-                            return {
-                                output: output,
-                                children: childrenOutputs
-                            };
-                        });
-                    }
-                    return output;
-                });
-            }
-
             return execTest;
         })();
         var execFix = (function() {
@@ -1807,23 +1647,33 @@ en fonction du résultat de ces tests
             function isFileFix(fix) {
                 return fix.type === 'file';
             }
+            function isCoreJSFix(fix) {
+                return fix.type === 'corejs';
+            }
             function isBabelFix(fix) {
                 return fix.type === 'babel';
             }
-            function execFix(fix, pass) {
+            function execFix(fix) {
                 if (isInlineFix(fix)) {
                     fix.value();
-                    return pass('inline-executed');
+                    return 'inline-executed';
                 }
                 if (isFileFix(fix)) {
                     if (typeof fix.value === 'string') {
                         throw new Error('missing file solution for ' + fix.name);
                     }
                     fix.value();
-                    return pass('file-executed');
+                    return 'file-executed';
+                }
+                if (isCoreJSFix(fix)) {
+                    if (typeof fix.value === 'string') {
+                        throw new Error('missing corejs solution for ' + fix.name);
+                    }
+                    fix.value();
+                    return 'corejs-executed';
                 }
                 if (isBabelFix(fix)) {
-                    return pass('skipped', 'babel');
+                    return 'skipped-babel';
                 }
                 return true;
             }
@@ -1854,7 +1704,7 @@ en fonction du résultat de ces tests
             var features = data.features;
             var meta = data.meta;
             var coreJSFunction = meta.coreJSFunction;
-            function composedCoreJSSolution() {
+            var composedCoreJSSolution = (function() {
                 var status = 'pending';
                 var value;
 
@@ -1871,9 +1721,11 @@ en fonction du résultat de ces tests
                     if (status === 'returned') {
                         return value;
                     }
-                    throw value;
+                    if (status === 'throwed') {
+                        throw value;
+                    }
                 };
-            }
+            })();
 
             var fixs = features.map(function(feature) {
                 var fix = feature.fix;
