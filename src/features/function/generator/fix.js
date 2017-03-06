@@ -1,5 +1,8 @@
-import '/symbol-iterator/fix.js';
+import '/array/prototype/symbol/iterator/fix.js';
 import '/object/get-prototype-of/fix.js';
+import '/object/create/fix.js';
+import '/shorthand-notation/fix.js';
+import '/computed-properties/fix.js';
 import '/regenerator-runtime/fix.js';
 
 const fix = {

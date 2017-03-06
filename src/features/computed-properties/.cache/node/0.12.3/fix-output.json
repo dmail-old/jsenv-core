@@ -1,0 +1,22 @@
+{
+	"sources": [
+		{
+			"path": "../../../fix.js",
+			"eTag": "\"6b-2/XR8P5ZrteqGimhsA32OXNcb1s\""
+		}
+	],
+	"value": {
+		"status": "passed",
+		"reason": "done",
+		"detail": {
+			"compiles": {
+				"status": "passed",
+				"reason": "resolved"
+			},
+			"runs": {
+				"status": "passed",
+				"reason": "returned-true"
+			}
+		}
+	}
+}

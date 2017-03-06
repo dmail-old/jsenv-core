@@ -1,12 +1,18 @@
 {
 	"sources": [
 		{
-			"path": "../../../../feature.js",
-			"eTag": "\"12a-/NzBspUqr1T8Fs0PhTsq1riD9ac\""
+			"path": "../../../test.js",
+			"eTag": "\"93-0u839MSKEift75YyjA0Y1oD3SAI\""
 		}
 	],
 	"value": {
 		"status": "failed",
-		"reason": "missing"
+		"reason": "expectation failed: presence",
+		"detail": {
+			"presence": {
+				"status": "failed",
+				"reason": "returned-false"
+			}
+		}
 	}
 }

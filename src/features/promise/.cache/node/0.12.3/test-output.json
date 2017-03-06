@@ -1,16 +1,22 @@
 {
 	"sources": [
 		{
-			"path": "../../../../feature.js",
-			"eTag": "\"278-c+1RrdHzNiVoMzmKBKoQ2oirKnc\""
+			"path": "../../../test.js",
+			"eTag": "\"d6d-8bXEY4zr8O/tWqvKeBDa3J1JMJY\""
 		}
 	],
 	"value": {
-		"status": "completed",
-		"reason": "test-result",
+		"status": "failed",
+		"reason": "expectation failed: unhandled-rejection",
 		"detail": {
-			"status": "valid",
-			"reason": "present"
+			"presence": {
+				"status": "passed",
+				"reason": "returned-true"
+			},
+			"unhandled-rejection": {
+				"status": "failed",
+				"reason": "event-not-triggered"
+			}
 		}
 	}
 }

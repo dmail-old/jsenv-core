@@ -1,12 +1,18 @@
 {
 	"sources": [
 		{
-			"path": "../../../../test.js",
-			"eTag": "\"8c-o5385yPhmdbo7BrFjKXx5Q/+xOw\""
+			"path": "../../../test.js",
+			"eTag": "\"8f-JR5+CcuFb9rrPmY2DS9o1m3pnKE\""
 		}
 	],
 	"value": {
 		"status": "passed",
-		"reason": "present"
+		"reason": "done",
+		"detail": {
+			"presence": {
+				"status": "passed",
+				"reason": "returned-true"
+			}
+		}
 	}
 }

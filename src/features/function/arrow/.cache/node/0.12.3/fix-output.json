@@ -1,0 +1,90 @@
+{
+	"sources": [
+		{
+			"path": "../../../fix.js",
+			"eTag": "\"67-BBsaZl9KAxgHWLfqogk37WvnAkY\""
+		}
+	],
+	"value": {
+		"status": "passed",
+		"reason": "done",
+		"detail": {
+			"compiles": {
+				"status": "passed",
+				"reason": "resolved"
+			},
+			"runs": {
+				"status": "passed",
+				"reason": "returned-true"
+			},
+			"explicit-body": {
+				"status": "passed",
+				"reason": "done",
+				"detail": {
+					"compiles": {
+						"status": "passed",
+						"reason": "resolved"
+					},
+					"runs": {
+						"status": "passed",
+						"reason": "returned-true"
+					}
+				}
+			},
+			"lexical-arguments-binding": {
+				"status": "passed",
+				"reason": "done",
+				"detail": {
+					"compiles": {
+						"status": "passed",
+						"reason": "resolved"
+					},
+					"runs": {
+						"status": "passed",
+						"reason": "returned-true"
+					}
+				}
+			},
+			"lexical-this-binding": {
+				"status": "passed",
+				"reason": "done",
+				"detail": {
+					"compiles": {
+						"status": "passed",
+						"reason": "resolved"
+					},
+					"runs": {
+						"status": "passed",
+						"reason": "returned-true"
+					},
+					"cannot be changed by call,apply,bind": {
+						"status": "passed",
+						"reason": "returned-true"
+					}
+				}
+			},
+			"no-line-break": {
+				"status": "passed",
+				"reason": "returned-true"
+			},
+			"return-object-literals": {
+				"status": "passed",
+				"reason": "done",
+				"detail": {
+					"compiles": {
+						"status": "passed",
+						"reason": "resolved"
+					},
+					"runs": {
+						"status": "passed",
+						"reason": "returned-true"
+					}
+				}
+			},
+			"throw-precedence": {
+				"status": "passed",
+				"reason": "returned-true"
+			}
+		}
+	}
+}

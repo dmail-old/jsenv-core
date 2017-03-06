@@ -17,78 +17,60 @@ function expect(testMap) {
     });
 
     return function() {
+        const compositeDetail = {};
         let i = 0;
         const j = tests.length;
         let transmittedValue;
         let currentTest;
-        const compositeOutput = Output.create({
-            status: 'passed',
-            reason: 'no-test',
-            detail: {}
-        });
 
         function transmit(value) {
             transmittedValue = value;
         }
-
         function next() {
             if (i === j) {
-                compositeOutput.status = 'passed';
-                compositeOutput.reason = 'done';
-                return compositeOutput;
+                return pass('done', compositeDetail);
             }
             currentTest = tests[i];
             i++;
 
-            let testValue;
-            let testStatus;
+            let testThenable;
             try {
-                testValue = currentTest.test(transmittedValue, transmit);
-                testStatus = 'returned';
+                const testReturnValue = currentTest.test(transmittedValue, transmit);
+                testThenable = Thenable.resolve(testReturnValue).then(function(value) {
+                    if (value === true) {
+                        return pass('returned-true');
+                    }
+                    if (value === false) {
+                        return fail('returned-false');
+                    }
+                    if (Output.is(value)) {
+                        return value;
+                    }
+                    return pass('resolved', value);
+                });
             } catch (e) {
-                testValue = e;
-                testStatus = 'throwed';
+                testThenable = Thenable.reject(e).catch(function(value) {
+                    return fail('rejected', value);
+                });
             }
 
             let maxDuration = defaultMaxTestDuration;
             let timeout;
-            let clean = function() {
-                if (timeout) {
-                    clearTimeout(timeout);
-                    timeout = null;
-                }
-            };
             return Thenable.race([
-                Thenable[testStatus === 'returned' ? 'resolve' : 'reject'](testValue).then(
-                    function(value) {
-                        clean();
-                        if (value === true) {
-                            return pass('returned-true');
-                        }
-                        if (value === false) {
-                            return fail('returned-false');
-                        }
-                        if (Output.is(value)) {
-                            return value;
-                        }
-                        return pass('resolved', value);
-                    },
-                    function(value) {
-                        clean();
-                        return fail('rejected', value);
-                    }
-                ),
+                testThenable,
                 new Thenable(function(resolve) {
                     timeout = setTimeout(function() {
                         resolve(fail('timeout', maxDuration));
                     }, maxDuration);
                 })
             ]).then(function(output) {
-                compositeOutput.detail[currentTest.name] = output;
+                // testThenable cannot reject, so it's ok to clearTimeout only in the onResolve branch
+                clearTimeout(timeout);
+                timeout = null;
+
+                compositeDetail[currentTest.name] = output;
                 if (output.status === 'failed') {
-                    compositeOutput.status = 'failed';
-                    compositeOutput.reason = 'expectation failed: ' + currentTest.name;
-                    return compositeOutput;
+                    return fail('expectation failed: ' + currentTest.name, compositeDetail);
                 }
                 return next();
             });
@@ -184,7 +166,7 @@ const Target = (function() {
     };
 })();
 function createPropertyAccessor(property) {
-    return function(previous) {
+    function propertyAccessor(previous) {
         if (previous.reached) {
             var value = previous.value;
             if (property in value) {
@@ -192,7 +174,33 @@ function createPropertyAccessor(property) {
             }
         }
         return Target.fail(property);
-    };
+    }
+    propertyAccessor.property = property;
+    return propertyAccessor;
+}
+function createPropertyGetterAccessor(getter) {
+    function propertyGetterAccessor(previous) {
+        if (previous.reached) {
+            var value = previous.value;
+            var getterReturnValue = getter();
+            var propertyTarget;
+            if (Target.is(getterReturnValue)) {
+                propertyTarget = getterReturnValue;
+            } else {
+                propertyTarget = Target.pass(getterReturnValue);
+            }
+            if (propertyTarget.reached) {
+                var property = propertyTarget.value;
+                if (property in value) {
+                    return value[property];
+                }
+                return Target.fail(property);
+            }
+            return Target.fail();
+        }
+        return Target.fail();
+    }
+    return propertyGetterAccessor;
 }
 function at() {
     var i = 0;
@@ -202,7 +210,7 @@ function at() {
     if (j > 0) {
         var firstArg = arguments[0];
         if (typeof firstArg === 'string') {
-            accessors.push(function() {
+            accessors.push(function globalAccessor() {
                 return Target.pass(jsenv.global);
             });
         }
@@ -210,7 +218,7 @@ function at() {
         while (i < j) {
             var arg = arguments[i];
             if (typeof arg === 'function') {
-                accessors.push(arg);
+                accessors.push(createPropertyGetterAccessor(arg));
             } else if (typeof arg === 'string') {
                 accessors.push(createPropertyAccessor(arg));
             }
@@ -378,6 +386,7 @@ function consumeIterator(iterator) {
     }
     return values;
 }
+export {consumeIterator};
 function sameValues(a, b) {
     if (typeof a === 'string') {
         a = convertStringToArray(a);
@@ -389,6 +398,8 @@ function sameValues(a, b) {
     } else if (typeof b === 'object' && typeof b.next === 'function') {
         b = consumeIterator(b);
     }
+
+    // console.log('compare', a, 'and', b);
 
     if (a.length !== b.length) {
         return false;
@@ -404,14 +415,12 @@ function sameValues(a, b) {
 export {sameValues};
 
 function createTypeExpectation(expectedType) {
-    return function(thenable, pass, fail) {
-        return thenable.then(function(value) {
-            var type = typeof value;
-            if (type === expectedType) {
-                return pass('found-' + type);
-            }
-            return fail('unexpected-type', type);
-        });
+    return function(value) {
+        var type = typeof value;
+        if (type === expectedType) {
+            return true;
+        }
+        return fail('unexpected-type', type);
     };
 }
 const object = createTypeExpectation('object');
@@ -420,21 +429,21 @@ const number = createTypeExpectation('number');
 export {object, string, number};
 
 function expectThrow(fn, verifyThrowValue) {
-    return function(value, pass, fail) {
+    return function() {
         try {
             fn.apply(this, arguments);
-            return fail('must-throw');
+            return fail('expected-to-throw-but-returned');
         } catch (e) {
             if (verifyThrowValue) {
                 if (typeof verifyThrowValue === 'function') {
                     if (verifyThrowValue(e)) {
                         return fail('throw-mismatch', e);
                     }
-                    return pass('throw-match');
+                    return true;
                 }
                 if (typeof verifyThrowValue === 'object') {
                     if (verifyThrowValue === e) {
-                        return pass('throw-match');
+                        return true;
                     }
                     if (typeof e === 'object') {
                         var unmatchedKey = jsenv.Iterable.find(Object.keys(verifyThrowValue), function(key) {
@@ -447,16 +456,16 @@ function expectThrow(fn, verifyThrowValue) {
                                 key: unmatchedKey
                             });
                         }
-                        return pass('throw-match');
+                        return true;
                     }
                     return fail('throw-type-mismatch');
                 }
                 if (verifyThrowValue === e) {
-                    return pass('throw-match');
+                    return true;
                 }
                 return fail('throw-mismatch', e);
             }
-            return pass('throw-as-expected');
+            return true;
         }
     };
 }

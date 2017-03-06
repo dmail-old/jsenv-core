@@ -1,0 +1,42 @@
+{
+	"sources": [
+		{
+			"path": "../../../fix.js",
+			"eTag": "\"6c-ud199EH4xnRQCkqASin7ndva1go\""
+		}
+	],
+	"value": {
+		"status": "passed",
+		"reason": "done",
+		"detail": {
+			"properties": {
+				"status": "passed",
+				"reason": "done",
+				"detail": {
+					"compiles": {
+						"status": "passed",
+						"reason": "resolved"
+					},
+					"runs": {
+						"status": "passed",
+						"reason": "returned-true"
+					}
+				}
+			},
+			"methods": {
+				"status": "passed",
+				"reason": "done",
+				"detail": {
+					"compiles": {
+						"status": "passed",
+						"reason": "resolved"
+					},
+					"runs": {
+						"status": "passed",
+						"reason": "returned-true"
+					}
+				}
+			}
+		}
+	}
+}

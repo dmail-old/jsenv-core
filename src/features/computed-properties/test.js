@@ -1,15 +1,15 @@
-import {transpile} from 'helper/detect.js';
+import {expect, transpile} from '/test-helpers.js';
 
-const test = {
-    run: transpile`(function(name, value) {
+const test = expect({
+    'compiles': transpile`(function(name, value) {
         return {[name]: value};
     })`,
-    complete(fn) {
+    'runs'(fn) {
         var name = 'y';
         var value = 1;
         var result = fn(name, value);
         return result[name] === value;
     }
-};
+});
 
 export default test;

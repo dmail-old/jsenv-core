@@ -1,0 +1,22 @@
+{
+	"sources": [
+		{
+			"path": "../../../test.js",
+			"eTag": "\"1d6-QCWNW95khNXbY2o6K+zHkNgpybg\""
+		}
+	],
+	"value": {
+		"status": "passed",
+		"reason": "done",
+		"detail": {
+			"presence": {
+				"status": "passed",
+				"reason": "returned-true"
+			},
+			"works with sparse": {
+				"status": "passed",
+				"reason": "returned-true"
+			}
+		}
+	}
+}

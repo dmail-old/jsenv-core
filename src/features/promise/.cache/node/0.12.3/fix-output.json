@@ -1,16 +1,26 @@
 {
 	"sources": [
 		{
-			"path": "../../../../feature.js",
-			"eTag": "\"278-c+1RrdHzNiVoMzmKBKoQ2oirKnc\""
+			"path": "../../../fix.js",
+			"eTag": "\"a3-k2VlwqTOtmR+Iphw5PCNga+XrzE\""
 		}
 	],
 	"value": {
-		"status": "completed",
-		"reason": "test-result",
+		"status": "passed",
+		"reason": "done",
 		"detail": {
-			"status": "valid",
-			"reason": "present"
+			"presence": {
+				"status": "passed",
+				"reason": "returned-true"
+			},
+			"unhandled-rejection": {
+				"status": "passed",
+				"reason": "returned-true"
+			},
+			"rejection-handled": {
+				"status": "passed",
+				"reason": "returned-true"
+			}
 		}
 	}
 }

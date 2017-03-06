@@ -1,12 +1,26 @@
 {
 	"sources": [
 		{
-			"path": "../../../../fix.js",
-			"eTag": "\"3ed-PzXn1elTm/5wtFqBRE6grQIy998\""
+			"path": "../../../fix.js",
+			"eTag": "\"492-YC3jcIk/Z5GRXGznLfHeA9J/0uQ\""
 		}
 	],
 	"value": {
 		"status": "passed",
-		"reason": "returned-true"
+		"reason": "done",
+		"detail": {
+			"presence": {
+				"status": "passed",
+				"reason": "returned-true"
+			},
+			"deterministic order": {
+				"status": "passed",
+				"reason": "returned-true"
+			},
+			"works with symbol": {
+				"status": "passed",
+				"reason": "returned-true"
+			}
+		}
 	}
 }

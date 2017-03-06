@@ -1,0 +1,26 @@
+{
+	"sources": [
+		{
+			"path": "../../../test.js",
+			"eTag": "\"25f-UeSzZ0BnvhLQV7rNUaGmZwhYLPk\""
+		}
+	],
+	"value": {
+		"status": "passed",
+		"reason": "done",
+		"detail": {
+			"presence": {
+				"status": "passed",
+				"reason": "returned-true"
+			},
+			"runs": {
+				"status": "passed",
+				"reason": "returned-true"
+			},
+			"works with astral": {
+				"status": "passed",
+				"reason": "returned-true"
+			}
+		}
+	}
+}

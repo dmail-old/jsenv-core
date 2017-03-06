@@ -1,8 +1,7 @@
-import {at, present} from 'helper/detect.js';
+import {expect, presence} from '/test-helpers.js';
 
-const test = {
-    run: at('Symbol'),
-    complete: present
-};
+const test = expect({
+    'presence': presence('Symbol')
+});
 
 export default test;

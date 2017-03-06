@@ -1,0 +1,13 @@
+{
+	"sources": [
+		{
+			"path": "../../../test.js",
+			"eTag": "\"d6e-d76ordwKK9BiE7ktddqVJzNZRRc\""
+		}
+	],
+	"value": {
+		"status": "failed",
+		"reason": "dependency-is-failed",
+		"detail": "promise"
+	}
+}

@@ -164,7 +164,8 @@ function createTranspiler(transpilerOptions) {
             try {
                 result = babel.transform(code, babelOptions);
             } catch (e) {
-                if (e.name === 'SyntaxError') {
+                if (e.name === 'SyntaxError' && options.ignoreSyntaxError !== true) {
+                    console.log('the options', options);
                     console.error(e.message, 'in', filename, 'at\n');
                     console.error(e.codeFrame);
                 }
@@ -229,6 +230,9 @@ function createTranspiler(transpilerOptions) {
         transpileFile: transpileFile,
         clone: function() {
             return createTranspiler(transpilerOptions);
+        },
+        getNormalizedPlugins: function() {
+            return normalizePlugins(transpilerOptions.plugins);
         },
         minify: function() {
             var minifiedTranspiler = createTranspiler(transpilerOptions);

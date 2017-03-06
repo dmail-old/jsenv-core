@@ -7,7 +7,11 @@ https://github.com/kangax/compat-table/blob/gh-pages/data-es5.js
 https://github.com/kangax/compat-table/blob/gh-pages/data-es6.js
 
 - produire test-output.json de chaque feature une après l'autre pour node 0.12
+
 - puis faire pareil avec fix-output.json
+
+- faudra s'assure que polyfill.js envoit bien regenrator-runtime
+lorsqu'on demande seulement function/generator
 
 */
 
@@ -275,7 +279,7 @@ function matchNodes(featureIds, agent, options) {
     return getNodes(featureIds, options.file).then(function(nodes) {
         return mapAsync(nodes, function(node) {
             var featureId = idFromNode(node);
-            console.log('get status of', featureId);
+            // console.log('get status of', featureId);
             return getStatus(
                 featureId,
                 agent,
@@ -431,7 +435,11 @@ var fileSolution = {
                 var abstractFeature = Iterable.find(abstractFeatures, function(abstractFeature) {
                     return abstractFeature.id.from === feature.id;
                 });
-                abstractFeature.fixFunction = fileFunction;
+                abstractFeature.fixFunction = {
+                    type: 'inline',
+                    name: '',
+                    from: fileFunction
+                };
             });
         });
     }
@@ -455,7 +463,7 @@ var coreJSSolution = {
                 );
             }
         });
-        console.log('the module names', moduleNames);
+
         var banner = Iterable.reduce(features, function(previous, feature) {
             if (feature.fix.beforeFix) {
                 previous += '\n' + feature.fix.beforeFix;
@@ -553,6 +561,21 @@ var babelSolution = {
         var pluginsAsOptions = Iterable.map(plugins, function(plugin) {
             return [plugin.name, plugin.options];
         });
+        var generatorPlugin = Iterable.find(plugins, function(plugin) {
+            return plugin.name === 'transform-regenerator';
+        });
+        // var asyncPlugin = Iterable.find(plugins, function(plugin) {
+        //     return plugin.name === 'transform-async-to-generator';
+        // });
+        // transform-regenerator does not enable babel-plugin-syntax-async-functions
+        // but transform-async-to-generator does
+        // fix by always ensuring babel-plugin-syntax-async-functions is present when needed
+        if (generatorPlugin) {
+            pluginsAsOptions.unshift(
+                'babel-plugin-syntax-async-functions'
+            );
+        }
+
         var transpiler = createTranspiler({
             cache: true,
             cacheMode: 'default',
@@ -572,6 +595,7 @@ var babelSolution = {
         var transpileTemplatePlugin = createTranspiler.transpileTemplateTaggedWith(function(code) {
             var result = babelTranspiler.transpile(code, {
                 as: 'code',
+                ignoreSyntaxError: true,
                 sourceMaps: false,
                 sourceURL: false,
                 // disable cache to prevent race condition with the transpiler
@@ -581,7 +605,9 @@ var babelSolution = {
             return result;
         }, 'transpile');
         var fixedTranspiler = transpiler.clone();
-        fixedTranspiler.options.plugins.unshift(transpileTemplatePlugin);
+        fixedTranspiler.options.plugins.unshift(
+            [transpileTemplatePlugin, babelTranspiler.getNormalizedPlugins()]
+        );
         options.transpiler = fixedTranspiler;
         return Promise.resolve(fixedTranspiler);
     }
@@ -882,23 +908,20 @@ function createOwnMediator(featureIds, agent) {
         return data;
     }
 }
-var ownMediator = createOwnMediator(
-    [
-        // 'promise/unhandled-rejection',
-        // 'promise/rejection-handled'
-        // 'const/scoped'
-        'array/from'
-    ],
-    jsenv.agent
-);
-var client = jsenv.createImplementationClient(ownMediator);
-client.fix().then(function() {
-    console.log(Array.from);
-}).catch(function(e) {
-    setTimeout(function() {
-        throw e;
-    });
-});
+// var ownMediator = createOwnMediator(
+//     [
+//         'function/async'
+//     ],
+//     jsenv.agent
+// );
+// var client = jsenv.createImplementationClient(ownMediator);
+// client.scan().then(function() {
+//     console.log(Array.from);
+// }).catch(function(e) {
+//     setTimeout(function() {
+//         throw e;
+//     });
+// });
 
 function getBestRegisteredAgent(featureId, agent) {
     var featureFolderPath = pathFromId(featureId);

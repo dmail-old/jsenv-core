@@ -1,5 +1,5 @@
-import '/object/assign/fix.js';
-import '/symbol/iterator/fix.js';
+import '/array/from/fix.js';
+import '/array/prototype/symbol/iterator/fix.js';
 import '/object/create/fix.js';
 
 const fix = {

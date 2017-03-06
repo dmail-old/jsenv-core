@@ -1,0 +1,54 @@
+{
+	"sources": [
+		{
+			"path": "../../../fix.js",
+			"eTag": "\"ce-jj1Ew96ogwpBfU26kyWzKAnd7fk\""
+		}
+	],
+	"value": {
+		"status": "failed",
+		"reason": "expectation failed: function-notation",
+		"detail": {
+			"array-notation": {
+				"status": "passed",
+				"reason": "done",
+				"detail": {
+					"compiles": {
+						"status": "passed",
+						"reason": "resolved"
+					},
+					"runs": {
+						"status": "passed",
+						"reason": "returned-true"
+					},
+					"works with iterable": {
+						"status": "passed",
+						"reason": "returned-true"
+					}
+				}
+			},
+			"function-notation": {
+				"status": "failed",
+				"reason": "expectation failed: throw with non iterable",
+				"detail": {
+					"compiles": {
+						"status": "passed",
+						"reason": "resolved"
+					},
+					"runs": {
+						"status": "passed",
+						"reason": "returned-true"
+					},
+					"works with iterable": {
+						"status": "passed",
+						"reason": "returned-true"
+					},
+					"throw with non iterable": {
+						"status": "failed",
+						"reason": "expected-to-throw-but-returned-with"
+					}
+				}
+			}
+		}
+	}
+}
