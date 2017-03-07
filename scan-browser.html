@@ -1,0 +1,136 @@
+<!doctype html>
+
+<head>
+    <title>jsenv - browser scanner</title>
+    <meta charset="utf-8" />
+
+    <script src="./src/jsenv.js"></script>
+    <script type="text/javascript">
+        /* eslint-env browser */
+        var Thenable = jsenv.Thenable;
+
+        function createBrowserMediator(featureIds) {
+            return {
+                send: function(action, value) {
+                    if (action === 'getTestInstructions') {
+                        return get(
+                            'test?features=' + featureIds.join(encodeURIComponent(','))
+                        ).then(readBody);
+                    }
+                    if (action === 'setAllTest') {
+                        return postAsJSON(
+                            'test',
+                            value
+                        );
+                    }
+                    if (action === 'getFixInstructions') {
+                        return get(
+                            'fix?features=' + featureIds.join(encodeURIComponent(','))
+                        ).then(readBody);
+                    }
+                    if (action === 'setAllFix') {
+                        return postAsJSON(
+                            'fix',
+                            value
+                        );
+                    }
+                }
+            };
+
+            function get(url) {
+                return sendRequest(
+                    'GET',
+                    url,
+                    {},
+                    null
+                ).then(checkStatus);
+            }
+            function postAsJSON(url, object) {
+                return sendRequest(
+                    'POST',
+                    url,
+                    {
+                        'content-type': 'application/json'
+                    },
+                    JSON.stringify(object)
+                ).then(checkStatus);
+            }
+            function checkStatus(response) {
+                if (response.status < 200 || response.status > 299) {
+                    throw new Error(response.status);
+                }
+                return response;
+            }
+            function sendRequest(method, url, headers, body) {
+                var xhr = new XMLHttpRequest();
+
+                return new jsenv.Thenable(function(resolve, reject) {
+                    var responseBody = {
+                        data: '',
+                        write: function(chunk) {
+                            this.data += chunk;
+                        },
+                        close: function() {}
+                    };
+
+                    xhr.onerror = function(e) {
+                        reject(e);
+                    };
+                    var offset = 0;
+                    xhr.onreadystatechange = function() {
+                        if (xhr.readyState === 2) {
+                            resolve({
+                                status: xhr.status,
+                                headers: xhr.getAllResponseHeaders(),
+                                body: responseBody
+                            });
+                        } else if (xhr.readyState === 3) {
+                            var data = xhr.responseText;
+                            if (offset) {
+                                data = data.slice(offset);
+                            }
+                            offset += data.length;
+                            responseBody.write(data);
+                        } else if (xhr.readyState === 4) {
+                            responseBody.close();
+                        }
+                    };
+
+                    xhr.open(method, url);
+                    for (var headerName in headers) {
+                        if (headers.hasOwnPorperty(headerName)) {
+                            xhr.setRequestHeader(headerName, headers[headerName]);
+                        }
+                    }
+                    xhr.send(body || null);
+                });
+            }
+            function readBody(response) {
+                var body = response.body;
+                var object = JSON.parse(body);
+                object.entries = getClientEntries(object.entries);
+                jsenv.assign(object, body.meta);
+                delete object.meta;
+                return object;
+            }
+            function getClientEntries(entries) {
+                // try {
+                //     jsenv.reviveFeatureEntries(entries);
+                // } catch (e) {
+                //     return fail('some-feature-source', e);
+                // }
+                return entries;
+            }
+        }
+        console.log(createBrowserMediator);
+
+        // eslint-disable-next-line eol-last, no-trailing-spaces
+    </script>
+</head>
+
+<body>
+    <main>
+    </main>
+</body>
+
+</html>

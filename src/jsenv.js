@@ -1765,7 +1765,7 @@ en fonction du résultat de ces tests
                 {
                     progress: function(event) {
                         var test = event.target;
-                        console.log('tested', test.id, '->', event.detail);
+                        // console.log('tested', test.id, '->', event.detail);
                         records.push({
                             id: test.id,
                             data: event.detail
@@ -1792,7 +1792,7 @@ en fonction du résultat de ces tests
                     // mais il sera possible que ce soit des objets vide
                     progress: function(event) {
                         var fix = event.target;
-                        console.log('fix', fix.id, '->', event.detail);
+                        // console.log('fix', fix.id, '->', event.detail);
                         records[event.index] = {
                             id: fix.id,
                             data: event.detail
@@ -1857,7 +1857,7 @@ en fonction du résultat de ces tests
             var fixs = extractFixs(data);
             var records = execAllFix(fixs);
             jsenv.lastPolyfillRecords = records;
-            console.log('polyfill result', records);
+            // console.log('polyfill result', records);
         }
 
         return {

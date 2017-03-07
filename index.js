@@ -1,1 +1,3 @@
-module.exports = require('./src/api/api.js');
+var api = require('./src/api/api.js');
+
+module.exports = api;

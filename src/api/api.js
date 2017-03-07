@@ -104,7 +104,7 @@ function setAllTest(records, agent) {
     );
 }
 
-var debugSolution = true;
+var debugSolution = !true;
 var noSolution = {
     match: function featureHasNoFix(feature) {
         return feature.fix.type === 'none';
@@ -746,8 +746,18 @@ function polyfill(featureIds, agent, minify) {
 //     });
 // });
 
+function getNodeFilename(filename) {
+    var nodeFilename;
+    if (filename.indexOf('file:///') === 0) {
+        nodeFilename = filename.slice('file:///'.length);
+    } else {
+        nodeFilename = filename;
+    }
+    return nodeFilename;
+}
 function transpile(file, featureIds, agent) {
-    file = path.resolve(file).replace(/\\/g, '/');
+    file = path.resolve(getNodeFilename(file)).replace(/\\/g, '/');
+    // console.log('the file to transpile', file);
 
     return selectAll(
         featureIds,
@@ -758,7 +768,8 @@ function transpile(file, featureIds, agent) {
         var groups = groupBySolution(featuresToFix);
         var transpiler = babelSolution.createTranspiler(groups.babel);
         return transpiler.transpileFile(file, {
-            onlyPath: true
+            onlyPath: true,
+            as: 'module'
         });
     });
 }
@@ -776,6 +787,132 @@ function transpile(file, featureIds, agent) {
 //     });
 // });
 
+function install() {
+    var agent = jsenv.agent;
+    var features = [
+        'for-of',
+        'destructuring',
+        'function/parameters',
+        'function/arrow',
+        'block-scoping',
+        'shorthand-notation'
+    ];
+
+    function setup() {
+        return polyfill(features, agent).then(function(polyfill) {
+            return fsAsync.getFileContent(polyfill).then(function(js) {
+                eval(js);
+            });
+        });
+    }
+
+    function createSystem() {
+        // https://github.com/ModuleLoader/system-register-loader/blob/master/src/system-register-loader.js
+        var SystemJS = require('systemjs');
+        var mySystem = new SystemJS.constructor();
+        var instantiateMethod = SystemJS.constructor.instantiate;
+        mySystem[instantiateMethod] = function(key, processAnonRegister) {
+            var filename = getNodeFilename(key);
+
+            return transpile(filename, features, agent).then(function(transpiledFilename) {
+                return fsAsync.getFileContent(transpiledFilename);
+            }).then(function(source) {
+                global.System = mySystem;
+                eval(source);
+                delete global.System;
+                processAnonRegister();
+            });
+        };
+        return mySystem;
+    }
+
+    function configSystem(System) {
+        System.meta['*.json'] = {format: 'json'};
+        System.config({
+            map: {
+                '@jsenv/compose': jsenv.parentPath(jsenv.dirname) + '/node_modules/jsenv-compose'
+            },
+            packages: {
+                '@jsenv/compose': {
+                    main: 'index.js',
+                    format: 'es6'
+                }
+            }
+        });
+
+        function createModuleExportingDefault(defaultExportsValue) {
+            return System.newModule({
+                "default": defaultExportsValue // eslint-disable-line quote-props
+            });
+        }
+        function registerCoreModule(moduleName, defaultExport) {
+            System.registry.set(moduleName, createModuleExportingDefault(defaultExport));
+        }
+        function prefixModule(name) {
+            var prefix = jsenv.modulePrefix;
+            var prefixedName;
+            if (prefix) {
+                prefixedName = prefix + '/' + name;
+            } else {
+                prefixedName = name;
+            }
+
+            return prefixedName;
+        }
+
+        // [
+        //     'action',
+        //     'fetch-as-text',
+        //     'iterable',
+        //     'lazy-module',
+        //     'options',
+        //     'thenable',
+        //     'rest',
+        //     'server',
+        //     'timeout',
+        //     'url'
+        // ].forEach(function(libName) {
+        //     var libPath = jsenv.dirname + '/src/' + libName + '/index.js';
+        //     System.paths[prefixModule(libName)] = libPath;
+        // }, this);
+
+        var oldImport = System.import;
+        System.import = function() {
+            return oldImport.apply(this, arguments).catch(function(error) {
+                if (error && error instanceof Error) {
+                    var originalError = error;
+                    while ('originalErr' in originalError) {
+                        originalError = originalError.originalErr;
+                    }
+                    return Promise.reject(originalError);
+                }
+                return error;
+            });
+        };
+
+        registerCoreModule(prefixModule(jsenv.rootModuleName), jsenv);
+        registerCoreModule(prefixModule(jsenv.moduleName), jsenv);
+        registerCoreModule('@node/require', require);
+
+        // une fois qu'on a System on peut donc importer ce dont on a besoin
+        // ici il s'agit pas de compose, c'était juste un test, on va tenter de réimporter server/index.js
+        // puis ensuite encore mieux de réimporter server/serve.js (avec rest etc)
+
+        return System.import('@jsenv/compose');
+    }
+
+    return setup().then(createSystem).then(function(System) {
+        return configSystem(System);
+    });
+}
+install().then(function(mainModule) {
+    console.log('installed', mainModule.default({foo: true}).create().foo);
+}).catch(function(e) {
+    setTimeout(function() {
+        throw e;
+    });
+});
+
 var api = {};
 api.getFolder = getFolder;
 api.getFeaturePath = pathFromId;
@@ -792,120 +929,6 @@ api.createOwnMediator = createOwnMediator;
 
 api.polyfill = polyfill;
 api.transpile = transpile;
-
-function createBrowserMediator(featureIds) {
-    return {
-        send: function(action, value) {
-            if (action === 'getTestInstructions') {
-                return get(
-                    'test?features=' + featureIds.join(encodeURIComponent(','))
-                ).then(readBody);
-            }
-            if (action === 'setAllTest') {
-                return postAsJSON(
-                    'test',
-                    value
-                );
-            }
-            if (action === 'getFixInstructions') {
-                return get(
-                    'fix?features=' + featureIds.join(encodeURIComponent(','))
-                ).then(readBody);
-            }
-            if (action === 'setAllFix') {
-                return postAsJSON(
-                    'fix',
-                    value
-                );
-            }
-        }
-    };
-
-    function get(url) {
-        return sendRequest(
-            'GET',
-            url,
-            {},
-            null
-        ).then(checkStatus);
-    }
-    function postAsJSON(url, object) {
-        return sendRequest(
-            'POST',
-            url,
-            {
-                'content-type': 'application/json'
-            },
-            JSON.stringify(object)
-        ).then(checkStatus);
-    }
-    function checkStatus(response) {
-        if (response.status < 200 || response.status > 299) {
-            throw new Error(response.status);
-        }
-        return response;
-    }
-    function sendRequest(method, url, headers, body) {
-        var xhr = new XMLHttpRequest();
-
-        return new jsenv.Thenable(function(resolve, reject) {
-            var responseBody = {
-                data: '',
-                write: function(chunk) {
-                    this.data += chunk;
-                },
-                close: function() {}
-            };
-
-            xhr.onerror = function(e) {
-                reject(e);
-            };
-            var offset = 0;
-            xhr.onreadystatechange = function() {
-                if (xhr.readyState === 2) {
-                    resolve({
-                        status: xhr.status,
-                        headers: xhr.getAllResponseHeaders(),
-                        body: responseBody
-                    });
-                } else if (xhr.readyState === 3) {
-                    var data = xhr.responseText;
-                    if (offset) {
-                        data = data.slice(offset);
-                    }
-                    offset += data.length;
-                    responseBody.write(data);
-                } else if (xhr.readyState === 4) {
-                    responseBody.close();
-                }
-            };
-
-            xhr.open(method, url);
-            for (var headerName in headers) {
-                if (headers.hasOwnPorperty(headerName)) {
-                    xhr.setRequestHeader(headerName, headers[headerName]);
-                }
-            }
-            xhr.send(body || null);
-        });
-    }
-    function readBody(response) {
-        var body = response.body;
-        var object = JSON.parse(body);
-        object.entries = getClientEntries(object.entries);
-        jsenv.assign(object, body.meta);
-        delete object.meta;
-        return object;
-    }
-    function getClientEntries(entries) {
-        // try {
-        //     jsenv.reviveFeatureEntries(entries);
-        // } catch (e) {
-        //     return fail('some-feature-source', e);
-        // }
-        return entries;
-    }
-}
-api.createBrowserMediator = createBrowserMediator;
+api.install = install;
 
 module.exports = api;
