@@ -41,7 +41,6 @@ ainsi que quelques utilitaires comme assign, Iterable et Predicate
     provide('provide', provide);
     provide('assign', assign);
     provide('options', {});
-    provide('globalName', 'jsenv');
     provide('modulePrefix', '@jsenv');
     provide('rootModuleName', 'jsenv');
     provide('moduleName', 'env');
@@ -668,20 +667,19 @@ ainsi que quelques utilitaires comme assign, Iterable et Predicate
             }
         };
     });
-    provide(function provideGlobalValue() {
+    provide('global', (function() {
         var globalValue;
 
-        if (this.isBrowser()) {
+        if (jsenv.isBrowser()) {
             globalValue = window;
-        } else if (this.isNode()) {
+        } else if (jsenv.isNode()) {
             globalValue = global;
         }
 
-        return {
-            global: globalValue
-        };
-    });
-    provide(function globalAccessor() {
+        return globalValue;
+    })());
+    provide('globalName', 'jsenv');
+    provide('globalAssignment', (function() {
         /*
         why put a variable on the global scope ?
         Considering that in the browser you will put a script tag, you need a pointer on env somewhere
@@ -701,13 +699,48 @@ ainsi que quelques utilitaires comme assign, Iterable et Predicate
         moreover now we want the ability to create multiple env it's not possible
         */
 
-        var globalAssignment = this.createCancellableAssignment(this.global, this.globalName);
-        globalAssignment.assign(this);
+        var globalAssignment = jsenv.createCancellableAssignment(jsenv.global, jsenv.globalName);
+        globalAssignment.assign(jsenv);
 
-        return {
-            globalAssignment: globalAssignment
+        return globalAssignment;
+    })());
+    provide('platformPolymorph', function(implementations) {
+        return function platformPolymorph() {
+            var method;
+            var searched;
+
+            if (jsenv.isBrowser()) {
+                searched = 'browser';
+                method = implementations.browser;
+            } else if (jsenv.isNode()) {
+                searched = 'node';
+                method = implementations.node;
+            }
+
+            if (method) {
+                return method.apply(this, arguments);
+            }
+            throw new Error('no implementation found for ' + searched);
         };
     });
+    provide('triggerEvent', jsenv.platformPolymorph({
+        browser: function(name, event) {
+            name = 'on' + name.toLowerCase();
+            var listener = window[name];
+            if (listener) {
+                listener(event);
+                return true;
+            }
+            return false;
+        },
+        node: function(name, event) {
+            if (process.listeners(name).length) {
+                process.emit(name, event);
+                return true;
+            }
+            return false;
+        }
+    }));
 
     var Iterable = (function() {
         var Iterable = {};
@@ -936,45 +969,6 @@ ainsi que quelques utilitaires comme assign, Iterable et Predicate
         return Predicate;
     })();
     provide('Predicate', Predicate);
-
-    provide('platformPolymorph', function(implementations) {
-        return function platformPolymorph() {
-            var method;
-            var searched;
-
-            if (jsenv.isBrowser()) {
-                searched = 'browser';
-                method = implementations.browser;
-            } else if (jsenv.isNode()) {
-                searched = 'node';
-                method = implementations.node;
-            }
-
-            if (method) {
-                return method.apply(this, arguments);
-            }
-            throw new Error('no implementation found for ' + searched);
-        };
-    });
-
-    provide('triggerEvent', jsenv.platformPolymorph({
-        browser: function(name, event) {
-            name = 'on' + name.toLowerCase();
-            var listener = window[name];
-            if (listener) {
-                listener(event);
-                return true;
-            }
-            return false;
-        },
-        node: function(name, event) {
-            if (process.listeners(name).length) {
-                process.emit(name, event);
-                return true;
-            }
-            return false;
-        }
-    }));
 
     // we need a promise like object to use Promise power even in environment missing Promise
     // we reuse this one https://github.com/taylorhakes/promise-polyfill/blob/master/promise.js
