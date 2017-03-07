@@ -20,7 +20,6 @@ function getAllDependencies(featureIds, file) {
         return './' + featureId + '/' + file;
     });
     var folderPath = getFolder();
-    console.log('feature files', featureFiles);
     return readDependencies(
         featureFiles,
         {
@@ -64,40 +63,40 @@ function getAllDependencies(featureIds, file) {
         }
     );
 }
-function getAllNodes(featureIds, file) {
-    return getAllDependencies(featureIds, file).then(function(nodes) {
-        return nodes.concat(jsenv.collectDependencies(nodes));
-    });
-}
 function filterAllNodes(featureIds, file, options) {
-    return getAllNodes(featureIds, file).then(function(nodes) {
+    return getAllDependencies(featureIds, file).then(function(nodes) {
+        var dependenciesNodes = jsenv.collectDependencies(nodes);
+        var allNodes = nodes.concat(dependenciesNodes);
+
         if (options.include) {
-            return mapAsync(nodes, function(node) {
+            return mapAsync(allNodes, function(node) {
                 var featureId = idFromNode(node);
                 // console.log('get status of', featureId);
                 return getStatus(
                     featureId,
                     options.agent,
                     options.needFixStatus,
-                    options.allowRelatedStatus
+                    options.fallbackBestAgentStatus
                 );
             }).then(function(statuses) {
                 if (options.ensure) {
-                    options.ensure(nodes, statuses);
+                    options.ensure(allNodes, statuses);
                 }
-                return Iterable.filterBy(
-                    nodes,
-                    statuses,
-                    options.include
-                );
-            }).then(function() {
+                return allNodes.filter(function(node, index) {
+                    return options.include(
+                        statuses[index],
+                        node,
+                        Iterable.includes(dependenciesNodes, node)
+                    );
+                });
+            }).then(function(filteredNodes) {
                 if (options.ignoreDependencies) {
-                    return nodes;
+                    return filteredNodes;
                 }
-                return nodes.concat(collectDependencies(nodes));
+                return filteredNodes.concat(collectDependencies(filteredNodes));
             });
         }
-        return nodes;
+        return allNodes;
     });
 }
 function selectAll(featureIds, file, options) {

@@ -10,6 +10,15 @@ https://github.com/kangax/compat-table/blob/gh-pages/data-es6.js
 une fois que systemjs marche on se met en mode ok magel
 on est censé être capable de transpiler dynamiquement et donc de redémarrer le serveur qu'on avait avant
 
+var oldResolve = System[System.constructor.resolve];
+System[System.constructor.resolve] = function(key, parent) {
+    // c'est ici qu'on fera api.transpile pour récup le chemin vers le fichier
+    // dans nodejs
+    // et qu'on fera un appel http pour le browser
+    // euh nan pour le browser y'aura juste rien à faire puisqu'on
+    // laisse la requête http partir vers le serveur et on y répondra
+};
+
 - une fois que ce serveur tourne on met en place
 un truc genre compatibility-client.html qui essayera de communiquer avec ledit serveur
 afin de pouvoir tester firefox/chrome etc
@@ -63,10 +72,12 @@ function getTestInstructions(featureIds, agent) {
         'test.js',
         {
             agent: agent,
-            include: function(status) {
+            include: function(statuses) {
+                var testStatus = statuses[0];
+
                 return (
-                    status === 'test-missing' ||
-                    status === 'test-invalid'
+                    testStatus === 'missing' ||
+                    testStatus === 'invalid'
                 );
             },
             generate: true
@@ -93,6 +104,7 @@ function setAllTest(records, agent) {
     );
 }
 
+var debugSolution = true;
 var noSolution = {
     match: function featureHasNoFix(feature) {
         return feature.fix.type === 'none';
@@ -136,9 +148,10 @@ var fileSolution = {
                 );
             }
         });
-        // console.log('filepaths', filePaths);
+        if (debugSolution) {
+            console.log('required files', filePaths);
+        }
         return mapAsync(filePaths, function(filePath, index) {
-            console.log('fetch file solution', filePath);
             return fsAsync.getFileContent(filePath).then(function(content) {
                 return new Function(content); // eslint-disable-line no-new-func
             }).then(function(fileFunction) {
@@ -176,6 +189,9 @@ var coreJSSolution = {
                 );
             }
         });
+        if (debugSolution) {
+            console.log('required moduleNames', moduleNames);
+        }
 
         var banner = Iterable.reduce(features, function(previous, feature) {
             if (feature.fix.beforeFix) {
@@ -286,9 +302,15 @@ var babelSolution = {
         // but transform-async-to-generator does
         // fix by always ensuring babel-plugin-syntax-async-functions is present when needed
         if (generatorPlugin) {
-            pluginsAsOptions.unshift(
-                'babel-plugin-syntax-async-functions'
-            );
+            pluginsAsOptions.unshift([
+                'babel-plugin-syntax-async-functions',
+                {}
+            ]);
+        }
+        if (debugSolution) {
+            console.log('required babel plugins', pluginsAsOptions.map(function(pluginOption) {
+                return pluginOption[0];
+            }));
         }
 
         var transpiler = createTranspiler({
@@ -431,32 +453,25 @@ function getFixInstructions(featureIds, agent) {
     var selectFixOptions = {
         agent: agent,
         needFixStatus: true,
-        ensure: function(nodes, statuses) {
-            var problematicNodes = Iterable.filterBy(
-                nodes,
-                statuses,
-                function(status) {
-                    return (
-                        status === 'test-missing' ||
-                        status === 'test-invalid'
-                    );
-                }
+        fallbackBestAgentStatus: true,
+        include: function(statuses, node, nodeIsDependency) {
+            var testStatus = statuses[0];
+            var fixStatus = statuses[1];
+            var include = (
+                (
+                    testStatus === 'missing' ||
+                    testStatus === 'invalid' ||
+                    testStatus === 'failed'
+                ) &&
+                (
+                    nodeIsDependency || (
+                        fixStatus === 'missing' ||
+                        fixStatus === 'invalid'
+                    )
+                )
             );
-            if (problematicNodes.length) {
-                var problems = {};
-                problematicNodes.forEach(function(node, index) {
-                    problems[idFromNode(node)] = statuses[index];
-                });
-                throw new Error(
-                    'some test status prevent fix: ' + require('util').inspect(problems)
-                );
-            }
-        },
-        include: function(status) {
-            return (
-                status === 'test-failed-and-fix-missing' ||
-                status === 'test-failed-and-fix-invalid'
-            );
+            console.log('including', idFromNode(arguments[1]), '?', include, 'for status', testStatus, fixStatus);
+            return include;
         },
         ignoreDependencies: true,
         instantiate: true
@@ -510,6 +525,17 @@ function getFixInstructions(featureIds, agent) {
         pending.push(loadTestThenable);
 
         return Thenable.all(pending).then(function() {
+            if (debugSolution) {
+                // console.log('resulting abstract features', abstractFeatures.map(function(abstractFeature) {
+                //     return {
+                //         id: abstractFeature.id.from,
+                //         willBeFixed: abstractFeature.hasOwnProperty('fix'),
+                //         hasFixFunction: abstractFeature.hasOwnProperty('fixFunction'),
+                //         willBeTested: abstractFeature.hasOwnProperty('test')
+                //     };
+                // }));
+            }
+
             return build(
                 abstractFeatures,
                 buildOptions
@@ -520,10 +546,10 @@ function getFixInstructions(featureIds, agent) {
     });
 }
 // getFixInstructions(
-//     ['object/assign'],
+//     ['function/async'],
 //     jsenv.agent
-// ).then(function(data) {
-//     console.log('required fix data', data);
+// ).then(function() {
+//     console.log('got fix instructions');
 // }).catch(function(e) {
 //     setTimeout(function() {
 //         throw e;
@@ -572,17 +598,13 @@ function createOwnMediator(featureIds, agent) {
 }
 // var ownMediator = createOwnMediator(
 //     [
-//         'function/async',
-//         'object/assign',
-//         'destructuring',
-//         'function/generator',
-//         'for-of'
+//         'function/async'
 //     ],
 //     jsenv.agent
 // );
 // var client = jsenv.createImplementationClient(ownMediator);
 // client.scan().then(function() {
-//     console.log(Array.from);
+//     console.log('scan done');
 // }).catch(function(e) {
 //     setTimeout(function() {
 //         throw e;
@@ -592,32 +614,26 @@ function createOwnMediator(featureIds, agent) {
 function createFixClientOptions(agent) {
     var fixClientOptions = {
         file: 'fix.js',
-        needFixStatus: true,
         agent: agent,
-        allowRelatedStatus: true,
-        // ensure: function(nodes, statuses) {
-        //     var featureWithFailedTestAndFailedFix = Iterable.filterBy(
-        //         nodes,
-        //         statuses,
-        //         function(status) {
-        //             return status === 'test-failed-and-fix-failed';
-        //         }
-        //     );
-        //     je ne suis pas sur qu'on va throw
-        //     on va ptet juste ne rien faire parce qu'on sait que ca créé une erreur plutot
-        //     if (featureWithFailedTestAndFailedFix.length) {
-        //         throw new Error('unfixable features ' + featureWithFailedTestAndFailedFix);
-        //     }
-        // },
-        include: function(status) {
-            return (
-                status === 'test-missing' ||
-                status === 'test-invalid' ||
-                status === 'test-failed-and-fix-missing' ||
-                status === 'test-failed-and-fix-invalid' ||
-                status === 'test-failed-and-fix-passed'
+        needFixStatus: true,
+        fallbackBestAgentStatus: true,
+        include: function(statuses) {
+            var testStatus = statuses[0];
+            var fixStatus = statuses[1];
+            var include = (
+                testStatus === 'missing' ||
+                testStatus === 'invalid' ||
+                (
+                    testStatus === 'failed' && (
+                        fixStatus === 'missing' ||
+                        fixStatus === 'invalid' ||
+                        fixStatus === 'passed'
+                    )
+                )
             );
+            return include;
         },
+        ignoreDependencies: true,
         instantiate: true
     };
     return fixClientOptions;
@@ -718,11 +734,12 @@ function polyfill(featureIds, agent, minify) {
     });
 }
 // polyfill(
-//     ['function/generator'],
+//     ['function/async'],
 //     jsenv.agent,
 //     true
 // ).then(function(polyfill) {
-//     eval(String(require('fs').readFileSync(polyfill)));
+//     console.log('polyfill path', polyfill);
+//     // eval(String(require('fs').readFileSync(polyfill)));
 // }).catch(function(e) {
 //     setTimeout(function() {
 //         throw e;

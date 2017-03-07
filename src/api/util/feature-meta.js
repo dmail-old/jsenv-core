@@ -103,7 +103,6 @@ function readRecordFromFileSystem(featureId, agent, type) {
         // } else {
         //     console.log('no valid for', featureId, 'because', data.reason);
         // }
-
         return {
             id: featureId,
             data: data
@@ -136,12 +135,12 @@ module.exports = {
     },
     setAllTest: function(testRecords, agent) {
         return mapAsync(testRecords, function(testRecord) {
-            return writeRecordToFileSystem(testRecord.id, agent, 'test', testRecord.data);
+            return writeRecordToFileSystem(testRecord.id, agent, 'test', testRecord);
         });
     },
     setAllFix: function(fixRecords, agent) {
         return mapAsync(fixRecords, function(fixRecord) {
-            return writeRecordToFileSystem(fixRecord.id, agent, 'fix', fixRecord.data);
+            return writeRecordToFileSystem(fixRecord.id, agent, 'fix', fixRecord);
         });
     }
 };

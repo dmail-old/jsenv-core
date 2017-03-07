@@ -14,6 +14,30 @@ function recordIsInvalid(record) {
 function recordIsFailed(record) {
     return record.data.value.status === 'failed';
 }
+function getTestStatus(testRecord) {
+    if (recordIsMissing(testRecord)) {
+        return 'missing';
+    }
+    if (recordIsInvalid(testRecord)) {
+        return 'invalid';
+    }
+    if (recordIsFailed(testRecord)) {
+        return 'failed';
+    }
+    return 'passed';
+}
+function getFixStatus(fixRecord) {
+    if (recordIsMissing(fixRecord)) {
+        return 'missing';
+    }
+    if (recordIsInvalid(fixRecord)) {
+        return 'invalid';
+    }
+    if (recordIsFailed(fixRecord)) {
+        return 'failed';
+    }
+    return 'passed';
+}
 function getStatus(featureId, agent, includeFix, enableBestAgent) {
     var featureAgentPromise;
     if (enableBestAgent) {
@@ -21,47 +45,50 @@ function getStatus(featureId, agent, includeFix, enableBestAgent) {
     } else {
         featureAgentPromise = Promise.resolve(agent);
     }
+
     return featureAgentPromise.then(
         function(featureAgent) {
-            return featureMeta.getTest(
-                featureId,
-                featureAgent
-            ).then(function(testRecord) {
-                if (recordIsMissing(testRecord)) {
-                    return 'test-missing';
-                }
-                if (recordIsInvalid(testRecord)) {
-                    return 'test-invalid';
-                }
-                if (recordIsFailed(testRecord)) {
-                    if (includeFix) {
-                        return featureMeta.getFix(
-                            featureId,
-                            featureAgent
-                        ).then(function(fixRecord) {
-                            if (recordIsMissing(fixRecord)) {
-                                return 'test-failed-and-fix-missing';
-                            }
-                            if (recordIsInvalid(fixRecord)) {
-                                return 'test-failed-and-fix-invalid';
-                            }
-                            if (recordIsFailed(fixRecord)) {
-                                return 'test-failed-and-fix-failed';
-                            }
-                            return 'test-failed-and-fix-passed';
-                        });
-                    }
-                    return 'test-failed';
-                }
-                return 'test-passed';
+            function getTestRecord() {
+                return featureMeta.getTest(
+                    featureId,
+                    featureAgent
+                );
+            }
+            function getFixRecord() {
+                return featureMeta.getFix(
+                    featureId,
+                    featureAgent
+                );
+            }
+
+            if (includeFix) {
+                return Promise.all([
+                    getTestRecord(),
+                    getFixRecord()
+                ]).then(function(data) {
+                    return [
+                        getTestStatus(data[0]),
+                        getFixStatus(data[1])
+                    ];
+                });
+            }
+            return getTestRecord().then(function(testRecord) {
+                return [
+                    getTestStatus(testRecord)
+                ];
             });
         },
         function(e) {
             if (e && (e.code === 'NO_AGENT' || e.code === 'NO_AGENT_VERSION')) {
                 if (includeFix) {
-                    return 'test-missing-and-fix-missing';
+                    return [
+                        'missing',
+                        'missing'
+                    ];
                 }
-                return 'test-missing';
+                return [
+                    'missing'
+                ];
             }
             return Promise.reject(e);
         }
