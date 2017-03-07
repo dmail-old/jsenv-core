@@ -1,10 +1,10 @@
-var store = require('../store/store.js');
-var memoize = require('../memoize.js');
-var fsAsync = require('../fs-async.js');
-var locateSourceMap = require('../api/source-map-locate.js');
+var store = require('./store.js');
+var memoize = require('./memoize.js');
+var fsAsync = require('./fs-async.js');
+var locateSourceMap = require('./source-map-locate.js');
 
 var path = require('path');
-var rootFolder = path.resolve(__dirname, '../../').replace(/\\/g, '/');
+var rootFolder = path.resolve(__dirname, '../../../').replace(/\\/g, '/');
 var ancestorFolder = path.resolve(rootFolder, '../').replace(/\\/g, '/');
 var cacheFolder = rootFolder + '/cache';
 var transpilerCacheFolder = cacheFolder + '/transpiler';

@@ -2,7 +2,7 @@ var rollup = require('rollup');
 var path = require('path');
 
 var buildAbstractSource = require('./build-abstract-source.js');
-var uneval = require('../uneval.js');
+var uneval = require('./uneval.js');
 
 function normalizePath(path) {
     return path.replace(/\\/g, '/');

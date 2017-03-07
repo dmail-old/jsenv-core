@@ -1,3 +1,5 @@
+var fs = require('fs');
+
 function createExecutorCallback(resolve, reject) {
     return function(error, result) {
         if (error) {
@@ -16,7 +18,6 @@ function callback(fn, bind) {
     });
 }
 
-var fs = require('fs');
 function fsAsync(methodName) {
     var args = [];
 

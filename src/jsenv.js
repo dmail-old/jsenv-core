@@ -1814,7 +1814,7 @@ en fonction du résultat de ces tests
                 return mediator.send('getTestInstructions').then(function(data) {
                     var tests = extractTests(data);
                     return execAllTests(tests).then(function(testRecords) {
-                        return mediator.send('setAllTestRecord', testRecords);
+                        return mediator.send('setAllTest', testRecords);
                     });
                 });
             }
@@ -1842,7 +1842,7 @@ en fonction du résultat de ces tests
                             }
                         }
                     ).then(function() {
-                        return mediator.send('setAllFixRecord', records);
+                        return mediator.send('setAllFix', records);
                     });
                 });
             }

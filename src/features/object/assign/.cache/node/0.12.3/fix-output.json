@@ -7,20 +7,6 @@
 	],
 	"value": {
 		"status": "passed",
-		"reason": "done",
-		"detail": {
-			"presence": {
-				"status": "passed",
-				"reason": "returned-true"
-			},
-			"deterministic order": {
-				"status": "passed",
-				"reason": "returned-true"
-			},
-			"works with symbol": {
-				"status": "passed",
-				"reason": "returned-true"
-			}
-		}
+		"reason": "all-passed"
 	}
 }

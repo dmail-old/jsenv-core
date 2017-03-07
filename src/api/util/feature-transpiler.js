@@ -1,4 +1,4 @@
-var createTranspiler = require('../transpiler/transpiler.js');
+var createTranspiler = require('./transpiler.js');
 
 var featureTranspiler = createTranspiler({
     cache: true,

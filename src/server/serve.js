@@ -2,8 +2,6 @@
 - performance now polyfill :
 https://gist.github.com/paulirish/5438650
 
-- dynamic polyfill reading user-agent :
-https://polyfill.io/v2/docs/features/
 */
 
 // import require from '@node/require';

@@ -8,6 +8,8 @@ var babel = require('babel-core');
 var path = require('path');
 var fs = require('fs');
 
+var find = require('./find.js');
+
 var visitors = [
     function(node) {
         return node.type === 'ImportDeclaration';
@@ -96,20 +98,6 @@ function visit(node) {
         i += 2;
     }
     return result;
-}
-function find(iterable, fn) {
-    var i = 0;
-    var j = iterable.length;
-    var found = null;
-    while (i < j) {
-        found = iterable[i];
-        if (fn(found, i, iterable)) {
-            break;
-        }
-        found = null;
-        i++;
-    }
-    return found;
 }
 function fetch(filename) {
     return new Promise(function(resolve, reject) {

@@ -28,7 +28,7 @@ function expect(testMap) {
         }
         function next() {
             if (i === j) {
-                return pass('done', compositeDetail);
+                return pass('all-passed');
             }
             currentTest = tests[i];
             i++;

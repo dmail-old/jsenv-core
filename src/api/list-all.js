@@ -1,5 +1,5 @@
-var getFeaturesFolder = require('./get-folder.js');
-var fsAsync = require('../fs-async.js');
+var fsAsync = require('./util/fs-async.js');
+var getFeaturesFolder = require('./util/get-folder.js');
 
 function readFolder(path) {
     return fsAsync('readdir', path);

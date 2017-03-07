@@ -1,5 +1,5 @@
 var path = require('path');
-var rootFolder = path.resolve(__dirname, '../../').replace(/\\/g, '/');
+var rootFolder = path.resolve(__dirname, '../../../').replace(/\\/g, '/');
 var featuresFolderPath = rootFolder + '/src/features';
 
 function getFeaturesFolder() {

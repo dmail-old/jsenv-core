@@ -1,10 +1,8 @@
 var cuid = require('cuid');
 var Path = require('path');
 
-var fsAsync = require('../fs-async.js');
-require('../jsenv.js');
-
-// var Thenable = jsenv.Thenable;
+var fsAsync = require('./fs-async.js');
+var find = require('./find.js');
 
 var createFileSystemEntry = (function() {
     var createFileSystemBranch = (function() {
@@ -245,36 +243,49 @@ var createFileSystemEntry = (function() {
     // we wait for the first function to create unatched branch before letting the second check
     // without this check they would both create a new branch (a duplicate) because none has matched
     var pendingOperations = [];
-    function enqueue(path, fn) {
-        var existingOperation = jsenv.Iterable.find(pendingOperations, function(pendingOperation) {
-            return pendingOperation.path === path;
-        });
-        if (existingOperation) {
-            return existingOperation.thenable.then(
-                function() {
-                    return enqueue(path, fn);
-                },
-                function() {
-                    return enqueue(path, fn);
-                }
-            );
-        }
+    function markOperationAsPending(operation) {
+        pendingOperations.push(operation);
 
+        operation.thenable.then(
+            function() {
+                markOperationAsDone(operation);
+            },
+            function() {
+                markOperationAsDone(operation);
+            }
+        );
+    }
+    function markOperationAsDone(operation) {
+        var index = pendingOperations.indexOf(operation);
+        pendingOperations.splice(index, 1);
+    }
+    function exec(path, fn) {
         var thenable = fn();
         var operation = {
             path: path,
             thenable: thenable
         };
-        thenable.then(
+        markOperationAsPending(operation);
+        return thenable;
+    }
+    function execBlockingWhenDone(operation, path, fn) {
+        return operation.thenable.then(
             function() {
-                jsenv.Iterable.remove(pendingOperations, operation);
+                return execBlocking(path, fn);
             },
             function() {
-                jsenv.Iterable.remove(pendingOperations, operation);
+                return execBlocking(path, fn);
             }
         );
-        pendingOperations.push(operation);
-        return thenable;
+    }
+    function execBlocking(path, fn) {
+        var existingOperation = find(pendingOperations, function(pendingOperation) {
+            return pendingOperation.path === path;
+        });
+        if (existingOperation) {
+            return execBlockingWhenDone(existingOperation, path, fn);
+        }
+        return exec(path, fn);
     }
     function compareBranch(a, b) {
         var order;
@@ -351,7 +362,7 @@ var createFileSystemEntry = (function() {
             var entry = this;
             var branchesPath = entry.path + '/branches.json';
 
-            return enqueue(branchesPath, function() {
+            return execBlocking(branchesPath, function() {
                 return fsAsync.getFileContent(branchesPath, '[]').then(function(content) {
                     try {
                         return JSON.parse(content);

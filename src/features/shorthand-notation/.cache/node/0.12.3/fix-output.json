@@ -7,36 +7,6 @@
 	],
 	"value": {
 		"status": "passed",
-		"reason": "done",
-		"detail": {
-			"properties": {
-				"status": "passed",
-				"reason": "done",
-				"detail": {
-					"compiles": {
-						"status": "passed",
-						"reason": "resolved"
-					},
-					"runs": {
-						"status": "passed",
-						"reason": "returned-true"
-					}
-				}
-			},
-			"methods": {
-				"status": "passed",
-				"reason": "done",
-				"detail": {
-					"compiles": {
-						"status": "passed",
-						"reason": "resolved"
-					},
-					"runs": {
-						"status": "passed",
-						"reason": "returned-true"
-					}
-				}
-			}
-		}
+		"reason": "all-passed"
 	}
 }

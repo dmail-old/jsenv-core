@@ -1,4 +1,4 @@
-var uneval = require('../uneval.js');
+var uneval = require('./uneval.js');
 
 var Instruction = (function() {
     function preventMembersConflict(id) {

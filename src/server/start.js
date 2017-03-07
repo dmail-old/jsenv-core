@@ -2,19 +2,10 @@
 
 /*
 
-- renvoyer au client le fichier qu'il doit fetch pour features.js, polyfill.js et features.fixed.js
-au lieu de renvoyer le contenu du fichier (permettra de cache pour browser)
-
 - continuer sur l'import de server.js
 
 // pour voir comment le cache http fonctionne (pas utile pour le moment)
 https://fetch.spec.whatwg.org/#requests
-
-- externaliser sourcemap au lie de inline base64, enfin faire une option
-cela signifie que pour que le cache soit valide il faudra aussi check l'existance de son fichier sourcemap
-ou alors toruver une autre soluce
-
-- yield, async, generator, prévoir les features/plugins/polyfill correspondant
 
 -  chaque progresscallback devrait pouvoir dire attend que je te le dise pour faire
 le suite, voir même laisse tomber (aucun interêt mais bon) genre event.waitUntil
@@ -23,10 +14,6 @@ de sorte qu'on pourrais avoir une interface qui dit
 [Allez-y]
 "Nous avons besoin d'appliquer des correctifs"
 [Alley-y]
-
-- race condition writefile ?
-si oui faudrais une queue de write pour s'assurer que la dernière version est bien celle
-qui est finalement écrit
 
 - more : npm install dynamique
 

@@ -7,20 +7,6 @@
 	],
 	"value": {
 		"status": "passed",
-		"reason": "done",
-		"detail": {
-			"presence": {
-				"status": "passed",
-				"reason": "returned-true"
-			},
-			"unhandled-rejection": {
-				"status": "passed",
-				"reason": "returned-true"
-			},
-			"rejection-handled": {
-				"status": "passed",
-				"reason": "returned-true"
-			}
-		}
+		"reason": "all-passed"
 	}
 }

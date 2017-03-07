@@ -6,8 +6,6 @@ with
 https://github.com/kangax/compat-table/blob/gh-pages/data-es5.js
 https://github.com/kangax/compat-table/blob/gh-pages/data-es6.js
 
-- tester de mettre plusieur truc ensemble, et de volontairmeent mettre for-of après let ou const par ex
-
 - systemjs
 une fois que systemjs marche on se met en mode ok magel
 on est censé être capable de transpiler dynamiquement et donc de redémarrer le serveur qu'on avait avant
@@ -23,337 +21,58 @@ donc le test est OK, les versions ultérieures peuvent être supprimées
 
 - produire test-output.json de chaque feature une après l'autre pour node 0.12
 
+- ca serais cool d'avoir des helpers  genre
+getAgentVersionSupporting(featureId, agent) -> ['20.0.0']
+getAgentSupporting(featureId) -> ['firefox/20', 'node/2']
+
 */
 
 var path = require('path');
 
-require('../jsenv.js');
-var Agent = require('../agent/agent.js');
-var store = require('../store/store.js');
-var fsAsync = require('../fs-async.js');
-var memoize = require('../memoize.js');
-var createTranspiler = require('../transpiler/transpiler.js');
-var locateSourceMap = require('./source-map-locate.js');
+var getFolder = require('./util/get-folder.js');
+var pathFromId = require('./util/path-from-id.js');
+var idFromNode = require('./util/id-from-node.js');
+var mapAsync = require('./util/map-async.js');
+
+var Agent = require('./util/agent.js');
+var store = require('./util/store.js');
+var fsAsync = require('./util/fs-async.js');
+var memoize = require('./util/memoize.js');
+var createTranspiler = require('./util/transpiler.js');
+var locateSourceMap = require('./util/source-map-locate.js');
+var build = require('./util/build.js');
+var featureMeta = require('./util/feature-meta.js');
+var selectAll = require('./util/select-all.js');
+var featureTranspiler = require('./util/feature-transpiler.js');
 
 var rootFolder = path.resolve(__dirname, '../../').replace(/\\/g, '/');
 var cacheFolder = rootFolder + '/cache';
 var corejsCacheFolder = cacheFolder + '/corejs';
 var polyfillCacheFolder = cacheFolder + '/polyfill';
 
-var readDependencies = require('./read-module-dependencies.js');
-
+require('../jsenv.js');
 var Iterable = jsenv.Iterable;
 var Thenable = jsenv.Thenable;
 
-var getFolder = require('./get-folder.js');
-function pathFromId(featureId) {
-    return getFolder() + '/' + featureId;
-}
-function idFromNode(node) {
-    var relative = node.id.slice(getFolder().length + 1);
-    return jsenv.parentPath(relative);
-}
 var listAll = require('./list-all.js');
-var build = require('./build.js');
-var transpiler = require('./transpiler.js');
-var api = {};
+var getBestAgent = require('./get-best-agent.js');
 
-function mapAsync(iterable, fn) {
-    return Thenable.all(iterable.map(fn));
-}
-function stringifyErrorReplacer(key, value) {
-    if (value instanceof Error) {
-        var error = {};
-        var properties = [];
-        var property;
-        for (property in value) { // eslint-disable-line guard-for-in
-            properties.push(property);
-        }
-        var nonEnumerableProperties = ["name", "message", "stack"];
-        properties.push.apply(properties, nonEnumerableProperties);
-        var i = 0;
-        var j = properties.length;
-        while (i < j) {
-            property = properties[i];
-            error[property] = value[property];
-            i++;
-        }
-
-        return error;
-    }
-    return value;
-}
-function stringify(value) {
-    try {
-        return JSON.stringify(value, stringifyErrorReplacer, '\t');
-    } catch (e) {
-        return '[Circular]';
-    }
-}
-function createTestOutputProperties(featureId, agent) {
-    var agentString = agent.toString();
-    var featureFolderPath = pathFromId(featureId);
-    var featureCachePath = featureFolderPath + '/.cache';
-    var featureAgentCachePath = featureCachePath + '/' + agentString;
-
-    var properties = {
-        path: featureAgentCachePath,
-        name: 'test-output.json',
-        encode: stringify,
-        sources: [
-            {
-                path: featureFolderPath + '/test.js',
-                strategy: 'eTag'
-            }
-        ],
-        // mode: 'write-only'
-        mode: 'default'
-    };
-    return properties;
-}
-function createFixOutputProperties(featureId, agent) {
-    var agentString = agent.toString();
-    var featureFolderPath = pathFromId(featureId);
-    var featureCachePath = featureFolderPath + '/.cache';
-    var featureAgentCachePath = featureCachePath + '/' + agentString;
-
-    var properties = {
-        path: featureAgentCachePath,
-        name: 'fix-output.json',
-        encode: stringify,
-        sources: [
-            {
-                path: featureFolderPath + '/fix.js',
-                strategy: 'eTag'
-            }
-        ],
-        mode: 'write-only'
-        // mode: 'default'
-    };
-    return properties;
-}
-function readOutputFromFileSystem(featureId, agent, createProperties) {
-    var cache = getFeatureAgentCache(featureId, agent, createProperties);
-    return cache.read();
-}
-function getFeatureAgentCache(featureId, agent, createProperties) {
-    var properties = createProperties(featureId, agent);
-    return store.fileSystemEntry(properties);
-}
-function readRecordFromFileSystem(featureId, agent, type) {
-    var createProperties;
-    if (type === 'test') {
-        createProperties = createTestOutputProperties;
-    } else {
-        createProperties = createFixOutputProperties;
-    }
-
-    return readOutputFromFileSystem(
-        featureId,
-        agent,
-        createProperties
-    ).then(function(data) {
-        if (data.valid) {
-            console.log('got valid data for', featureId);
-        } else {
-            console.log('no valid for', featureId, 'because', data.reason);
-        }
-
-        return {
-            id: featureId,
-            data: data
-        };
-    });
-}
-function recordIsMissing(record) {
-    return (
-        record.data.valid === false &&
-        record.data.reason === 'file-not-found'
-    );
-}
-function recordIsInvalid(record) {
-    return record.data.valid === false;
-}
-function recordIsFailed(record) {
-    return record.data.value.status === 'failed';
-}
-function getStatus(featureId, agent, includeFix, enableBestRegisteredAgent) {
-    var featureAgentPromise;
-    if (enableBestRegisteredAgent) {
-        featureAgentPromise = getBestRegisteredAgent(featureId, agent);
-    } else {
-        featureAgentPromise = Promise.resolve(agent);
-    }
-    return featureAgentPromise.then(
-        function(featureAgent) {
-            return readRecordFromFileSystem(
-                featureId,
-                featureAgent,
-                'test'
-            ).then(function(testRecord) {
-                if (recordIsMissing(testRecord)) {
-                    return 'test-missing';
-                }
-                if (recordIsInvalid(testRecord)) {
-                    return 'test-invalid';
-                }
-                if (recordIsFailed(testRecord)) {
-                    if (includeFix) {
-                        return readRecordFromFileSystem(
-                            featureId,
-                            featureAgent,
-                            'fix'
-                        ).then(function(fixRecord) {
-                            if (recordIsMissing(fixRecord)) {
-                                return 'test-failed-and-fix-missing';
-                            }
-                            if (recordIsInvalid(fixRecord)) {
-                                return 'test-failed-and-fix-invalid';
-                            }
-                            if (recordIsFailed(fixRecord)) {
-                                return 'test-failed-and-fix-failed';
-                            }
-                            return 'test-failed-and-fix-passed';
-                        });
-                    }
-                    return 'test-failed';
-                }
-                return 'test-passed';
-            });
-        },
-        function(e) {
-            if (e && (e.code === 'NO_AGENT' || e.code === 'NO_AGENT_VERSION')) {
-                if (includeFix) {
-                    return 'test-missing-and-fix-missing';
-                }
-                return 'test-missing';
-            }
-            return Promise.reject(e);
-        }
-    );
-}
-function getAllDependencies(featureIds, file) {
-    var featureTests = featureIds.map(function(featureId) {
-        return './' + featureId + '/' + file;
-    });
-    var folderPath = getFolder();
-    return readDependencies(
-        featureTests,
-        {
-            root: folderPath,
-            exclude: function(id) {
-                if (id.indexOf(folderPath) !== 0) {
-                    return true;
-                }
-                return path.basename(id) !== file;
-            },
-            autoParentDependency: function(id) {
-                if (file === 'fix.js') {
-                    return;
-                }
-                // si id est dans folderPath mais n'est pas un enfant direct de folderPath
-                // folderPath/a/file.js non
-                // mais folderpath/a/b/file.js oui et on renvoit folderpath/a/file.js
-                // seulement si mode === 'test' ?
-
-                // file must be inside folder
-                if (id.indexOf(folderPath) !== 0) {
-                    return;
-                }
-                var relative = id.slice(folderPath.length + 1);
-                var relativeParts = relative.split('/');
-                // folderPath/a/file.js -> nope
-                if (relativeParts.length < 3) {
-                    return;
-                }
-                // folderpath/a/b/file.js -> yep
-                var possibleParentFile = folderPath + '/' + relativeParts.slice(0, -2) + '/' + file;
-                return fsAsync.visible(possibleParentFile).then(
-                    function() {
-                        return possibleParentFile;
-                    },
-                    function() {
-                        return null;
-                    }
-                );
-            }
-        }
-    );
-}
-function getNodes(featureIds, file) {
-    return getAllDependencies(featureIds, file).then(function(nodes) {
-        return nodes.concat(jsenv.collectDependencies(nodes));
-    });
-}
-function matchNodes(featureIds, agent, options) {
-    return getNodes(featureIds, options.file).then(function(nodes) {
-        return mapAsync(nodes, function(node) {
-            var featureId = idFromNode(node);
-            // console.log('get status of', featureId);
-            return getStatus(
-                featureId,
-                agent,
-                options.needFixStatus,
-                options.allowRelatedStatus
-            );
-        }).then(function(statuses) {
-            if (options.ensure) {
-                options.ensure(nodes, statuses);
-            }
-            return Iterable.filterBy(
-                nodes,
-                statuses,
-                options.include
-            );
-        });
-    });
-}
 function getTestInstructions(featureIds, agent) {
-    return matchNodes(
+    return selectAll(
         featureIds,
-        agent,
+        'test.js',
         {
-            file: 'test.js',
+            agent: agent,
             include: function(status) {
                 return (
                     status === 'test-missing' ||
                     status === 'test-invalid'
                 );
-            }
+            },
+            generate: true
         }
-    ).then(function(nodes) {
-        var nodesToTest = nodes.concat(jsenv.collectDependencies(nodes));
-        var abstractFeatures = nodesToTest.map(function(featureNode) {
-            var featureId = idFromNode(featureNode);
-            return {
-                id: {
-                    type: 'inline',
-                    name: '',
-                    from: featureId
-                },
-                testDependencies: {
-                    type: 'inline',
-                    name: '',
-                    from: featureNode.dependencies.map(function(dependency) {
-                        return nodesToTest.indexOf(dependency);
-                    })
-                },
-                test: {
-                    type: 'import',
-                    name: 'default',
-                    from: './' + featureId + '/test.js'
-                }
-            };
-        });
-        return build(
-            abstractFeatures,
-            {
-                transpiler: transpiler,
-                root: getFolder()
-            }
-        ).then(function(bundle) {
-            return bundle.code;
-        });
+    ).then(function(result) {
+        return result.code;
     });
 }
 // getTestInstructions(
@@ -367,45 +86,27 @@ function getTestInstructions(featureIds, agent) {
 //     });
 // });
 
-function writeAllRecordToFileSystem(records, agent, type) {
-    var outputsPromises = records.map(function(record) {
-        var createProperties;
-        if (type === 'test') {
-            createProperties = createTestOutputProperties;
-        } else {
-            createProperties = createFixOutputProperties;
-        }
-
-        return writeOutputToFileSystem(
-            record.id,
-            agent,
-            createProperties,
-            record.data
-        ).then(function() {
-            return undefined;
-        });
-    });
-    return Thenable.all(outputsPromises);
-}
-function writeOutputToFileSystem(featureId, agent, createProperties, output) {
-    var cache = getFeatureAgentCache(featureId, agent, createProperties);
-    return cache.write(output);
-}
-function setAllTestRecord(records, agent) {
-    return writeAllRecordToFileSystem(
+function setAllTest(records, agent) {
+    return featureMeta.setAllTest(
         records,
-        agent,
-        'test'
+        agent
     );
 }
+
 var noSolution = {
-    match: featureHasNoFix
+    match: function featureHasNoFix(feature) {
+        return feature.fix.type === 'none';
+    }
 };
 var inlineSolution = {
-    match: featureUseInlineFix
+    match: function featureUseInlineFix(feature) {
+        return feature.fix.type === 'inline';
+    }
 };
 var fileSolution = {
-    match: featureUseFileFix,
+    match: function featureUseFileFix(feature) {
+        return feature.fix.type === 'file';
+    },
 
     resolvePath: function(feature) {
         var fix = feature.fix;
@@ -455,7 +156,9 @@ var fileSolution = {
     }
 };
 var coreJSSolution = {
-    match: featureUseCoreJSFix,
+    match: function featureUseCoreJSFix(feature) {
+        return feature.fix.type === 'corejs';
+    },
 
     solve: function(features, abstractFeatures, options) {
         var moduleNames = features.map(function(feature) {
@@ -526,7 +229,9 @@ var coreJSSolution = {
     }
 };
 var babelSolution = {
-    match: featureUseBabelFix,
+    match: function featureUseBabelFix(feature) {
+        return feature.fix.type === 'babel';
+    },
 
     createTranspiler: function(features) {
         function createPluginOptions(fix) {
@@ -614,7 +319,7 @@ var babelSolution = {
             });
             return result;
         }, 'transpile');
-        var fixedTranspiler = transpiler.clone();
+        var fixedTranspiler = featureTranspiler.clone();
         fixedTranspiler.options.plugins.unshift(
             [transpileTemplatePlugin, babelTranspiler.getNormalizedPlugins()]
         );
@@ -622,21 +327,6 @@ var babelSolution = {
         return Promise.resolve(fixedTranspiler);
     }
 };
-function featureHasNoFix(feature) {
-    return feature.fix.type === 'none';
-}
-function featureUseInlineFix(feature) {
-    return feature.fix.type === 'inline';
-}
-function featureUseFileFix(feature) {
-    return feature.fix.type === 'file';
-}
-function featureUseCoreJSFix(feature) {
-    return feature.fix.type === 'corejs';
-}
-function featureUseBabelFix(feature) {
-    return feature.fix.type === 'babel';
-}
 function filterBySolution(features, solution, abstractFeatures) {
     var i = 0;
     var j = features.length;
@@ -686,107 +376,60 @@ function groupBySolution(features, abstractFeatures) {
 function loadTestIntoAbstract(nodes, abstractFeatures) {
     var dependencies = jsenv.collectDependencies(nodes);
     var featureIdsToTest = nodes.concat(dependencies).map(idFromNode);
-    return getNodes(
+    return selectAll(
         featureIdsToTest,
         'test.js'
-    ).then(function(testNodes) {
-        var abstractFeaturesHavingTest = testNodes.map(function(testNode) {
-            var featureId = idFromNode(testNode);
-            var abstractFeature = Iterable.find(abstractFeatures, function(abstractFeature) {
-                return abstractFeature.id.from === featureId;
-            });
-            var abstractTestProperty = {
-                type: 'import',
-                name: 'default',
-                from: './' + featureId + '/test.js'
-            };
-            var abstractTestDependenciesProperty = {
-                type: 'inline',
-                name: ''
-            };
+    ).then(function(result) {
+        // first we need to know where the merged value will be in the final array
+        // we'll use abstractIndexes array which behaves as follow
+        // given abstractFeature = [a, b, c]
+        // and testFeatures = [b, d, a, e]
+        // then abstractIndexes will be [1, 3, 0, 4]
+        // because b is at 1, d will be added at 3, a at 0, e will be added at 4
 
-            if (abstractFeature) {
-                abstractFeature.test = abstractTestProperty;
-                abstractFeature.testDependencies = abstractTestDependenciesProperty;
+        var abstractTestFeatures = result.abstractFeatures;
+        var abstractIndexes = [];
+        var newCount = 0;
+        abstractTestFeatures.forEach(function(abstractTestFeature) {
+            var abstractFeatureIndex = Iterable.findIndex(abstractFeatures, function(abstractFeature) {
+                return abstractFeature.id.from === abstractTestFeature.id.from;
+            });
+
+            if (abstractFeatureIndex === -1) {
+                abstractIndexes.push(abstractFeatures.length + newCount);
+                newCount++;
             } else {
-                abstractFeature = {
-                    id: {
-                        type: 'inline',
-                        name: '',
-                        from: featureId
-                    },
-                    test: abstractTestProperty,
-                    testDependencies: abstractTestDependenciesProperty
-                };
-                abstractFeatures.push(abstractFeature);
+                abstractIndexes.push(abstractFeatureIndex);
             }
-            return abstractFeature;
         });
 
-        abstractFeaturesHavingTest.forEach(function(abstractFeature, index) {
-            var testNode = testNodes[index];
-            abstractFeature.testDependencies.from = testNode.dependencies.map(function(dependency) {
-                var dependencyAsFeatureId = idFromNode(dependency);
-                return Iterable.findIndex(abstractFeatures, function(abstractFeature) {
-                    return abstractFeature.id.from === dependencyAsFeatureId;
-                });
-            });
-        });
-    });
-}
-function matcher(featureIds, agent, options) {
-    return matchNodes(
-        featureIds,
-        agent,
-        options
-    ).then(function(nodes) {
-        var abstractFeatures = nodes.map(function(node) {
-            var featureId = idFromNode(node);
-            return {
-                id: {
-                    type: 'inline',
-                    name: '',
-                    from: featureId
-                },
-                fix: {
-                    type: 'import',
-                    name: 'default',
-                    from: './' + featureId + '/fix.js'
-                },
-                fixDependencies: {
-                    type: 'inline',
-                    name: '',
-                    from: node.dependencies.filter(function(dependency) {
-                        return Iterable.includes(nodes, dependency);
-                    }).map(function(dependency) {
-                        return nodes.indexOf(dependency);
-                    })
-                }
-            };
-        });
+        function isNewValue(index) {
+            return index >= abstractFeatures.length;
+        }
+        function getFinalIndex(index) {
+            return abstractIndexes.indexOf(index);
+        }
 
-        return build(
-            abstractFeatures,
-            {
-                root: getFolder(),
-                transpiler: transpiler
+        abstractIndexes.forEach(function(abstractIndex, index) {
+            var abstractTestFeature = abstractTestFeatures[index];
+
+            // abstractTestFeatures are injected inside abstractFeatures
+            // as a consequence testDependencies must be updated to target the right nodes
+            abstractTestFeature.testDependencies.from = abstractTestFeature.testDependencies.from.map(getFinalIndex);
+
+            if (isNewValue(abstractIndex)) {
+                abstractFeatures.push(abstractTestFeature);
+            } else {
+                var abstractFeature = abstractFeatures[abstractIndex];
+                abstractFeature.test = abstractTestFeature.test;
+                abstractFeature.testDependencies = abstractTestFeature.testDependencies;
             }
-        ).then(function(bundle) {
-            return bundle.compile();
-        }).then(function(data) {
-            return data.features;
-        }).then(function(features) {
-            return {
-                nodes: nodes,
-                abstractFeatures: abstractFeatures,
-                features: features
-            };
         });
     });
 }
 function getFixInstructions(featureIds, agent) {
-    var matchOptions = {
-        file: 'fix.js',
+    var selectFixOptions = {
+        agent: agent,
         needFixStatus: true,
         ensure: function(nodes, statuses) {
             var problematicNodes = Iterable.filterBy(
@@ -814,21 +457,23 @@ function getFixInstructions(featureIds, agent) {
                 status === 'test-failed-and-fix-missing' ||
                 status === 'test-failed-and-fix-invalid'
             );
-        }
+        },
+        ignoreDependencies: true,
+        instantiate: true
     };
 
-    return matcher(
+    return selectAll(
         featureIds,
-        agent,
-        matchOptions
-    ).then(function(match) {
-        var nodesToFix = match.nodes;
-        var abstractFeatures = match.abstractFeatures;
-        var featuresToFix = match.features;
-        var groups = groupBySolution(featuresToFix, abstractFeatures);
+        'fix.js',
+        selectFixOptions
+    ).then(function(result) {
+        var nodes = result.nodes;
+        var abstractFeatures = result.abstractFeatures;
+        var features = result.features;
+        var groups = groupBySolution(features, abstractFeatures);
         var buildOptions = {
             root: getFolder(),
-            transpiler: transpiler,
+            transpiler: featureTranspiler,
             meta: {}
         };
         var pending = [];
@@ -858,7 +503,7 @@ function getFixInstructions(featureIds, agent) {
         pending.push(babelSolutionThenable);
 
         var loadTestThenable = loadTestIntoAbstract(
-            nodesToFix,
+            nodes,
             abstractFeatures,
             buildOptions
         );
@@ -885,11 +530,10 @@ function getFixInstructions(featureIds, agent) {
 //     });
 // });
 
-function setAllFixRecord(records, agent) {
-    return writeAllRecordToFileSystem(
+function setAllFix(records, agent) {
+    return featureMeta.setAllFix(
         records,
-        agent,
-        'fix'
+        agent
     );
 }
 
@@ -901,14 +545,14 @@ function createOwnMediator(featureIds, agent) {
             if (action === 'getTestInstructions') {
                 return getTestInstructions(featureIds, agent).then(fromServer);
             }
-            if (action === 'setAllTestRecord') {
-                return setAllTestRecord(value, agent);
+            if (action === 'setAllTest') {
+                return setAllTest(value, agent);
             }
             if (action === 'getFixInstructions') {
                 return getFixInstructions(featureIds, agent).then(fromServer);
             }
-            if (action === 'setAllFixRecord') {
-                return setAllFixRecord(value, agent);
+            if (action === 'setAllFix') {
+                return setAllFix(value, agent);
             }
             throw new Error('unknown mediator action ' + action);
         }
@@ -926,195 +570,72 @@ function createOwnMediator(featureIds, agent) {
         return data;
     }
 }
-var ownMediator = createOwnMediator(
-    [
-        'template-literals'
-    ],
-    jsenv.agent
-);
-var client = jsenv.createImplementationClient(ownMediator);
-client.scan().then(function() {
-    console.log(Array.from);
-}).catch(function(e) {
-    setTimeout(function() {
-        throw e;
-    });
-});
-
-function getBestRegisteredAgent(featureId, agent) {
-    var featureFolderPath = pathFromId(featureId);
-    var featureCachePath = featureFolderPath + '/.cache';
-
-    function adaptAgentName(agent, path) {
-        return visibleFallback(
-            path + '/' + agent.name,
-            function() {
-                agent.name = 'other';
-                return path + '/' + agent.name;
-            }
-        );
-    }
-    function visibleFallback(path, fallback) {
-        return fsAsync.visible(path).catch(function() {
-            return Promise.resolve(fallback()).then(function(fallbackPath) {
-                if (fallbackPath) {
-                    return fsAsync.visible(fallbackPath);
-                }
-            });
-        });
-    }
-    function adaptVersion(version, path) {
-        var cachePath = path + '/' + version + '/test-output.json';
-        return visibleFallback(
-            cachePath,
-            function() {
-                return fsAsync('readdir', path).then(function(names) {
-                    var availableVersions = names.map(function(name) {
-                        return jsenv.createVersion(name);
-                    }).filter(function(version) {
-                        // exclude folder name like ?, * or alphabetic
-                        return version.isSpecified();
-                    }).sort(function(a, b) {
-                        if (a.above(b)) {
-                            return 1;
-                        }
-                        if (a.below(b)) {
-                            return -1;
-                        }
-                        return 0;
-                    });
-
-                    var i = 0;
-                    var j = availableVersions.length;
-                    var previousVersions = [];
-                    while (i < j) {
-                        var availableVersion = availableVersions[i];
-                        if (version.above(availableVersion)) {
-                            previousVersions.unshift(availableVersion);
-                        } else {
-                            break;
-                        }
-                        i++;
-                    }
-                    return Promise.all(previousVersions.map(function(previousVersion) {
-                        return fsAsync.visible(path + '/' + previousVersion + '/test-output.json').then(
-                            function() {
-                                // console.log('valid previous version ' + previousVersion);
-                                return true;
-                            },
-                            function() {
-                                // console.log('invalid previous version ' + previousVersion);
-                                return false;
-                            }
-                        );
-                    })).then(function(validities) {
-                        return Iterable.find(previousVersions, function(previousVersion, index) {
-                            return validities[index];
-                        });
-                    }).then(function(closestPreviousValidVersion) {
-                        if (closestPreviousValidVersion) {
-                            version.update(closestPreviousValidVersion);
-                        } else {
-                            version.update('?');
-                            return path + '/' + version;
-                        }
-                    });
-                });
-            }
-        );
-    }
-    function missingAgent() {
-        var missing = {
-            code: 'NO_AGENT',
-            featureId: featureId,
-            agentName: agent.name
-        };
-        return missing;
-    }
-    function missingVersion() {
-        var missing = {
-            code: 'NO_AGENT_VERSION',
-            featureId: featureId,
-            agentName: agent.name,
-            agentVersion: agent.version.toString()
-        };
-        return missing;
-    }
-
-    var closestPreviousAgent = jsenv.createAgent(agent.name, agent.version);
-    return adaptAgentName(
-        closestPreviousAgent,
-        featureCachePath
-    ).catch(function(e) {
-        if (e && e.code === 'ENOENT') {
-            return Promise.reject(missingAgent());
-        }
-        return Promise.reject(e);
-    }).then(function() {
-        return adaptVersion(
-            closestPreviousAgent.version,
-            featureCachePath + '/' + closestPreviousAgent.name
-        ).catch(function(e) {
-            if (e && e.code === 'ENOENT') {
-                return Promise.reject(missingVersion());
-            }
-            return Promise.reject(e);
-        });
-    }).then(function() {
-        return closestPreviousAgent;
-    });
-}
-// getClosestAgentForFeature(
-//     'const',
-//     jsenv.createAgent('node/4.7.4')
-// ).then(function(agent) {
-//     console.log('agent', agent.toString());
+// var ownMediator = createOwnMediator(
+//     [
+//         'function/async',
+//         'object/assign',
+//         'destructuring',
+//         'function/generator',
+//         'for-of'
+//     ],
+//     jsenv.agent
+// );
+// var client = jsenv.createImplementationClient(ownMediator);
+// client.scan().then(function() {
+//     console.log(Array.from);
 // }).catch(function(e) {
-//     console.log('rejected with', e);
+//     setTimeout(function() {
+//         throw e;
+//     });
 // });
 
-var clientMatcherOptions = {
-    file: 'fix.js',
-    needFixStatus: true,
-    allowRelatedStatus: true,
-    // ensure: function(nodes, statuses) {
-    //     var featureWithFailedTestAndFailedFix = Iterable.filterBy(
-    //         nodes,
-    //         statuses,
-    //         function(status) {
-    //             return status === 'test-failed-and-fix-failed';
-    //         }
-    //     );
-    //     je ne suis pas sur qu'on va throw
-    //     on va ptet juste ne rien faire parce qu'on sait que ca créé une erreur plutot
-    //     if (featureWithFailedTestAndFailedFix.length) {
-    //         throw new Error('unfixable features ' + featureWithFailedTestAndFailedFix);
-    //     }
-    // },
-    include: function(status) {
-        return (
-            status === 'test-missing' ||
-            status === 'test-invalid' ||
-            status === 'test-failed-and-fix-missing' ||
-            status === 'test-failed-and-fix-invalid' ||
-            status === 'test-failed-and-fix-passed'
-        );
-    }
-};
+function createFixClientOptions(agent) {
+    var fixClientOptions = {
+        file: 'fix.js',
+        needFixStatus: true,
+        agent: agent,
+        allowRelatedStatus: true,
+        // ensure: function(nodes, statuses) {
+        //     var featureWithFailedTestAndFailedFix = Iterable.filterBy(
+        //         nodes,
+        //         statuses,
+        //         function(status) {
+        //             return status === 'test-failed-and-fix-failed';
+        //         }
+        //     );
+        //     je ne suis pas sur qu'on va throw
+        //     on va ptet juste ne rien faire parce qu'on sait que ca créé une erreur plutot
+        //     if (featureWithFailedTestAndFailedFix.length) {
+        //         throw new Error('unfixable features ' + featureWithFailedTestAndFailedFix);
+        //     }
+        // },
+        include: function(status) {
+            return (
+                status === 'test-missing' ||
+                status === 'test-invalid' ||
+                status === 'test-failed-and-fix-missing' ||
+                status === 'test-failed-and-fix-invalid' ||
+                status === 'test-failed-and-fix-passed'
+            );
+        },
+        instantiate: true
+    };
+    return fixClientOptions;
+}
 function polyfill(featureIds, agent, minify) {
-    var matchOptions = clientMatcherOptions;
+    minify = false; // for now disable minifcation
 
-    return matcher(
+    return selectAll(
         featureIds,
-        agent,
-        matchOptions
-    ).then(function(match) {
-        var abstractFeatures = match.abstractFeatures;
-        var featuresToFix = match.features;
+        'fix.js',
+        createFixClientOptions(agent)
+    ).then(function(result) {
+        var abstractFeatures = result.abstractFeatures;
+        var featuresToFix = result.features;
         var groups = groupBySolution(featuresToFix, abstractFeatures);
         var buildOptions = {
             root: getFolder(),
-            transpiler: minify ? transpiler.minify() : transpiler,
+            transpiler: featureTranspiler,
             minify: minify,
             footer: 'jsenv.polyfill(__exports__);',
             meta: {}
@@ -1180,6 +701,10 @@ function polyfill(featureIds, agent, minify) {
                 if (data.valid) {
                     return data.path;
                 }
+
+                if (minify) {
+                    buildOptions.transpiler = buildOptions.transpiler.minify();
+                }
                 return build(
                     abstractFeatures,
                     buildOptions
@@ -1207,12 +732,12 @@ function polyfill(featureIds, agent, minify) {
 function transpile(file, featureIds, agent) {
     file = path.resolve(file).replace(/\\/g, '/');
 
-    return matcher(
+    return selectAll(
         featureIds,
-        agent,
-        clientMatcherOptions
-    ).then(function(match) {
-        var featuresToFix = match.features;
+        'fix.js',
+        createFixClientOptions(agent)
+    ).then(function(result) {
+        var featuresToFix = result.features;
         var groups = groupBySolution(featuresToFix);
         var transpiler = babelSolution.createTranspiler(groups.babel);
         return transpiler.transpileFile(file, {
@@ -1234,6 +759,23 @@ function transpile(file, featureIds, agent) {
 //     });
 // });
 
+var api = {};
+api.getFolder = getFolder;
+api.getFeaturePath = pathFromId;
+api.getAllAvailableIds = listAll;
+api.getBestAgent = getBestAgent;
+
+api.getTestInstructions = getTestInstructions;
+api.setTest = featureMeta.setTest;
+api.setAllTest = setAllTest;
+api.getFixInstructions = getFixInstructions;
+api.setFix = featureMeta.setFix;
+api.setAllFix = setAllFix;
+api.createOwnMediator = createOwnMediator;
+
+api.polyfill = polyfill;
+api.transpile = transpile;
+
 function createBrowserMediator(featureIds) {
     return {
         send: function(action, value) {
@@ -1242,7 +784,7 @@ function createBrowserMediator(featureIds) {
                     'test?features=' + featureIds.join(encodeURIComponent(','))
                 ).then(readBody);
             }
-            if (action === 'setAllTestRecord') {
+            if (action === 'setAllTest') {
                 return postAsJSON(
                     'test',
                     value
@@ -1253,7 +795,7 @@ function createBrowserMediator(featureIds) {
                     'fix?features=' + featureIds.join(encodeURIComponent(','))
                 ).then(readBody);
             }
-            if (action === 'setAllFixRecord') {
+            if (action === 'setAllFix') {
                 return postAsJSON(
                     'fix',
                     value
@@ -1348,17 +890,5 @@ function createBrowserMediator(featureIds) {
     }
 }
 api.createBrowserMediator = createBrowserMediator;
-
-api.getFolder = getFolder;
-api.getFeaturePath = pathFromId;
-api.getBestRegisteredAgent = getBestRegisteredAgent;
-api.listAll = listAll;
-api.build = build;
-api.transpiler = transpiler;
-api.getTestInstructions = getTestInstructions;
-api.getFixInstructions = getFixInstructions;
-api.polyfill = polyfill;
-api.transpile = transpile;
-api.createOwnMediator = createOwnMediator;
 
 module.exports = api;
