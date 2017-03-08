@@ -2,19 +2,10 @@
 // import Action from '@jsenv/action';
 // import LazyModule from '@jsenv/lazy-module';
 import Url from '@jsenv/url';
+import env from '@jsenv/env';
 
-export default function(env) {
-    var userEnv = '';
-    userEnv = 'env: ';
-    userEnv += env.agent.name;
-    userEnv += ' ';
-    userEnv += env.agent.version;
-    userEnv += ' on ';
-    userEnv += env.platform.name;
-    userEnv += ' ';
-    userEnv += env.platform.version;
-    userEnv += ' from ';
-    userEnv += env.baseURL;
+export default function() {
+    const userEnv = `env: ${env.agent} on ${env.platform} from ${env.baseURL}`;
     console.log(userEnv);
 
     env.provide(function locate() {
@@ -23,8 +14,8 @@ export default function(env) {
                 return Url.create(a, b);
             },
 
-            internalUrl: Url.create(this.internalURL),
-            baseUrl: Url.create(this.baseURL),
+            internalUrl: Url.create(env.internalURL),
+            baseUrl: Url.create(env.baseURL),
 
             locateFrom(data, baseUrl, stripFile) {
                 var url = Url.create(data, baseUrl);
@@ -38,11 +29,11 @@ export default function(env) {
             },
 
             locate(data, stripFile) {
-                return this.locateFrom(data, this.baseUrl, stripFile);
+                return env.locateFrom(data, env.baseUrl, stripFile);
             },
 
             locateInternal(data, stripFile) {
-                return this.locateFrom(data, this.internalUrl, stripFile);
+                return env.locateFrom(data, env.internalUrl, stripFile);
             }
         };
     });

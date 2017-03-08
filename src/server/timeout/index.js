@@ -2,7 +2,7 @@ var Timeout = {
     timer: null,
     expirationEffect: 'resolve',
 
-    constructor: function(value) {
+    constructor(value) {
         if (arguments.length > 0) {
             this.set(value);
         }
@@ -12,11 +12,11 @@ var Timeout = {
         }.bind(this));
     },
 
-    valueOf: function() {
+    valueOf() {
         return this.value;
     },
 
-    create: function() {
+    create() {
         var timeout = Object.create(this);
 
         timeout.constructor.apply(timeout, arguments);
@@ -24,23 +24,23 @@ var Timeout = {
         return timeout;
     },
 
-    turnExpirationIntoRejection: function() {
+    turnExpirationIntoRejection() {
         this.expirationEffect = 'reject';
     },
 
-    expire: function() {
+    expire() {
         this[this.expirationEffect](this);
     },
 
-    has: function() {
+    has() {
         return this.timer !== null;
     },
 
-    get: function() {
+    get() {
         return this.value;
     },
 
-    set: function(value) {
+    set(value) {
         this.clear();
         this.value = value;
         if (value > -1) {
@@ -48,18 +48,18 @@ var Timeout = {
         }
     },
 
-    clear: function() {
+    clear() {
         if (this.timer) {
             clearTimeout(this.timer);
             this.timer = null;
         }
     },
 
-    then: function(onResolve, onReject) {
+    then(onResolve, onReject) {
         return this.promise.then(onResolve, onReject);
     },
 
-    catch: function(onReject) {
+    catch(onReject) {
         return this.then(null, onReject);
     }
 };

@@ -55,6 +55,7 @@ var selectAll = require('./util/select-all.js');
 var featureTranspiler = require('./util/feature-transpiler.js');
 
 var rootFolder = path.resolve(__dirname, '../../').replace(/\\/g, '/');
+var projectRoot = path.resolve(rootFolder, '../').replace(/\\/g, '/');
 var cacheFolder = rootFolder + '/cache';
 var corejsCacheFolder = cacheFolder + '/corejs';
 var polyfillCacheFolder = cacheFolder + '/polyfill';
@@ -795,7 +796,10 @@ function install() {
         'function/parameters',
         'function/arrow',
         'block-scoping',
-        'shorthand-notation'
+        'shorthand-notation',
+        'template-literals',
+        'url',
+        'url-search-params'
     ];
 
     function setup() {
@@ -813,6 +817,15 @@ function install() {
         var instantiateMethod = SystemJS.constructor.instantiate;
         mySystem[instantiateMethod] = function(key, processAnonRegister) {
             var filename = getNodeFilename(key);
+            // console.log('the key', key);
+
+            if (filename.slice(0, 2) === '//') {
+                filename = projectRoot + '/' + filename.slice(2);
+            } else if (filename[0] === '/') {
+                filename = rootFolder + '/' + filename.slice(2);
+            } else {
+                filename = rootFolder + '/' + filename;
+            }
 
             return transpile(filename, features, agent).then(function(transpiledFilename) {
                 return fsAsync.getFileContent(transpiledFilename);
@@ -827,19 +840,6 @@ function install() {
     }
 
     function configSystem(System) {
-        System.meta['*.json'] = {format: 'json'};
-        System.config({
-            map: {
-                '@jsenv/compose': jsenv.parentPath(jsenv.dirname) + '/node_modules/jsenv-compose'
-            },
-            packages: {
-                '@jsenv/compose': {
-                    main: 'index.js',
-                    format: 'es6'
-                }
-            }
-        });
-
         function createModuleExportingDefault(defaultExportsValue) {
             return System.newModule({
                 "default": defaultExportsValue // eslint-disable-line quote-props
@@ -860,21 +860,29 @@ function install() {
             return prefixedName;
         }
 
-        // [
-        //     'action',
-        //     'fetch-as-text',
-        //     'iterable',
-        //     'lazy-module',
-        //     'options',
-        //     'thenable',
-        //     'rest',
-        //     'server',
-        //     'timeout',
-        //     'url'
-        // ].forEach(function(libName) {
-        //     var libPath = jsenv.dirname + '/src/' + libName + '/index.js';
-        //     System.paths[prefixModule(libName)] = libPath;
-        // }, this);
+        System.meta['*.json'] = {format: 'json'};
+        System.config({
+            map: {
+                '@jsenv/compose': '/node_modules/jsenv-compose/index.js'
+            }
+        });
+        [
+            'iterable',
+            'thenable',
+            'rest',
+            'timeout',
+            'url'
+        ].forEach(function(libName) {
+            var libPath = '/src/server/' + libName + '/index.js';
+            var map = {};
+            map[prefixModule(libName)] = libPath;
+            System.config({
+                map: map
+            });
+        }, this);
+        registerCoreModule(prefixModule(jsenv.rootModuleName), jsenv);
+        registerCoreModule(prefixModule(jsenv.moduleName), jsenv);
+        registerCoreModule('@node/require', require);
 
         var oldImport = System.import;
         System.import = function() {
@@ -890,23 +898,19 @@ function install() {
             });
         };
 
-        registerCoreModule(prefixModule(jsenv.rootModuleName), jsenv);
-        registerCoreModule(prefixModule(jsenv.moduleName), jsenv);
-        registerCoreModule('@node/require', require);
-
-        // une fois qu'on a System on peut donc importer ce dont on a besoin
-        // ici il s'agit pas de compose, c'était juste un test, on va tenter de réimporter server/index.js
-        // puis ensuite encore mieux de réimporter server/serve.js (avec rest etc)
-
-        return System.import('@jsenv/compose');
+        return System.import('/src/api/config-system.js').then(function(exports) {
+            return exports.default();
+        }).then(function() {
+            return System;
+        });
     }
 
-    return setup().then(createSystem).then(function(System) {
-        return configSystem(System);
+    return setup().then(createSystem).then(configSystem).then(function() {
+
     });
 }
-install().then(function(mainModule) {
-    console.log('installed', mainModule.default({foo: true}).create().foo);
+install().then(function() {
+    console.log('installed');
 }).catch(function(e) {
     setTimeout(function() {
         throw e;
