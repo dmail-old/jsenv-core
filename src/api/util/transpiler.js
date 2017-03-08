@@ -39,6 +39,16 @@ function normalizePlugins(pluginsOption) {
     // console.log('normalize', pluginsOption, '->', normalizedPluginsOption);
     return normalizedPluginsOption;
 }
+function getSourcemapBasename(filename) {
+    var sourceMapBasename = path.basename(filename) + '.map';
+    return sourceMapBasename;
+}
+function getSourceMapFilename(filename) {
+    var sourceMapBasename = getSourcemapBasename(filename);
+    var sourceMapUrl = path.dirname(filename) + '/' + sourceMapBasename;
+    return sourceMapUrl.replace(/\\/g, '/');
+}
+
 function createTranspiler(transpilerOptions) {
     transpilerOptions = transpilerOptions || {plugins: []};
 
@@ -98,7 +108,6 @@ function createTranspiler(transpilerOptions) {
                 path: nodeFilePath,
                 strategy: 'mtime'
             });
-            // console.log('the name', entryName);
 
             var properties = {
                 path: transpilerCacheFolder,
@@ -111,18 +120,42 @@ function createTranspiler(transpilerOptions) {
                 },
                 sources: sources,
                 mode: options.cacheMode || 'default',
-                save: function(filename, result) {
+                save: function(filename, result, options) {
+                    if (result.code) {
+                        var sourceURL = path.relative(ancestorFolder, filename).replace(/\\/g, '/');
+                        result.code += '\n//# sourceURL=' + sourceURL;
+                    }
+
                     if (options.sourceMaps) {
-                        var relativeSourceMapUrl = path.basename(filename) + '.map';
-                        var sourceMapUrl = path.dirname(filename) + '/' + relativeSourceMapUrl;
-                        result.code += '\n//# sourceMappingURL=' + relativeSourceMapUrl;
+                        var sourceMapBasename = getSourcemapBasename(filename);
+                        var sourceMapFilename = getSourceMapFilename(filename);
+                        // encoreURIComponent sur sourceMapBasename ?
+                        result.code += '\n//# sourceMappingURL=' + sourceMapBasename;
                         locateSourceMap(result.map, filename);
                         return Promise.all([
                             fsAsync.setFileContent(filename, result.code),
-                            fsAsync.setFileContent(sourceMapUrl, JSON.stringify(result.map))
+                            fsAsync.setFileContent(sourceMapFilename, JSON.stringify(result.map))
                         ]);
                     }
                     return fsAsync.setFileContent(filename, result.code);
+                },
+                retrieve: function(filename, options) {
+                    if (options.sourceMaps) {
+                        return Promise.all([
+                            fsAsync.getFileContent(filename),
+                            fsAsync.getFileContent(getSourceMapFilename(filename))
+                        ]).then(function(values) {
+                            return {
+                                code: values[0],
+                                map: values[1] ? JSON.parse(values[1]) : {} // if the file is empty
+                            };
+                        });
+                    }
+                    return fsAsync.getFileContent(filename).then(function(code) {
+                        return {
+                            code: code
+                        };
+                    });
                 }
             };
             var entry = store.fileSystemEntry(properties);
@@ -172,11 +205,15 @@ function createTranspiler(transpilerOptions) {
                 throw e;
             }
             var transpiledCode = result.code;
-            if (filename && options.as !== 'code' && options.sourceURL !== false) {
-                var sourceURL = filename;
-                sourceURL += '!transpiled';
-                transpiledCode += '\n//# sourceURL=' + sourceURL;
-            }
+            // if (filename && options.as !== 'code' && options.sourceURL !== false) {
+            //     var sourceURL;
+            //     if (options.sourceURL) {
+            //         sourceURL = options.sourceURL;
+            //     } else {
+            //         sourceURL = filename + '!transpiled';
+            //     }
+            //     transpiledCode += '\n//# sourceURL=' + sourceURL;
+            // }
             // if (options.transform) {
             //     transpiledCode = options.transform(transpiledCode);
             // }

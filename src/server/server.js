@@ -103,6 +103,33 @@ env.provide(function beforeExit() {
     };
 });
 
+function createServer(options) {
+    const nodeModuleName = options.secure ? 'https' : 'http';
+
+    return System.import('@node/' + nodeModuleName).then(function(nodeModule) {
+        return nodeModule.createServer();
+    });
+}
+function openServer(server, port, hostname) {
+    return new Promise(function(resolve, reject) {
+        server.listen(port, hostname, createExecutorCallback(resolve, reject));
+    });
+}
+function createExecutorCallback(resolve, reject) {
+    return function(error) {
+        if (error) {
+            reject(error);
+        } else {
+            resolve();
+        }
+    };
+}
+function closeServer(server) {
+    return new Promise(function(resolve, reject) {
+        server.close(createExecutorCallback(resolve, reject));
+    });
+}
+
 const NodeServer = compose({
     constructor(requestHandler) {
         this.requestHandler = requestHandler;
@@ -189,35 +216,5 @@ const NodeServer = compose({
         }.bind(this));
     }
 });
-
-function createServer(options) {
-    const nodeModuleName = options.secure ? 'https' : 'http';
-
-    return System.import('@node/' + nodeModuleName).then(function(nodeModule) {
-        return nodeModule.createServer();
-    });
-}
-
-function openServer(server, port, hostname) {
-    return new Promise(function(resolve, reject) {
-        server.listen(port, hostname, createExecutorCallback(resolve, reject));
-    });
-}
-
-function createExecutorCallback(resolve, reject) {
-    return function(error) {
-        if (error) {
-            reject(error);
-        } else {
-            resolve();
-        }
-    };
-}
-
-function closeServer(server) {
-    return new Promise(function(resolve, reject) {
-        server.close(createExecutorCallback(resolve, reject));
-    });
-}
 
 export default NodeServer;

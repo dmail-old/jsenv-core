@@ -1,4 +1,4 @@
-export function stringToArrayBuffer(string) {
+function stringToArrayBuffer(string) {
     string = String(string);
     var buffer = new ArrayBuffer(string.length * 2); // 2 bytes for each char
     var bufferView = new Uint16Array(buffer);
@@ -9,6 +9,7 @@ export function stringToArrayBuffer(string) {
     }
     return buffer;
 }
+export {stringToArrayBuffer};
 
 const BodyConsumer = {
     bodyUsed: false,

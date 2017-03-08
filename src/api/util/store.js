@@ -340,6 +340,9 @@ var createFileSystemEntry = (function() {
         unwrap: function(value) {
             return value;
         },
+        retrieve: function(path) {
+            return fsAsync.getFileContent(path);
+        },
         save: function(path, value) {
             return fsAsync.setFileContent(path, value);
         },
@@ -404,9 +407,9 @@ var createFileSystemEntry = (function() {
             }
 
             var path = entry.path;
+            var normalizedArgs = entry.normalize.apply(entry, args);
             var pathThenable;
             if (entry.behaviour === 'branch') {
-                var normalizedArgs = entry.normalize.apply(entry, args);
                 pathThenable = entry.match(bind, normalizedArgs, function(match) {
                     if (match.branch) {
                         var branch = match.branch;
@@ -435,7 +438,9 @@ var createFileSystemEntry = (function() {
                     if (data.valid === false) {
                         return Promise.reject(data);
                     }
-                    return fsAsync.getFileContent(path).catch(function(e) {
+                    var retrieveArgs = [path];
+                    retrieveArgs.push.apply(retrieveArgs, args);
+                    return entry.retrieve.apply(entry, retrieveArgs).catch(function(e) {
                         if (e && e.code === 'ENOENT') {
                             data.valid = false;
                             data.reason = 'file-not-found';
@@ -483,13 +488,14 @@ var createFileSystemEntry = (function() {
             }
             data.valid = true;
             data.value = value;
+            var normalizedArgs = entry.normalize.apply(entry, args);
 
             var getPathThenable;
             if (entry.behaviour === 'branch') {
                 // cherche si une branch match
                 // si oui, met à jour le contenu du fichier
                 // sinon crée une branche et me le fichier dedans
-                var normalizedArgs = entry.normalize.apply(entry, args);
+
                 getPathThenable = entry.match(bind, normalizedArgs, function(match) {
                     var branchPromise;
                     var branch = match.branch;
@@ -530,7 +536,9 @@ var createFileSystemEntry = (function() {
                 var path = values[0];
                 var content = values[1];
                 data.path = path;
-                return entry.save(path, content);
+                var saveArgs = [path, content];
+                saveArgs.push.apply(saveArgs, args);
+                return entry.save.apply(entry, saveArgs);
             }).then(function() {
                 return data;
             });
@@ -593,6 +601,97 @@ store.objectEntry = function(object, propertyName) {
             return Promise.resolve(value);
         }
     };
+};
+store.memoizeEntry = function(options) {
+    options = options || {};
+
+    var branches = [];
+    function normalizeBind(bind) {
+        return options.normalizeBind ? options.normalizeBind(bind) : bind;
+    }
+    function normalizeArgs(args) {
+        return options.normalizeArgs ? options.normalizeArgs.apply(options, args) : args;
+    }
+    function normalizeState(bind, args) {
+        return {
+            bind: normalizeBind(bind),
+            args: normalizeArgs(args)
+        };
+    }
+    function compareBind(a, b) {
+        return options.compareBind ? options.compareBind(a, b) : true;
+    }
+    function compareArgValue(a, b) {
+        return a === b;
+    }
+    function compareArgs(a, b) {
+        if (options.compareArgs) {
+            return options.compareArgs(a, b);
+        }
+        var aLength = a.length;
+        var bLength = b.length;
+        if (aLength !== bLength) {
+            return false;
+        }
+        var i = 0;
+        while (i < aLength) {
+            var aValue = a[i];
+            var bValue = b[i];
+            if (compareArgValue(aValue, bValue) === false) {
+                return false;
+            }
+            i++;
+        }
+        return true;
+    }
+    function compareState(a, b) {
+        return (
+            compareBind(a.bind, b.bind) &&
+            compareArgs(a.args, b.args)
+        );
+    }
+    function findBranch(state) {
+        return find(branches, function(branch) {
+            return compareState(branch.state, state);
+        });
+    }
+
+    var memoizer = {
+        read: function(bind, args) {
+            var state = normalizeState(bind, args);
+            var branch = findBranch(state);
+            if (branch) {
+                return {
+                    valid: true,
+                    value: branch.value
+                };
+            }
+            return {
+                valid: false,
+                value: undefined
+            };
+        },
+
+        write: function(value, bind, args) {
+            var state = normalizeState(bind, args);
+            var branch = findBranch(state);
+            if (branch) {
+                branch.value = value;
+            } else {
+                branch = {
+                    state: state,
+                    value: value
+                };
+                branches.push(branch);
+            }
+            return {
+                valid: true,
+                value: value
+            };
+        }
+    };
+
+    return memoizer;
 };
 
 module.exports = store;

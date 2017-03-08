@@ -2,10 +2,9 @@ var createTranspiler = require('./transpiler.js');
 
 var featureTranspiler = createTranspiler({
     cache: true,
-    cacheMode: 'write-only',
+    cacheMode: 'default',
     // filename: false,
-    sourceURL: false,
-    sourceMaps: false,
+    sourceMaps: true,
     plugins: [
         'transform-es3-property-literals',
         'transform-es3-member-expression-literals',

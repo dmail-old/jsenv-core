@@ -6,18 +6,8 @@ with
 https://github.com/kangax/compat-table/blob/gh-pages/data-es5.js
 https://github.com/kangax/compat-table/blob/gh-pages/data-es6.js
 
-- systemjs
-une fois que systemjs marche on se met en mode ok magel
-on est censé être capable de transpiler dynamiquement et donc de redémarrer le serveur qu'on avait avant
-
-var oldResolve = System[System.constructor.resolve];
-System[System.constructor.resolve] = function(key, parent) {
-    // c'est ici qu'on fera api.transpile pour récup le chemin vers le fichier
-    // dans nodejs
-    // et qu'on fera un appel http pour le browser
-    // euh nan pour le browser y'aura juste rien à faire puisqu'on
-    // laisse la requête http partir vers le serveur et on y répondra
-};
+- simplifier createOwnmediator etc en une fonction utilitaire genre
+api.scanImplementation(featureIds);
 
 - une fois que ce serveur tourne on met en place
 un truc genre compatibility-client.html qui essayera de communiquer avec ledit serveur
@@ -33,6 +23,18 @@ donc le test est OK, les versions ultérieures peuvent être supprimées
 - ca serais cool d'avoir des helpers  genre
 getAgentVersionSupporting(featureId, agent) -> ['20.0.0']
 getAgentSupporting(featureId) -> ['firefox/20', 'node/2']
+
+getAllStatus(['object/assign'])
+-> [{agent: node/0.12.0, report: {}]
+
+getAllAgentStatus(['object/assign'], agent);
+-> [{status: 'failed', 'reason: 'missing'}]
+
+getAllSupportedAgent(['object/assign'])
+-> [{node/4.7.2, firefox/48.0}]
+
+getFirstSupportedAgentVersion(['object/assign'], 'node');
+-> [{4/7.2}]
 
 */
 
@@ -316,7 +318,8 @@ var babelSolution = {
 
         var transpiler = createTranspiler({
             cache: true,
-            cacheMode: 'default',
+            cacheMode: 'write-only',
+            sourceMaps: true,
             plugins: pluginsAsOptions
         });
         return transpiler;
@@ -599,7 +602,7 @@ function createOwnMediator(featureIds, agent) {
 }
 // var ownMediator = createOwnMediator(
 //     [
-//         'function/async'
+//         'object/keys'
 //     ],
 //     jsenv.agent
 // );
@@ -756,10 +759,15 @@ function getNodeFilename(filename) {
     }
     return nodeFilename;
 }
-function transpile(file, featureIds, agent) {
-    file = path.resolve(getNodeFilename(file)).replace(/\\/g, '/');
-    // console.log('the file to transpile', file);
-
+var getTranspilerEntry = store.memoizeEntry({
+    normalizeArgs: function(featureIds, agent) {
+        return [
+            featureIds.sort(),
+            agent.toString()
+        ];
+    }
+});
+function createAgentTranspiler(featureIds, agent) {
     return selectAll(
         featureIds,
         'fix.js',
@@ -767,8 +775,14 @@ function transpile(file, featureIds, agent) {
     ).then(function(result) {
         var featuresToFix = result.features;
         var groups = groupBySolution(featuresToFix);
-        var transpiler = babelSolution.createTranspiler(groups.babel);
-        return transpiler.transpileFile(file, {
+        return babelSolution.createTranspiler(groups.babel);
+    });
+}
+var getAgentTranspiler = memoize.async(createAgentTranspiler, getTranspilerEntry);
+function transpile(file, featureIds, agent) {
+    return getAgentTranspiler(featureIds, agent).then(function(agentTranspiler) {
+        file = path.resolve(getNodeFilename(file)).replace(/\\/g, '/');
+        return agentTranspiler.transpileFile(file, {
             onlyPath: true,
             as: 'module'
         });
@@ -788,7 +802,12 @@ function transpile(file, featureIds, agent) {
 //     });
 // });
 
+var installPromise;
 function install() {
+    if (installPromise) {
+        return installPromise;
+    }
+
     var agent = jsenv.agent;
     var features = [
         'for-of',
@@ -797,9 +816,14 @@ function install() {
         'function/arrow',
         'block-scoping',
         'shorthand-notation',
+        'computed-properties',
         'template-literals',
         'url',
-        'url-search-params'
+        'url-search-params',
+        'map',
+        'set',
+        'symbol/iterator',
+        'object/assign'
     ];
 
     function setup() {
@@ -828,12 +852,14 @@ function install() {
             }
 
             return transpile(filename, features, agent).then(function(transpiledFilename) {
-                return fsAsync.getFileContent(transpiledFilename);
-            }).then(function(source) {
-                global.System = mySystem;
-                eval(source);
-                delete global.System;
-                processAnonRegister();
+                return fsAsync.getFileContent(transpiledFilename).then(function(source) {
+                    global.System = mySystem;
+                    var vm = require('vm');
+                    vm.runInThisContext(source, {filename: transpiledFilename});
+                    // eval(source);
+                    delete global.System;
+                    processAnonRegister();
+                });
             });
         };
         return mySystem;
@@ -868,8 +894,8 @@ function install() {
         });
         [
             'iterable',
-            'thenable',
             'rest',
+            'thenable',
             'timeout',
             'url'
         ].forEach(function(libName) {
@@ -884,19 +910,20 @@ function install() {
         registerCoreModule(prefixModule(jsenv.moduleName), jsenv);
         registerCoreModule('@node/require', require);
 
-        var oldImport = System.import;
-        System.import = function() {
-            return oldImport.apply(this, arguments).catch(function(error) {
-                if (error && error instanceof Error) {
-                    var originalError = error;
-                    while ('originalErr' in originalError) {
-                        originalError = originalError.originalErr;
-                    }
-                    return Promise.reject(originalError);
-                }
-                return error;
-            });
-        };
+        // var oldImport = System.import;
+        // System.import = function() {
+        //     return oldImport.apply(this, arguments).catch(function(error) {
+        //         if (error && error instanceof Error) {
+        //             console.log('error during import', error);
+        //             var originalError = error;
+        //             while ('originalErr' in originalError) {
+        //                 originalError = originalError.originalErr;
+        //             }
+        //             return Promise.reject(originalError);
+        //         }
+        //         return error;
+        //     });
+        // };
 
         return System.import('/src/api/config-system.js').then(function(exports) {
             return exports.default();
@@ -905,17 +932,75 @@ function install() {
         });
     }
 
-    return setup().then(createSystem).then(configSystem).then(function() {
+    installPromise = setup().then(createSystem).then(configSystem);
+    return installPromise;
+}
+// install().then(function() {
+//     console.log('installed');
+// }).catch(function(e) {
+//     setTimeout(function() {
+//         throw e;
+//     });
+// });
 
+function startCompatServer() {
+    return install().then(function(System) {
+        return System.import('/src/server/compat-server.js').then(function(exports) {
+            return exports.default;
+        }).then(function(compatServer) {
+            console.log('the compat server', compatServer);
+            // var serverUrl = 'http://localhost';
+            // return compatServer.open(serverUrl);
+        });
     });
 }
-install().then(function() {
-    console.log('installed');
-}).catch(function(e) {
+startCompatServer().catch(function(e) {
     setTimeout(function() {
+        console.log('here', e.originalErr.stack);
         throw e;
     });
 });
+
+// myRest.use({
+//     match(request) {
+//         return (
+//             request.url.startsWith('compatibility') &&
+//             request.headers.has('user-agent')
+//         );
+//     },
+
+//     methods: {
+//         get(request) {
+//             var userAgent = request.headers.get('user-agent');
+
+//             return getUserAgentStore(userAgent).then(function(store) {
+//                 return store.get('before-flatten-report').then(function(report) {
+//                     if (report) {
+//                         return sendFix(store);
+//                     }
+//                     return sendFeatures(store);
+//                 });
+//             });
+//         },
+
+//         post(request) {
+//             var userAgent = request.headers.get('user-agent');
+
+//             return getUserAgentStore(userAgent).then(function(store) {
+//                 return request.body.readAsString().then(JSON.parse).then(function(report) {
+//                     if (request.url.searchParams.get('when') === 'before') {
+//                         store.set('before-flatten-report', report);
+//                         return sendFix(store);
+//                     }
+//                     store.set('after-flatten-report', report);
+//                     return {
+//                         status: 204
+//                     };
+//                 });
+//             });
+//         }
+//     }
+// });
 
 var api = {};
 api.getFolder = getFolder;
@@ -934,5 +1019,6 @@ api.createOwnMediator = createOwnMediator;
 api.polyfill = polyfill;
 api.transpile = transpile;
 api.install = install;
+api.startCompatServer = startCompatServer;
 
 module.exports = api;

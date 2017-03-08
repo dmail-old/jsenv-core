@@ -5,7 +5,7 @@ https://developer.mozilla.org/en-US/docs/Web/API/Fetch_API/Using_Fetch
 
 import compose from '@jsenv/compose';
 
-var Headers = compose('Headers', {
+const Headers = compose('Headers', {
     constructor(headers) {
         this.guard = 'none'; // immutable
         this.map = new Map();

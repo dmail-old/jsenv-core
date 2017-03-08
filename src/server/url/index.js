@@ -1,5 +1,3 @@
-/* global URLSearchParams */
-
 /*
 // more universal way to manipulate urls because there is browser inconsistency
 // for instance urlSearchParams and some data are missing like dirname, etc
@@ -38,7 +36,7 @@ function mustAppendSlashesForProtocol(protocol) {
     return protocol === 'http' || protocol === 'https' || protocol === 'file';
 }
 
-const Url = compose('Url', {
+const properties = {
     protocol: null,
     username: null,
     password: null,
@@ -113,63 +111,64 @@ const Url = compose('Url', {
     toURL() {
         return new URL(this.href);
     }
-},
-    {
-        // helper methods
-        commonPath(data) {
-            var url = Url.create(data, this);
+};
+const helpers = {
+    // helper methods
+    commonPath(data) {
+        var url = Url.create(data, this);
 
-            var index = url.pathname.indexOf(this.pathname);
-            if (index === -1) {
-                return '';
-            }
-            return url.pathname.slice(0, index);
-        },
-
-        includes(data) {
-            var url = Url.create(data, this);
-
-            if (this.origin !== url.origin) {
-                return false;
-            }
-
-            // console.log(this, 'includes', uri);
-
-            return url.dirname.startsWith(this.dirname);
-        },
-
-        relative(data) {
-            var url = Url.create(data, this);
-
-            if (this.origin !== url.origin) {
-                return url.toString();
-            }
-
-            // left to right, look for closest common path segment
-            var fromSegments = this.pathname.split('/');
-            var toSegments = url.pathname.split('/');
-
-            while (fromSegments[0] === toSegments[0]) {
-                fromSegments.shift();
-                toSegments.shift();
-            }
-
-            var length = fromSegments.length - toSegments.length;
-            if (length > 0) {
-                while (length--) {
-                    toSegments.unshift('..');
-                }
-            } else if (length === 0) {
-                length = toSegments.length - 1;
-                while (length--) {
-                    toSegments.unshift('..');
-                }
-            }
-
-            return toSegments.join('/');
+        var index = url.pathname.indexOf(this.pathname);
+        if (index === -1) {
+            return '';
         }
+        return url.pathname.slice(0, index);
+    },
+
+    includes(data) {
+        var url = Url.create(data, this);
+
+        if (this.origin !== url.origin) {
+            return false;
+        }
+
+        // console.log(this, 'includes', uri);
+
+        return url.dirname.startsWith(this.dirname);
+    },
+
+    relative(data) {
+        var url = Url.create(data, this);
+
+        if (this.origin !== url.origin) {
+            return url.toString();
+        }
+
+        // left to right, look for closest common path segment
+        var fromSegments = this.pathname.split('/');
+        var toSegments = url.pathname.split('/');
+
+        while (fromSegments[0] === toSegments[0]) {
+            fromSegments.shift();
+            toSegments.shift();
+        }
+
+        var length = fromSegments.length - toSegments.length;
+        if (length > 0) {
+            while (length--) {
+                toSegments.unshift('..');
+            }
+        } else if (length === 0) {
+            length = toSegments.length - 1;
+            while (length--) {
+                toSegments.unshift('..');
+            }
+        }
+
+        return toSegments.join('/');
     }
-);
+};
+
+const Url = compose('Url', properties, helpers);
 
 // helpers properties
 (function() {

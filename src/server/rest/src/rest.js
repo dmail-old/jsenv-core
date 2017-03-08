@@ -4,14 +4,6 @@
 // idéalement un petit routeur serait pratique genre
 // rest.route('path').get(function() {}) ->
 // et boum sur le get à cette route la fonction est chargée de produire une réponse
-// bon j'ai besoin de quoi ?
-// en gros le client va se connecter et demander au serveur les polyfill et communiquer son profile
-// pour qu'on puisse connaitre les options babel
-// le serveur doit alors lui renvoyer un fichier js contenant tout les polyfills nécéssaire
-// puis lui fournir le premier fichier d'entrée qu'on souhaite éxécuter
-// ce fichier sera alors fourni par une autre partie du code
-// qui va transpiler et renvoyer ça au client
-// c'est le but de tout ça pour le moment
 
 */
 
