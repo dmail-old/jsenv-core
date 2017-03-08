@@ -130,7 +130,7 @@ module.exports = getBestAgent;
 
 // getBestAgent(
 //     'const',
-//     jsenv.createAgent('node/4.7.4')
+//     'node/4.7.4'
 // ).then(function(agent) {
 //     console.log('agent', agent.toString());
 // }).catch(function(e) {

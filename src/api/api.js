@@ -20,22 +20,6 @@ donc le test est OK, les versions ultérieures peuvent être supprimées
 
 - produire test-output.json de chaque feature une après l'autre pour node 0.12
 
-- ca serais cool d'avoir des helpers  genre
-getAgentVersionSupporting(featureId, agent) -> ['20.0.0']
-getAgentSupporting(featureId) -> ['firefox/20', 'node/2']
-
-getAllStatus(['object/assign'])
--> [{agent: node/0.12.0, report: {}]
-
-getAllAgentStatus(['object/assign'], agent);
--> [{status: 'failed', 'reason: 'missing'}]
-
-getAllSupportedAgent(['object/assign'])
--> [{node/4.7.2, firefox/48.0}]
-
-getFirstSupportedAgentVersion(['object/assign'], 'node');
--> [{4/7.2}]
-
 */
 
 var path = require('path');
@@ -68,6 +52,23 @@ var Thenable = jsenv.Thenable;
 
 var listAll = require('./list-all.js');
 var getBestAgent = require('./get-best-agent.js');
+var getAllAgentStatus = require('./get-all-agent-status.js');
+var getAllStatus = require('./get-all-status.js');
+var getAllSupportedAgent = require('./get-all-supported-status.js');
+var getFirstSupportedAgentVersion = require('./get-first-supported-agent-version.js');
+var getStatus = require('./get-status.js');
+
+var api = {};
+
+api.getFolder = getFolder;
+api.getFeaturePath = pathFromId;
+api.getAllAvailableIds = listAll;
+api.getBestAgent = getBestAgent;
+api.getAllAgentStatus = getAllAgentStatus;
+api.getAllStatus = getAllStatus;
+api.getAllSupportedAgent = getAllSupportedAgent;
+api.getFirstSupportedAgentVersion = getFirstSupportedAgentVersion;
+api.getStatus = getStatus;
 
 function getTestInstructions(featureIds, agent) {
     return selectAll(
@@ -697,7 +698,7 @@ function polyfill(featureIds, agent, minify) {
                 path: polyfillCacheFolder,
                 name: 'polyfill.js',
                 behaviour: 'branch',
-                mode: 'write-only',
+                mode: 'default',
                 normalize: function(abstractFeatures) {
                     return {
                         features: abstractFeatures.map(function(abstractFeature) {
@@ -1001,12 +1002,6 @@ startCompatServer().catch(function(e) {
 //         }
 //     }
 // });
-
-var api = {};
-api.getFolder = getFolder;
-api.getFeaturePath = pathFromId;
-api.getAllAvailableIds = listAll;
-api.getBestAgent = getBestAgent;
 
 api.getTestInstructions = getTestInstructions;
 api.setTest = featureMeta.setTest;
