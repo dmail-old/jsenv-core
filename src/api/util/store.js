@@ -1,3 +1,5 @@
+/* eslint-disable new-cap */
+
 var cuid = require('cuid');
 var Path = require('path');
 
@@ -259,34 +261,46 @@ var createFileSystemEntry = (function() {
         var index = pendingOperations.indexOf(operation);
         pendingOperations.splice(index, 1);
     }
-    function exec(path, fn) {
-        var thenable = fn();
-        var operation = {
-            path: path,
-            thenable: thenable
-        };
+    function operationCanConflict(pendingOperation, operation) {
+        return pendingOperation.meta.path === operation.meta.path && (
+            pendingOperation.verb === 'CREATE' ||
+            pendingOperation.verb === 'DELETE' ||
+            pendingOperation.verb === 'UPDATE'
+        );
+    }
+    function handleOperation(operation) {
+        var conflictualOperation = find(pendingOperations, function(pendingOperation) {
+            return operationCanConflict(pendingOperation, operation);
+        });
+        if (conflictualOperation) {
+            console.log(
+                'wait for', conflictualOperation.verb,
+                'on', conflictualOperation.meta.path,
+                'before', operation.verb
+            );
+            return conflictualOperation.thenable.then(
+                function() {
+                    return handleOperation(operation);
+                },
+                function() {
+                    return handleOperation(operation);
+                }
+            );
+        }
+        var thenable = Promise.resolve(operation.fn());
+        operation.thenable = thenable;
         markOperationAsPending(operation);
         return thenable;
     }
-    function execBlockingWhenDone(operation, path, fn) {
-        return operation.thenable.then(
-            function() {
-                return execBlocking(path, fn);
-            },
-            function() {
-                return execBlocking(path, fn);
-            }
-        );
+    function preventCRUDConflict(verb, meta, fn) {
+        var operation = {
+            verb: verb,
+            meta: meta,
+            fn: fn
+        };
+        return handleOperation(operation);
     }
-    function execBlocking(path, fn) {
-        var existingOperation = find(pendingOperations, function(pendingOperation) {
-            return pendingOperation.path === path;
-        });
-        if (existingOperation) {
-            return execBlockingWhenDone(existingOperation, path, fn);
-        }
-        return exec(path, fn);
-    }
+
     function compareBranch(a, b) {
         var order;
         var aLastMatch = a.lastMatch;
@@ -304,14 +318,6 @@ var createFileSystemEntry = (function() {
         }
 
         return order;
-    }
-    function update(entry, branches) {
-        var sortedBranches = branches.sort(compareBranch);
-        var branchesSource = JSON.stringify(sortedBranches, null, '\t');
-
-        return fsAsync.setFileContent(entry.path + '/branches.json', branchesSource).then(function() {
-            return branches;
-        });
     }
 
     FileSystemEntry.prototype = {
@@ -361,41 +367,90 @@ var createFileSystemEntry = (function() {
             var args = arguments;
             return args;
         },
-        match: function(bind, normalizedArgs, fn) {
+        CREATE: function(branches) {
             var entry = this;
             var branchesPath = entry.path + '/branches.json';
 
-            return execBlocking(branchesPath, function() {
-                return fsAsync.getFileContent(branchesPath, '[]').then(function(content) {
-                    try {
-                        return JSON.parse(content);
-                    } catch (e) {
-                        console.error('malformed json at', branchesPath, 'got', content);
-                        return Promise.reject(e);
-                    }
-                }).then(function(branches) {
-                    return branches.map(function(branchProperties) {
-                        return entry.branch(branchProperties);
+            return preventCRUDConflict(
+                'CREATE',
+                {
+                    path: branchesPath
+                },
+                function() {
+                    var sortedBranches = branches.sort(compareBranch);
+                    var branchesSource = JSON.stringify(sortedBranches, null, '\t');
+
+                    return fsAsync.setFileContent(branchesPath, branchesSource).then(function() {
+                        return branches;
                     });
-                }).then(function(branches) {
-                    var branch;
-                    var i = 0;
-                    var j = branches.length;
-                    while (i < j) {
-                        branch = branches[i];
-                        if (entry.branchMatch(branch, normalizedArgs)) {
-                            break;
-                        } else {
-                            branch = null;
+                }
+            );
+        },
+        READ: function() {
+            var entry = this;
+            var branchesPath = entry.path + '/branches.json';
+
+            return preventCRUDConflict(
+                'READ',
+                {
+                    path: branchesPath
+                },
+                function() {
+                    return fsAsync.getFileContent(branchesPath, '[]').then(function(content) {
+                        try {
+                            return JSON.parse(content);
+                        } catch (e) {
+                            console.error('malformed json at', branchesPath, 'got', content);
+                            return Promise.reject(e);
                         }
-                        i++;
-                    }
-                    return {
-                        branches: branches,
-                        branch: branch
-                    };
-                }).then(fn);
-            });
+                    }).then(function(branches) {
+                        return branches.map(function(branchProperties) {
+                            return entry.branch(branchProperties);
+                        });
+                    });
+                }
+            );
+        },
+        UPDATE: function(branches) {
+            var entry = this;
+            var branchesPath = entry.path + '/branches.json';
+
+            return preventCRUDConflict(
+                'UPDATE',
+                {
+                    path: branchesPath
+                },
+                function() {
+                    var sortedBranches = branches.sort(compareBranch);
+                    var branchesSource = JSON.stringify(sortedBranches, null, '\t');
+
+                    return fsAsync.setFileContent(branchesPath, branchesSource).then(function() {
+                        return branches;
+                    });
+                }
+            );
+        },
+        DELETE: function() {
+
+        },
+
+        match: function(branches, bind, normalizedArgs) {
+            var branch;
+            var i = 0;
+            var j = branches.length;
+            while (i < j) {
+                branch = branches[i];
+                if (this.branchMatch(branch, normalizedArgs)) {
+                    break;
+                } else {
+                    branch = null;
+                }
+                i++;
+            }
+            return {
+                branches: branches,
+                branch: branch
+            };
         },
         read: function(bind, args) {
             var entry = this;
@@ -410,14 +465,16 @@ var createFileSystemEntry = (function() {
             var normalizedArgs = entry.normalize.apply(entry, args);
             var pathThenable;
             if (entry.behaviour === 'branch') {
-                pathThenable = entry.match(bind, normalizedArgs, function(match) {
-                    if (match.branch) {
-                        var branch = match.branch;
-                        var branches = match.branches;
+                pathThenable = entry.READ().then(function(branches) {
+                    return entry.match(branches, bind, normalizedArgs);
+                }).then(function(result) {
+                    if (result.branch) {
+                        var branch = result.branch;
+                        var branches = result.branches;
                         branch.matchCount = 'matchCount' in branch ? branch.matchCount + 1 : 1;
                         branch.lastMatch = Number(Date.now());
                         if (entry.trackingEnabled) {
-                            update(entry, branches);
+                            entry.UPDATE(branches, entry);
                         }
                         return path + '/' + branch.name + '/' + entry.name;
                     }
@@ -495,14 +552,15 @@ var createFileSystemEntry = (function() {
                 // cherche si une branch match
                 // si oui, met à jour le contenu du fichier
                 // sinon crée une branche et me le fichier dedans
-
-                getPathThenable = entry.match(bind, normalizedArgs, function(match) {
+                getPathThenable = entry.READ().then(function(branches) {
+                    return entry.match(branches, bind, normalizedArgs);
+                }).then(function(result) {
                     var branchPromise;
-                    var branch = match.branch;
+                    var branch = result.branch;
                     if (branch) {
                         branchPromise = Promise.resolve(branch);
                     } else {
-                        var branches = match.branches;
+                        var branches = result.branches;
                         branch = entry.branch({
                             name: entry.branchName(normalizedArgs),
                             args: normalizedArgs,
@@ -511,7 +569,7 @@ var createFileSystemEntry = (function() {
                             lastMatch: Number(Date.now())
                         });
                         branches.push(branch);
-                        branchPromise = update(entry, branches).then(function() {
+                        branchPromise = entry.CREATE(branches, branch).then(function() {
                             return branch;
                         });
                     }
