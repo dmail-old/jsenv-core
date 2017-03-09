@@ -11,6 +11,7 @@ import rest from '@jsenv/rest';
 import Url from '@jsenv/url';
 
 import Server from './server.js';
+import createFileService from './file-service.js';
 
 const myRest = rest;
 const corsHeaders = {
@@ -93,5 +94,38 @@ const server = Server.create();
 server.requestHandler = requestHandler;
 server.onTransition = onTransition;
 server.use = myRest.use.bind(myRest);
+server.serveFile = function(options) {
+    server.use(createFileService(options));
+};
+server.createHTMLResponse = html => {
+    return {
+        status: 200,
+        headers: {
+            'content-type': 'text/html',
+            'content-length': Buffer.byteLength(html)
+        },
+        body: html
+    };
+};
+server.createJSResponse = js => {
+    return {
+        status: 200,
+        headers: {
+            'content-type': 'application/javascript',
+            'content-length': Buffer.byteLength(js)
+        },
+        body: js
+    };
+};
+// server.redirect = fn => {
+//     server.use({
+//         match(request) {
+//             const redirection = fn(request);
+//             if (redirection) {
+//                 request.url = request.url.resolve(redirection);
+//             }
+//         }
+//     });
+// };
 
 export default server;

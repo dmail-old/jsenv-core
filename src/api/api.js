@@ -6,17 +6,23 @@ with
 https://github.com/kangax/compat-table/blob/gh-pages/data-es5.js
 https://github.com/kangax/compat-table/blob/gh-pages/data-es6.js
 
-- simplifier createOwnmediator etc en une fonction utilitaire genre
-api.scanImplementation(featureIds);
-
 - une fois que ce serveur tourne on met en place
 un truc genre compatibility-client.html qui essayera de communiquer avec ledit serveur
 afin de pouvoir tester firefox/chrome etc
+
+- simplifier createOwnmediator etc en une fonction utilitaire genre
+api.scanImplementation(featureIds);
 
 - a priori si on a un résultat de test positif pour array/from pour node0.12 on ne relance pas le test si
 la version actuelle de node est ulétieure
 le corollaire est que lorsqu'on écrit un test dans le filesystem pour une version plus ancienne
 donc le test est OK, les versions ultérieures peuvent être supprimées
+
+en plus de ça ajouter donc un truc comme
+features/all-runned-agents.json
+[
+    {agent: 'node/0.12.0', when: timestamp}
+]
 
 - produire test-output.json de chaque feature une après l'autre pour node 0.12
 
@@ -819,6 +825,7 @@ function install() {
         'shorthand-notation',
         'computed-properties',
         'template-literals',
+        'spread',
         'url',
         'url-search-params',
         'map',
@@ -949,33 +956,46 @@ function install() {
 //     });
 // });
 
-function startCompatServer() {
+function startCompatServer(port) {
+    port = port || 8079;
+
     return install().then(function(System) {
         return System.import('/src/server/compat-server.js').then(function(exports) {
             return exports.default;
         }).then(function(compatServer) {
-            // ne semble pas être fait correctement, en tous cas ne produit pas de réponse
             compatServer.use({
-                match: function() {
-                    return true;
+                match: function(request) {
+                    return request.url.pathname === 'instructions/test';
                 },
-
                 methods: {
-                    '*': function() {
-                        var content = 'Hello world';
-                        return {
-                            status: 200,
-                            headers: {
-                                'content-type': 'text/plain',
-                                'content-length': Buffer.byteLength(content)
-                            },
-                            body: content
-                        };
+                    get: function(request) {
+                        if (!request.headers.has('user-agent')) {
+                            return 400;
+                        }
+                        if (!request.url.searchParams.has('features')) {
+                            return 400;
+                        }
+
+                        var featureIds = request.url.searchParams.get('features').split(',');
+                        var userAgentHeader = request.headers.get('user-agent');
+                        var agent = Agent.parse(userAgentHeader);
+
+                        console.log('featureids', featureIds);
+                        console.log('agent', agent);
+
+                        return 200;
+
+                        // return getTestInstructions(featureIds, agent).then(
+                        //     compatServer.createJSResponse
+                        // );
                     }
                 }
             });
-
-            var serverUrl = 'http://localhost:8079';
+            compatServer.serveFile({
+                root: rootFolder + '/',
+                index: './scan-browser.html'
+            });
+            var serverUrl = 'http://localhost:' + port;
             return compatServer.open(serverUrl);
         });
     });
@@ -985,58 +1005,6 @@ startCompatServer().catch(function(e) {
         throw e;
     });
 });
-
-// function createJavaScriptResponse(content) {
-//     return Promise.resolve({
-//         status: 200,
-//         headers: {
-//             'content-type': 'application/javascript',
-//             'content-length': Buffer.byteLength(content)
-//         },
-//         body: content
-//     });
-// }
-
-// myRest.use({
-//     match(request) {
-//         return (
-//             request.url.startsWith('compatibility') &&
-//             request.headers.has('user-agent')
-//         );
-//     },
-
-//     methods: {
-//         get(request) {
-//             var userAgent = request.headers.get('user-agent');
-
-//             return getUserAgentStore(userAgent).then(function(store) {
-//                 return store.get('before-flatten-report').then(function(report) {
-//                     if (report) {
-//                         return sendFix(store);
-//                     }
-//                     return sendFeatures(store);
-//                 });
-//             });
-//         },
-
-//         post(request) {
-//             var userAgent = request.headers.get('user-agent');
-
-//             return getUserAgentStore(userAgent).then(function(store) {
-//                 return request.body.readAsString().then(JSON.parse).then(function(report) {
-//                     if (request.url.searchParams.get('when') === 'before') {
-//                         store.set('before-flatten-report', report);
-//                         return sendFix(store);
-//                     }
-//                     store.set('after-flatten-report', report);
-//                     return {
-//                         status: 204
-//                     };
-//                 });
-//             });
-//         }
-//     }
-// });
 
 api.getTestInstructions = getTestInstructions;
 api.setTest = featureMeta.setTest;

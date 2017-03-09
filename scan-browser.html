@@ -10,75 +10,42 @@
         var Thenable = jsenv.Thenable;
 
         function createBrowserMediator(featureIds) {
-            return {
-                send: function(action, value) {
-                    if (action === 'getTestInstructions') {
-                        return get(
-                            'test?features=' + featureIds.join(encodeURIComponent(','))
-                        ).then(readBody);
-                    }
-                    if (action === 'setAllTest') {
-                        return postAsJSON(
-                            'test',
-                            value
-                        );
-                    }
-                    if (action === 'getFixInstructions') {
-                        return get(
-                            'fix?features=' + featureIds.join(encodeURIComponent(','))
-                        ).then(readBody);
-                    }
-                    if (action === 'setAllFix') {
-                        return postAsJSON(
-                            'fix',
-                            value
-                        );
-                    }
-                }
-            };
-
-            function get(url) {
-                return sendRequest(
-                    'GET',
-                    url,
-                    {},
-                    null
-                ).then(checkStatus);
-            }
-            function postAsJSON(url, object) {
-                return sendRequest(
-                    'POST',
-                    url,
-                    {
-                        'content-type': 'application/json'
+            function createBody() {
+                var resolveBody;
+                var bodyThenable = new Thenable(function(res) {
+                    resolveBody = res;
+                });
+                var body = {
+                    data: '',
+                    write: function(chunk) {
+                        this.data += chunk;
                     },
-                    JSON.stringify(object)
-                ).then(checkStatus);
+                    open: function() {
+
+                    },
+                    close: function() {
+                        resolveBody();
+                    },
+                    readAsString: function() {
+                        return bodyThenable.then(function() {
+                            return responseBody.data;
+                        });
+                    }
+                };
+                return body;
             }
-            function checkStatus(response) {
-                if (response.status < 200 || response.status > 299) {
-                    throw new Error(response.status);
-                }
-                return response;
-            }
-            function sendRequest(method, url, headers, body) {
+            function sendRequest(method, headers, url, queryParams, requestBody) {
                 var xhr = new XMLHttpRequest();
 
-                return new jsenv.Thenable(function(resolve, reject) {
-                    var responseBody = {
-                        data: '',
-                        write: function(chunk) {
-                            this.data += chunk;
-                        },
-                        close: function() {}
-                    };
-
+                return new Thenable(function(resolve, reject) {
+                    var responseBody = createBody();
                     xhr.onerror = function(e) {
                         reject(e);
                     };
                     var offset = 0;
                     xhr.onreadystatechange = function() {
                         if (xhr.readyState === 2) {
+                            responseBody.open();
                             resolve({
                                 status: xhr.status,
                                 headers: xhr.getAllResponseHeaders(),
@@ -96,33 +63,112 @@
                         }
                     };
 
+                    var query = '';
+                    for (var paramName in queryParams) {
+                        var paramValue = queryParams[paramName];
+                        query += encode(paramName) + '=' + encode(paramValue);
+                    }
+                    if (query) {
+                        url += '?' + query;
+                    }
+
                     xhr.open(method, url);
                     for (var headerName in headers) {
                         if (headers.hasOwnPorperty(headerName)) {
                             xhr.setRequestHeader(headerName, headers[headerName]);
                         }
                     }
-                    xhr.send(body || null);
+                    console.log('sending');
+                    xhr.send(requestBody || null);
                 });
             }
-            function readBody(response) {
-                var body = response.body;
-                var object = JSON.parse(body);
-                object.entries = getClientEntries(object.entries);
-                jsenv.assign(object, body.meta);
-                delete object.meta;
-                return object;
+            function checkStatus(response) {
+                if (response.status < 200 || response.status > 299) {
+                    throw new Error(response.status);
+                }
+                return response;
             }
-            function getClientEntries(entries) {
-                // try {
-                //     jsenv.reviveFeatureEntries(entries);
-                // } catch (e) {
-                //     return fail('some-feature-source', e);
-                // }
-                return entries;
+            function get(url, queryParams, bodyParams) {
+                return sendRequest(
+                    'GET',
+                    {},
+                    url,
+                    queryParams,
+                    bodyParams
+                ).then(checkStatus);
             }
+            function postAsJSON(url, queryParams, bodyParams) {
+                return sendRequest(
+                    'POST',
+                    {
+                        'content-type': 'application/json'
+                    },
+                    url,
+                    queryParams,
+                    JSON.stringify(bodyParams)
+                ).then(checkStatus);
+            }
+
+            function encode(value) {
+                return encodeURIComponent(value).replace(/[!'\(\)~]|%20|%00/g, function(match) {
+                    return {
+                        '!': '%21',
+                        "'": '%27',
+                        '(': '%28',
+                        ')': '%29',
+                        '~': '%7E',
+                        '%20': '+',
+                        '%00': '\x00'
+                    }[match];
+                });
+            }
+
+
+            return {
+                send: function(action, value) {
+                    if (action === 'getTestInstructions') {
+                        return get(
+                            'instructions/test',
+                            {
+                                features: value
+                            }
+                        );
+                    }
+                    if (action === 'setAllTest') {
+                        return postAsJSON(
+                            'instructions/test',
+                            value
+                        );
+                    }
+                    if (action === 'getFixInstructions') {
+                        return get(
+                            'instructions/fix',
+                            {
+                                features: featureIds
+                            }
+                        );
+                    }
+                    if (action === 'setAllFix') {
+                        return postAsJSON(
+                            'instructions/fix',
+                            {},
+                            value
+                        );
+                    }
+                }
+            };
         }
-        console.log(createBrowserMediator);
+
+        createBrowserMediator().send('getTestInstructions', ['object/keys']).then(
+            function(response) {
+                console.log('resp', response);
+            },
+            function(e) {
+                setTimeout(function() {
+                    throw e;
+                });
+            }
+        );
 
         // eslint-disable-next-line eol-last, no-trailing-spaces
     </script>

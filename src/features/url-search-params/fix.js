@@ -17,11 +17,9 @@ function replacer(match) {
 function encode(str) {
     return encodeURIComponent(str).replace(/[!'\(\)~]|%20|%00/g, replacer);
 }
-
 function decode(str) {
     return decodeURIComponent(str.replace(/\+/g, ' '));
 }
-
 function parse(urlSearchParams, queryString) {
     if (queryString) {
         var index;
