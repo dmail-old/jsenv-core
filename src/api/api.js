@@ -54,7 +54,7 @@ var listAll = require('./list-all.js');
 var getBestAgent = require('./get-best-agent.js');
 var getAllAgentStatus = require('./get-all-agent-status.js');
 var getAllStatus = require('./get-all-status.js');
-var getAllSupportedAgent = require('./get-all-supported-status.js');
+var getAllSupportedAgent = require('./get-all-supported-agent.js');
 var getFirstSupportedAgentVersion = require('./get-first-supported-agent-version.js');
 var getStatus = require('./get-status.js');
 
@@ -763,7 +763,7 @@ function getNodeFilename(filename) {
 var getTranspilerEntry = store.memoizeEntry({
     normalizeArgs: function(featureIds, agent) {
         return [
-            featureIds.sort(),
+            featureIds.sort().join(),
             agent.toString()
         ];
     }

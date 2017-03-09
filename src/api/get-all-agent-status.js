@@ -10,13 +10,13 @@ function getAllAgentStatus(featureIds, agent) {
 
 module.exports = getAllAgentStatus;
 
-getAllAgentStatus(
-    ['symbol'],
-    'node/0.12.3'
-).then(function(result) {
-    console.log('result', result);
-}).catch(function(e) {
-    setTimeout(function() {
-        throw e;
-    });
-});
+// getAllAgentStatus(
+//     ['symbol'],
+//     'node/0.12.3'
+// ).then(function(result) {
+//     console.log('result', result);
+// }).catch(function(e) {
+//     setTimeout(function() {
+//         throw e;
+//     });
+// });

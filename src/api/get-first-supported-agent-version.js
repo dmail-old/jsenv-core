@@ -23,13 +23,13 @@ function getFirstSupportedAgentVersion(featureId, agentName) {
 
 module.exports = getFirstSupportedAgentVersion;
 
-getFirstSupportedAgentVersion(
-    ['object/assign'],
-    'node'
-).then(function(result) {
-    console.log('result', result);
-}).catch(function(e) {
-    setTimeout(function() {
-        throw e;
-    });
-});
+// getFirstSupportedAgentVersion(
+//     ['object/assign'],
+//     'node'
+// ).then(function(result) {
+//     console.log('result', result);
+// }).catch(function(e) {
+//     setTimeout(function() {
+//         throw e;
+//     });
+// });
