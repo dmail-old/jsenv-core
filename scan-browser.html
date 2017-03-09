@@ -10,6 +10,8 @@
         var Thenable = jsenv.Thenable;
 
         function createBrowserMediator(featureIds) {
+            featureIds = featureIds || [];
+
             function createBody() {
                 var resolveBody;
                 var bodyThenable = new Thenable(function(res) {
@@ -28,11 +30,22 @@
                     },
                     readAsString: function() {
                         return bodyThenable.then(function() {
-                            return responseBody.data;
+                            return body.data;
                         });
                     }
                 };
                 return body;
+            }
+            function appendSearch(url, search) {
+                var query = '';
+                for (var paramName in search) {
+                    var paramValue = search[paramName];
+                    query += encode(paramName) + '=' + encode(paramValue);
+                }
+                if (query) {
+                    url += '?' + query;
+                }
+                return url;
             }
             function sendRequest(method, headers, url, queryParams, requestBody) {
                 var xhr = new XMLHttpRequest();
@@ -43,6 +56,18 @@
                         reject(e);
                     };
                     var offset = 0;
+                    function getChunk(xhr) {
+                        var fullText = xhr.responseText;
+                        var newText;
+                        if (offset) {
+                            newText = fullText.slice(offset);
+                        } else {
+                            newText = fullText;
+                        }
+                        offset += newText.length;
+                        return newText;
+                    }
+
                     xhr.onreadystatechange = function() {
                         if (xhr.readyState === 2) {
                             responseBody.open();
@@ -52,33 +77,20 @@
                                 body: responseBody
                             });
                         } else if (xhr.readyState === 3) {
-                            var data = xhr.responseText;
-                            if (offset) {
-                                data = data.slice(offset);
-                            }
-                            offset += data.length;
-                            responseBody.write(data);
+                            responseBody.write(getChunk(xhr));
                         } else if (xhr.readyState === 4) {
+                            responseBody.write(getChunk(xhr));
                             responseBody.close();
                         }
                     };
 
-                    var query = '';
-                    for (var paramName in queryParams) {
-                        var paramValue = queryParams[paramName];
-                        query += encode(paramName) + '=' + encode(paramValue);
-                    }
-                    if (query) {
-                        url += '?' + query;
-                    }
-
+                    url = appendSearch(url, queryParams);
                     xhr.open(method, url);
                     for (var headerName in headers) {
-                        if (headers.hasOwnPorperty(headerName)) {
+                        if (headers.hasOwnProperty(headerName)) {
                             xhr.setRequestHeader(headerName, headers[headerName]);
                         }
                     }
-                    console.log('sending');
                     xhr.send(requestBody || null);
                 });
             }
@@ -97,18 +109,17 @@
                     bodyParams
                 ).then(checkStatus);
             }
-            function postAsJSON(url, queryParams, bodyParams) {
+            function postAsJSON(url, object) {
                 return sendRequest(
                     'POST',
                     {
                         'content-type': 'application/json'
                     },
                     url,
-                    queryParams,
-                    JSON.stringify(bodyParams)
+                    {},
+                    JSON.stringify(object)
                 ).then(checkStatus);
             }
-
             function encode(value) {
                 return encodeURIComponent(value).replace(/[!'\(\)~]|%20|%00/g, function(match) {
                     return {
@@ -122,7 +133,12 @@
                     }[match];
                 });
             }
-
+            function readBody(response) {
+                return response.body.readAsString().then(function(body) {
+                    var data = eval(body);
+                    return data;
+                });
+            }
 
             return {
                 send: function(action, value) {
@@ -130,9 +146,9 @@
                         return get(
                             'instructions/test',
                             {
-                                features: value
+                                features: featureIds
                             }
-                        );
+                        ).then(readBody);
                     }
                     if (action === 'setAllTest') {
                         return postAsJSON(
@@ -146,12 +162,11 @@
                             {
                                 features: featureIds
                             }
-                        );
+                        ).then(readBody);
                     }
                     if (action === 'setAllFix') {
                         return postAsJSON(
                             'instructions/fix',
-                            {},
                             value
                         );
                     }
@@ -159,9 +174,12 @@
             };
         }
 
-        createBrowserMediator().send('getTestInstructions', ['object/keys']).then(
-            function(response) {
-                console.log('resp', response);
+        var mediator = createBrowserMediator(['string/prototype/at']);
+        var client = jsenv.createImplementationClient(mediator);
+
+        client.scan().then(
+            function(result) {
+                console.log('result', result);
             },
             function(e) {
                 setTimeout(function() {

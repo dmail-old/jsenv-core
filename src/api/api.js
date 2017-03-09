@@ -6,10 +6,6 @@ with
 https://github.com/kangax/compat-table/blob/gh-pages/data-es5.js
 https://github.com/kangax/compat-table/blob/gh-pages/data-es6.js
 
-- une fois que ce serveur tourne on met en place
-un truc genre compatibility-client.html qui essayera de communiquer avec ledit serveur
-afin de pouvoir tester firefox/chrome etc
-
 - simplifier createOwnmediator etc en une fonction utilitaire genre
 api.scanImplementation(featureIds);
 
@@ -609,7 +605,7 @@ function createOwnMediator(featureIds, agent) {
 }
 // var ownMediator = createOwnMediator(
 //     [
-//         'object/keys'
+//         'string/prototype/at'
 //     ],
 //     jsenv.agent
 // );
@@ -963,31 +959,77 @@ function startCompatServer(port) {
         return System.import('/src/server/compat-server.js').then(function(exports) {
             return exports.default;
         }).then(function(compatServer) {
+            function ensureHeader(request, headerName) {
+                return request.headers.has(headerName);
+            }
+            function ensureSearchParam(request, paramName) {
+                return request.url.searchParams.has(paramName);
+            }
+            function getInvalidProperties(request) {
+                if (!ensureHeader(request, 'user-agent')) {
+                    return 400;
+                }
+                if (!ensureSearchParam(request, 'features')) {
+                    return 400;
+                }
+                return null;
+            }
+
             compatServer.use({
                 match: function(request) {
                     return request.url.pathname === 'instructions/test';
                 },
                 methods: {
                     get: function(request) {
-                        if (!request.headers.has('user-agent')) {
-                            return 400;
-                        }
-                        if (!request.url.searchParams.has('features')) {
-                            return 400;
+                        var invalidProperties = getInvalidProperties(request);
+                        if (invalidProperties) {
+                            return invalidProperties;
                         }
 
                         var featureIds = request.url.searchParams.get('features').split(',');
                         var userAgentHeader = request.headers.get('user-agent');
                         var agent = Agent.parse(userAgentHeader);
+                        return getTestInstructions(featureIds, agent).then(
+                            compatServer.createJSResponse
+                        );
+                    },
+                    post: function(request) {
+                        var userAgentHeader = request.headers.get('user-agent');
+                        var agent = Agent.parse(userAgentHeader);
+                        return request.json().then(function(records) {
+                            return setAllTest(records, agent);
+                        }).then(function() {
+                            return 200;
+                        });
+                    }
+                }
+            });
+            compatServer.use({
+                match: function(request) {
+                    return request.url.pathname === 'instructions/fix';
+                },
+                methods: {
+                    get: function(request) {
+                        var invalidProperties = getInvalidProperties(request);
+                        if (invalidProperties) {
+                            return invalidProperties;
+                        }
 
-                        console.log('featureids', featureIds);
-                        console.log('agent', agent);
-
-                        return 200;
-
-                        // return getTestInstructions(featureIds, agent).then(
-                        //     compatServer.createJSResponse
-                        // );
+                        var featureIds = request.url.searchParams.get('features').split(',');
+                        var userAgentHeader = request.headers.get('user-agent');
+                        var agent = Agent.parse(userAgentHeader);
+                        return getFixInstructions(featureIds, agent).then(
+                            compatServer.createJSResponse
+                        );
+                    },
+                    post: function(request) {
+                        var userAgentHeader = request.headers.get('user-agent');
+                        var agent = Agent.parse(userAgentHeader);
+                        return request.json().then(function(records) {
+                            return setAllFix(records, agent);
+                        }).then(function() {
+                            return 200;
+                        });
                     }
                 }
             });
@@ -1000,11 +1042,11 @@ function startCompatServer(port) {
         });
     });
 }
-startCompatServer().catch(function(e) {
-    setTimeout(function() {
-        throw e;
-    });
-});
+// startCompatServer().catch(function(e) {
+//     setTimeout(function() {
+//         throw e;
+//     });
+// });
 
 api.getTestInstructions = getTestInstructions;
 api.setTest = featureMeta.setTest;

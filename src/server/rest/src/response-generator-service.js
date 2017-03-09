@@ -48,7 +48,7 @@ const RequestProperties = {
     fallbackHeadWithGet: true, // head method fallback to get method
 
     handleRequest(request) {
-        return this.match(request).then(function(service) {
+        return this.match(request).then(service => {
             // no service to handle the request
             if (!service) {
                 // not implemented
@@ -85,7 +85,7 @@ const RequestProperties = {
             }
 
             return Thenable.callFunction(availableMethods[methodName], service, request);
-        }.bind(this));
+        });
     }
 };
 

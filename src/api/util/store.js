@@ -262,10 +262,12 @@ var createFileSystemEntry = (function() {
         pendingOperations.splice(index, 1);
     }
     function operationCanConflict(pendingOperation, operation) {
-        return pendingOperation.meta.path === operation.meta.path && (
-            pendingOperation.verb === 'CREATE' ||
-            pendingOperation.verb === 'DELETE' ||
-            pendingOperation.verb === 'UPDATE'
+        return (
+            pendingOperation.meta.path === operation.meta.path && (
+                pendingOperation.verb === 'CREATE' ||
+                pendingOperation.verb === 'DELETE' ||
+                pendingOperation.verb === 'UPDATE'
+            )
         );
     }
     function handleOperation(operation) {

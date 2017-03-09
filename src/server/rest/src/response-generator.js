@@ -34,7 +34,7 @@ function NetWorkError(message) {
 const ResponseGenerator = compose('ResponseGenerator', {
     redirectLimit: 20,
     lastRetry: 0,
-    timeoutValue: 1000,
+    timeoutValue: 1000 * 60,
 
     noBodyMethod: ['HEAD', 'CONNECT'],
     noBodyStatus: [101, 204, 205, 304],
@@ -260,6 +260,7 @@ const ResponseGenerator = compose('ResponseGenerator', {
             },
             value => {
                 generator.state = 'closed';
+                generator.clean();
                 return Promise.reject(value);
             }
         ).then(

@@ -1,0 +1,18 @@
+{
+	"sources": [
+		{
+			"path": "../../../test.js",
+			"eTag": "\"9a-c7feSmg2dZagu37dmqJfMao7mWo\""
+		}
+	],
+	"value": {
+		"status": "failed",
+		"reason": "expectation failed: presence",
+		"detail": {
+			"presence": {
+				"status": "failed",
+				"reason": "returned-false"
+			}
+		}
+	}
+}
