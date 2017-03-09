@@ -705,7 +705,7 @@ ainsi que quelques utilitaires comme assign, Iterable et Predicate
         return globalAssignment;
     })());
     provide('platformPolymorph', function(implementations) {
-        return function platformPolymorph() {
+        function platformPolymorph() {
             var method;
             var searched;
 
@@ -721,7 +721,8 @@ ainsi que quelques utilitaires comme assign, Iterable et Predicate
                 return method.apply(this, arguments);
             }
             throw new Error('no implementation found for ' + searched);
-        };
+        }
+        return platformPolymorph;
     });
     provide('triggerEvent', jsenv.platformPolymorph({
         browser: function(name, event) {

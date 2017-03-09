@@ -12,18 +12,7 @@ import Url from '@jsenv/url';
 
 import Server from './server.js';
 
-// function createJavaScriptResponse(content) {
-//     return Promise.resolve({
-//         status: 200,
-//         headers: {
-//             'content-type': 'application/javascript',
-//             'content-length': Buffer.byteLength(content)
-//         },
-//         body: content
-//     });
-// }
-
-const myRest = rest.create();
+const myRest = rest;
 const corsHeaders = {
     'access-control-allow-origin': '*',
     'access-control-allow-methods': ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'].join(', '),
@@ -84,7 +73,6 @@ function onTransition(oldStatus, status) {
         console.log('compat server closed');
     }
 }
-
 function requestHandler(nodeRequest, nodeResponse) {
     var request = createRequestFromNodeRequest(nodeRequest, this.url);
     console.log(request.method, request.url.toString());

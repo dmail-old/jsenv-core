@@ -12,19 +12,16 @@ const MatchProperties = {
         return reduceIterableToAbortableThenable(serviceMatchIterablePromise, null, serviceHasMatched);
     }
 };
-
 function createServiceMatchIterablePromise(services, request) {
     return Iterable.map(services, function(service) {
         return createServiceMatchPromise(service, request);
     });
 }
-
 function createServiceMatchPromise(service, request) {
     return Thenable.callFunction(service.match, service, request).then(function(matched) {
         return matched ? service : null;
     });
 }
-
 function reduceIterableToAbortableThenable(iterable, initialValue, condition, bind) {
     // keep track of thenable being executed
     var currentThenable;
@@ -43,7 +40,6 @@ function reduceIterableToAbortableThenable(iterable, initialValue, condition, bi
 
     return promise;
 }
-
 function serviceHasMatched(value) {
     return Boolean(value);
 }
@@ -100,13 +96,11 @@ const ResponseProperties = {
         return reduceIterableToAbortableThenable(iterablePromise);
     }
 };
-
 function createInterceptorIterablePromise(services, request, response) {
     return Iterable.map(services, function(service) {
         return createServiceInterceptorPromise(service, request, response);
     });
 }
-
 function createServiceInterceptorPromise(service, request, response) {
     var interceptorPromise;
     var intercept = service.intercept;

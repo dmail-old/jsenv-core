@@ -1,8 +1,6 @@
 import createThenableFromFunctionCall from './thenable-apply-function.js';
 
-function createThenableFromFunctionPartialCall(fn, bind) {
-    var args = Array.prototype.slice.call(arguments, 2);
-
+function createThenableFromFunctionPartialCall(fn, bind, ...args) {
     return createThenableFromFunctionCall(fn, bind, args);
 }
 

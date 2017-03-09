@@ -122,7 +122,10 @@ function createTranspiler(transpilerOptions) {
                 mode: options.cacheMode || 'default',
                 save: function(filename, result, options) {
                     if (result.code) {
-                        var sourceURL = path.relative(ancestorFolder, filename).replace(/\\/g, '/');
+                        // var sourceURL = path.relative(ancestorFolder, filename).replace(/\\/g, '/');
+                        var sourceURL = '';
+                        sourceURL += 'file:///';
+                        sourceURL += filename;
                         result.code += '\n//# sourceURL=' + sourceURL;
                     }
 

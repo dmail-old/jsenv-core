@@ -319,7 +319,7 @@ var babelSolution = {
 
         var transpiler = createTranspiler({
             cache: true,
-            cacheMode: 'write-only',
+            cacheMode: 'default',
             sourceMaps: true,
             plugins: pluginsAsOptions
         });
@@ -824,7 +824,8 @@ function install() {
         'map',
         'set',
         'symbol/iterator',
-        'object/assign'
+        'object/assign',
+        'array/prototype/includes'
     ];
 
     function setup() {
@@ -841,6 +842,9 @@ function install() {
         var mySystem = new SystemJS.constructor();
         var instantiateMethod = SystemJS.constructor.instantiate;
         mySystem[instantiateMethod] = function(key, processAnonRegister) {
+            if (key.indexOf('@node/') === 0) {
+                return SystemJS[instantiateMethod].apply(this, arguments);
+            }
             var filename = getNodeFilename(key);
             // console.log('the key', key);
 
@@ -909,6 +913,7 @@ function install() {
         }, this);
         registerCoreModule(prefixModule(jsenv.rootModuleName), jsenv);
         registerCoreModule(prefixModule(jsenv.moduleName), jsenv);
+        registerCoreModule(prefixModule('system'), System);
         registerCoreModule('@node/require', require);
 
         // var oldImport = System.import;
@@ -949,18 +954,48 @@ function startCompatServer() {
         return System.import('/src/server/compat-server.js').then(function(exports) {
             return exports.default;
         }).then(function(compatServer) {
-            console.log('the compat server', compatServer);
-            // var serverUrl = 'http://localhost';
-            // return compatServer.open(serverUrl);
+            // ne semble pas être fait correctement, en tous cas ne produit pas de réponse
+            compatServer.use({
+                match: function() {
+                    return true;
+                },
+
+                methods: {
+                    '*': function() {
+                        var content = 'Hello world';
+                        return {
+                            status: 200,
+                            headers: {
+                                'content-type': 'text/plain',
+                                'content-length': Buffer.byteLength(content)
+                            },
+                            body: content
+                        };
+                    }
+                }
+            });
+
+            var serverUrl = 'http://localhost:8079';
+            return compatServer.open(serverUrl);
         });
     });
 }
 startCompatServer().catch(function(e) {
     setTimeout(function() {
-        console.log('here', e.originalErr.stack);
         throw e;
     });
 });
+
+// function createJavaScriptResponse(content) {
+//     return Promise.resolve({
+//         status: 200,
+//         headers: {
+//             'content-type': 'application/javascript',
+//             'content-length': Buffer.byteLength(content)
+//         },
+//         body: content
+//     });
+// }
 
 // myRest.use({
 //     match(request) {

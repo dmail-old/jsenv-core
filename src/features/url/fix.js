@@ -145,20 +145,28 @@ function URL(urlString, base) {
 URL.prototype = {
     constructor: URL,
     toString() {
-        var url = '';
+        let url = '';
 
-        url += this.protocol;
-        if (this.protocol !== '' && mustAppendSlashesForProtocol(this.protocol.slice(0, -1))) {
-            url += '//';
+        const protocol = this.protocol;
+        if (protocol) {
+            url += protocol;
+            if (mustAppendSlashesForProtocol(protocol.slice(0, -1))) {
+                url += '//';
+            }
         }
-        if (this.username) {
-            url += this.username;
-            url += this.password ? ':' + this.password : '';
+        const username = this.username;
+        if (username) {
+            url += username;
+            const password = this.password;
+            if (password) {
+                url += ':' + password;
+            }
             url += '@';
         }
-        url += this.host;
-        if (this.port) {
-            url += ':' + this.port;
+        url += this.hostname;
+        const port = this.port;
+        if (port) {
+            url += ':' + port;
         }
         url += this.pathname;
         url += this.search;

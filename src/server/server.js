@@ -1,72 +1,37 @@
-/* eslint-env browser, node */
-/* global URL */
+import require from '@node/require';
 
 import env from '@jsenv/env';
 import compose from '@jsenv/compose';
-import require from '@node/require';
+import System from '@jsenv/system';
 
 /*
 provide beforeExit.on/off to register callback to run before code exists
 thoose callback are runned in parallel when user leaves the page (browser) or terminal (node)
 inside nodejs process.exit is delayed until all promisified callback have resolved
+
+ceci pourrait devenir une feature au lieu d'être mit ici mais j'avoue que je sais pas encore comment
+je vais gérer ce genre de chose, c'est différent d'une feature qu'on veut polyfill ou transpile
+c'est bien une feature mais pas standard
 */
-env.provide(function beforeExit() {
-    var listeners = [];
-    var installBeforeExit;
-    var uninstallBeforeExit;
-    var performExit;
-    var beforeExit = {
-        emit() {
-            Promise.race(listeners.map(function(fn) {
-                return Promise.resolve(fn());
-            })).then(function() {
-                if (uninstallBeforeExit) {
-                    uninstallBeforeExit();
-                    uninstallBeforeExit = undefined;
-                }
-                performExit();
-            });
-        },
-
-        add(fn) {
-            if (listeners.length === 0) {
-                uninstallBeforeExit = installBeforeExit();
-            }
-            listeners.push(fn);
-        },
-
-        remove(fn) {
-            var index = listeners.indexOf(fn);
-            if (index > -1) {
-                listeners.splice(index, 1);
-            }
-            if (listeners.length === 0 && uninstallBeforeExit) {
-                uninstallBeforeExit();
-                uninstallBeforeExit = undefined;
-            }
-        }
-    };
-
-    if (env.isBrowser()) {
-        installBeforeExit = function() {
-            window.onbeforeunload = beforeExit.emit;
-
-            return function() {
-                window.onbeforeunload = undefined;
-            };
-        };
-        performExit = function() {
+env.provide('beforeExit', (function() {
+    const exit = env.platformPolymorph({
+        browser() {
             // in the browser this may not be called
             // because you cannot prevent user from leaving your page
-        };
-    } else if (env.isNode()) {
-        installBeforeExit = function() {
-            function emit() {
-                beforeExit.emit();
-            }
-
-            var uninstallBeforeExit;
-
+        },
+        node() {
+            process.exit();
+        }
+    });
+    const install = env.platformPolymorph({
+        browser(callback) {
+            const previous = window.onbeforeunload;
+            window.onbeforeunload = callback;
+            return function() {
+                window.onbeforeunload = previous;
+            };
+        },
+        node(callback) {
             if (env.isWindows()) {
                 // http://stackoverflow.com/questions/10021373/what-is-the-windows-equivalent-of-process-onsigint-in-node-js
                 var rl = require("readline").createInterface({
@@ -79,29 +44,63 @@ env.provide(function beforeExit() {
                 };
 
                 rl.on('SIGINT', forceEmit);
-                process.on('SIGINT', emit);
-                uninstallBeforeExit = function() {
+                process.on('SIGINT', callback);
+                return function() {
                     rl.removeListener('SIGINT', forceEmit);
-                    process.removeListener('SIGINT', emit);
-                };
-            } else {
-                process.on('SIGINT', emit);
-                uninstallBeforeExit = function() {
-                    process.removeListener('SIGINT', emit);
+                    process.removeListener('SIGINT', callback);
                 };
             }
+            process.on('SIGINT', callback);
+            return function() {
+                process.removeListener('SIGINT', callback);
+            };
+        }
+    });
+    const listeners = [];
+    let uninstaller = null;
+    let installed = false;
 
-            return uninstallBeforeExit;
-        };
-        performExit = function() {
-            process.exit();
-        };
-    }
-
-    return {
-        beforeExit: beforeExit
+    const beforeExit = {
+        emit() {
+            return Promise.race(listeners.map(function(fn) {
+                return Promise.resolve(fn());
+            })).then(() => {
+                beforeExit.uninstall();
+                exit();
+            });
+        },
+        install: function() {
+            if (installed === false) {
+                uninstaller = install(beforeExit.emit);
+                installed = true;
+            }
+        },
+        uninstall: function() {
+            if (installed === true) {
+                uninstaller();
+                installed = false;
+                uninstaller = undefined;
+            }
+        },
+        add(fn) {
+            if (listeners.length === 0) {
+                beforeExit.install();
+            }
+            listeners.push(fn);
+        },
+        remove(fn) {
+            var index = listeners.indexOf(fn);
+            if (index > -1) {
+                listeners.splice(index, 1);
+            }
+            if (listeners.length === 0) {
+                beforeExit.uninstall();
+            }
+        }
     };
-});
+
+    return beforeExit;
+})());
 
 function createServer(options) {
     const nodeModuleName = options.secure ? 'https' : 'http';
@@ -164,29 +163,29 @@ const NodeServer = compose({
         const url = new URL(location);
         const isHttps = url.protocol === 'https:';
         const port = url.port || (isHttps ? 443 : 80);
-
-        env.beforeExit.add(function() {
+        const beforeExitListener = () => {
             return this.close();
-        }.bind(this));
+        };
 
-        return new Promise(function(resolve) {
+        this.beforeExitListener = beforeExitListener;
+        env.beforeExit.add(beforeExitListener);
+
+        return new Promise(resolve => {
             this.transit('opening');
             resolve(createServer({
                 secure: isHttps
             }));
-        }.bind(this)).then(function(server) {
+        }).then(server => {
             const connections = new Set();
-            const requestHandler = this.requestHandler;
 
-            server.on('connection', function(connection) {
-                connection.on('close', function() {
+            server.on('connection', connection => {
+                connection.on('close', () => {
                     connections.delete(connection);
                 });
-
                 connections.add(connection);
             });
-            server.on('request', function(request, response) {
-                requestHandler(request, response);
+            server.on('request', (request, response) => {
+                this.requestHandler(request, response);
             });
 
             this.url = url;
@@ -194,26 +193,29 @@ const NodeServer = compose({
             this.connections = connections;
 
             return openServer(server, port, url.hostname);
-        }.bind(this)).then(function() {
+        }).then(() => {
             this.transit('opened');
-        }.bind(this));
+            return this;
+        });
     },
 
     close() {
-        return new Promise(function(resolve) {
+        return new Promise(resolve => {
             this.transit('closing');
             for (var connection of this.connections) {
                 connection.destroy(); // can it throw ?
             }
             resolve();
-        }.bind(this)).then(function() {
+        }).then(() => {
             const server = this.server;
             if (server._handle) {
                 return closeServer(server);
             }
-        }.bind(this)).then(function() {
+        }).then(() => {
             this.transit('closed');
-        }.bind(this));
+            env.beforeExit.remove(this.beforeExitListener);
+            return this;
+        });
     }
 });
 

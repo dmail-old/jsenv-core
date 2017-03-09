@@ -1,4 +1,4 @@
-var Timeout = {
+const Timeout = {
     timer: null,
     expirationEffect: 'resolve',
 
@@ -6,10 +6,10 @@ var Timeout = {
         if (arguments.length > 0) {
             this.set(value);
         }
-        this.promise = new Promise(function(resolve, reject) {
+        this.promise = new Promise((resolve, reject) => {
             this.resolve = resolve;
             this.reject = reject;
-        }.bind(this));
+        });
     },
 
     valueOf() {
@@ -22,10 +22,6 @@ var Timeout = {
         timeout.constructor.apply(timeout, arguments);
 
         return timeout;
-    },
-
-    turnExpirationIntoRejection() {
-        this.expirationEffect = 'reject';
     },
 
     expire() {
@@ -53,14 +49,6 @@ var Timeout = {
             clearTimeout(this.timer);
             this.timer = null;
         }
-    },
-
-    then(onResolve, onReject) {
-        return this.promise.then(onResolve, onReject);
-    },
-
-    catch(onReject) {
-        return this.then(null, onReject);
     }
 };
 

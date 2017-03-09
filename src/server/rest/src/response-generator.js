@@ -25,7 +25,6 @@ function createTimeoutError(ms) {
     error.code = 'REQUEST_TIMEOUT';
     return error;
 }
-
 function NetWorkError(message) {
     var error = new Error(message || 'not specified');
     error.name = 'NetWorkError';
@@ -53,14 +52,14 @@ const ResponseGenerator = compose('ResponseGenerator', {
         this.request = request;
         this.state = 'created';
         this.timeout = Timeout.create(this.timeoutValue);
-        this.timeout.then(this.expire.bind(this));
+        this.timeout.promise.then(this.expire.bind(this));
 
-        this.abortPromise = new Promise(function(resolve, reject) {
+        this.abortPromise = new Promise((resolve, reject) => {
             this.rejectAbort = reject;
-        }.bind(this));
-        this.timeoutPromise = new Promise(function(resolve, reject) {
+        });
+        this.timeoutPromise = new Promise((resolve, reject) => {
             this.rejectTimeout = reject;
-        }.bind(this));
+        });
 
         this.promise = this.open();
     },
@@ -73,34 +72,11 @@ const ResponseGenerator = compose('ResponseGenerator', {
         return this.promise.catch(a);
     },
 
-    createRequestHandlerPromise(request) {
-        this.requestHandlerPromise = Thenable.callFunction(this.handleRequest, this, request);
-        return this.requestHandlerPromise;
-    },
-
-    createResponseHandlerPromise(request, response) {
-        this.responseHandlerPromise = Thenable.callFunction(this.handleResponse, this, request, response);
-
-        // explicitely prevent handleResponse() from returning a different esponse object
-        // it can only modify the existing one
-        return this.responseHandlerPromise.then(function() {
-            return response;
-        });
-    },
-
-    createResponsePropertiesPromise() {
-        return this.createRequestHandlerPromise(this.request).then(function(response) {
-            if (response !== undefined) {
-                return response;
-            }
-        });
-    },
-
     retry(delay) {
         if (typeof delay === 'string') {
             if (isNaN(delay)) {
                 try {
-                    delay = new Date(delay);
+                    delay = Number(new Date(delay));
                 } catch (e) {
                     throw e;
                 }
@@ -110,7 +86,7 @@ const ResponseGenerator = compose('ResponseGenerator', {
             }
         }
         if (delay instanceof Date) {
-            delay -= new Date();
+            delay -= Number(new Date());
         }
         if (typeof delay !== 'number') {
             throw new TypeError('delay expects a date or a number');
@@ -175,7 +151,6 @@ const ResponseGenerator = compose('ResponseGenerator', {
             this.retryPromise = Thenable.callFunctionAfter(this.open.bind(this), retryDelay);
             return this.retryPromise;
         }
-        // console.log('resolved normally');
         return response;
     },
 
@@ -189,78 +164,115 @@ const ResponseGenerator = compose('ResponseGenerator', {
     },
 
     open() {
-        if (this.state !== 'created') {
+        var generator = this;
+
+        if (generator.state !== 'created') {
             return Promise.reject(new Error('open() error : state must be "created", not "' + this.state + '"'));
         }
-        this.state = 'opening';
+        generator.state = 'opening';
 
-        var promises = [];
+        function createRequestHandlerPromise(request) {
+            generator.requestHandlerPromise = Thenable.callFunction(generator.handleRequest, generator, request);
+            return generator.requestHandlerPromise;
+        }
+        function createResponsePropertiesPromise() {
+            return createRequestHandlerPromise(generator.request).then(response => {
+                if (response !== undefined) {
+                    return response;
+                }
+            });
+        }
+        function createResponsePromise() {
+            var promises = [];
 
-        // abort promise
-        promises.push(this.abortPromise);
-        // timeout promise
-        promises.push(this.timeoutPromise);
-        // response promise
-        promises.push(this.responsePropertiesPromise = this.createResponsePropertiesPromise());
+            // abort promise
+            promises.push(generator.abortPromise);
+            // timeout promise
+            promises.push(generator.timeoutPromise);
+            // response promise
+            promises.push(generator.responsePropertiesPromise = createResponsePropertiesPromise());
 
-        return Promise.race(promises).then(function(responseProperties) {
-            if (this.state !== 'opening') {
-                throw new Error('opened() error : state must be "opening", not "' + this.state + '"');
-            }
-            this.state = 'opened';
+            return Promise.race(promises).then(responseProperties => {
+                if (generator.state !== 'opening') {
+                    throw new Error('opened() error : state must be "opening", not "' + generator.state + '"');
+                }
+                generator.state = 'opened';
 
-            // if the promise resolved without providing response
-            // it returns a 501 not implemented response
-            if (responseProperties === null || responseProperties === undefined) {
-                responseProperties = 501;
-            }
-            if (typeof responseProperties === 'number') {
-                responseProperties = {status: responseProperties};
-            }
+                // if the promise resolved without providing response
+                // it returns a 501 not implemented response
+                if (responseProperties === null || responseProperties === undefined) {
+                    responseProperties = 501;
+                }
+                if (typeof responseProperties === 'number') {
+                    responseProperties = {status: responseProperties};
+                }
 
-            var response;
-            if (typeof responseProperties === 'object') {
-                if (Response.isPrototypeOf(responseProperties)) {
-                    response = responseProperties;
-                } else if (responseProperties.constructor === Object) {
-                    response = Response.create(responseProperties);
+                var response;
+                if (typeof responseProperties === 'object') {
+                    if (Response.isPrototypeOf(responseProperties)) {
+                        response = responseProperties;
+                    } else if (responseProperties.constructor === Object) {
+                        response = Response.create(responseProperties);
+                    } else {
+                        throw new TypeError('responseProperties must be a plain object');
+                    }
                 } else {
-                    throw new TypeError('responseProperties must be a plain object');
+                    throw new TypeError('responseProperties must be an object');
                 }
-            } else {
-                throw new TypeError('responseProperties must be an object');
-            }
 
-            return response;
-        }.bind(this)).then(function(response) {
-            if (this.noBodyMethod.includes(this.request.method) || this.noBodyStatus.includes(response.status)) {
+                return response;
+            });
+        }
+        function createResponseHandlerPromise(response) {
+            generator.responseHandlerPromise = Thenable.callFunction(
+                generator.handleResponse,
+                generator,
+                generator.request,
+                response
+            );
+
+            // explicitely prevent handleResponse() from returning a different response object
+            // it can only modify the existing one
+            return generator.responseHandlerPromise.then(() => {
+                return response;
+            });
+        }
+
+        return createResponsePromise().then(
+            response => {
+                if (
+                    generator.noBodyMethod.includes(generator.request.method) ||
+                    generator.noBodyStatus.includes(response.status)
+                ) {
+                    if (response.body) {
+                        response.body.cancel();
+                        response.body = null;
+                    }
+                }
+
                 if (response.body) {
-                    response.body.cancel();
-                    response.body = null;
+                    response.body.then(generator.close.bind(generator));
+                } else {
+                    generator.close();
                 }
-            }
 
-            if (response.body) {
-                response.body.then(this.close.bind(this));
-            } else {
-                this.close();
+                return response;
+            },
+            value => {
+                generator.state = 'closed';
+                return Promise.reject(value);
             }
-
-            return response;
-        }.bind(this), function(value) {
-            this.state = 'closed';
-            return Promise.reject(value);
-        }.bind(this)).then(function(response) {
-            return this.createResponseHandlerPromise(this.request, response);
-        }.bind(this)).then(function(response) {
-            var result = this.checkRedirectionAndRetry(response);
+        ).then(
+            createResponseHandlerPromise
+        ).then(response => {
+            var result = generator.checkRedirectionAndRetry(response);
 
             // if the result is a response prepare it
             if (Response.isPrototypeOf(result)) {
-                return this.prepareResponse(result);
+                return generator.prepareResponse(result);
             }
             return result;
-        }.bind(this));
+        });
     },
 
     callAbort(name) {
@@ -286,6 +298,7 @@ const ResponseGenerator = compose('ResponseGenerator', {
     * - explicit close() while state is created or opening
     **/
     clean() {
+        this.timeout.clear();
         if (this.state === 'opening') {
             // abort any services trying to generate a response for the request
             this.callAbort('requestHandlerPromise');
@@ -313,6 +326,7 @@ const ResponseGenerator = compose('ResponseGenerator', {
             this.abort(); // close while running means abort()
         } else if (this.state === 'opened') {
             this.state = 'closed';
+            this.clean();
         }
     }
 });
