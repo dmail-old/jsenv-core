@@ -42,6 +42,7 @@ const ResponseGenerator = compose('ResponseGenerator', {
     retryStatus: [301, 302, 307, 503],
     redirectCount: 0,
     currentURL: null,
+    enableInternalRedirection: true,
 
     state: '', // created, opening, opened, closed
 
@@ -128,7 +129,11 @@ const ResponseGenerator = compose('ResponseGenerator', {
         var isRedirected;
 
         // redirection
-        if (response.headers.has('location') && this.redirectStatus.includes(response.status)) {
+        if (
+            this.enableInternalRedirection &&
+            response.headers.has('location') &&
+            this.redirectStatus.includes(response.status)
+        ) {
             isRedirected = this.redirect(response.headers.get('location'), response.status === 307);
         }
         // retry
@@ -157,8 +162,6 @@ const ResponseGenerator = compose('ResponseGenerator', {
     prepareResponse(response) {
         response.redirectCount = this.redirectCount;
         response.url = this.request.url.clone();
-
-        env.info(response.status, String(response.url));
 
         return response;
     },

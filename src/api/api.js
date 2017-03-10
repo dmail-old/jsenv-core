@@ -6,11 +6,6 @@ with
 https://github.com/kangax/compat-table/blob/gh-pages/data-es5.js
 https://github.com/kangax/compat-table/blob/gh-pages/data-es6.js
 
-- faire startFeatureServer qui sera un peu différent
-
-fsAsync.getFileContent() sera remplacé par l'insertion d'une balise <script>
-vm.runInThisContText n'aura besoin de rien puisque la balise <script> éxécutera le js qui est dedans
-
 - a priori si on a un résultat de test positif pour array/from pour node0.12 on ne relance pas le test si
 la version actuelle de node est ulétieure
 le corollaire est que lorsqu'on écrit un test dans le filesystem pour une version plus ancienne

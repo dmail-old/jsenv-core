@@ -1,3 +1,13 @@
+<!--
+
+- que 90% du code de configSystem() soit éxécuté ici aussi pour répondre au besoin ci dessous
+lorsque le client import @jsenv/url il faut lui donner ce qu'on a configuré
+je pense qu'il faut mettre config-system dans un fichier qu'on éxécute coté client ET coté serveur
+(et oui surtout qu'on y enregistre l'objet jsenv qui ne serais pas dispo dans le client)
+nodejs fera sa tambouille pour y ajouter des trucs custom (api, require nottament)
+
+-->
+
 <!doctype html>
 
 <head>
@@ -91,7 +101,6 @@
                 if (key.indexOf('@node/') === 0) {
                     throw new Error('cannot load @node module in the browser');
                 }
-                console.log('loading', key);
                 return loadFileUsingScriptTag(key).then(function() {
                     processAnonRegister();
                 });

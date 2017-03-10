@@ -1,13 +1,3 @@
-/*
-
-lorsque le client import @jsenv/url il faut lui donner ce qu'on a configuré
-je pense qu'il faut mettre config-system dans un fichier qu'on éxécute coté client ET coté serveur
-(et oui surtout qu'on y enregistre l'objet jsenv qui ne serais pas dispo dans le client)
-
-nodejs fera sa tambouille pour y ajouter des trucs custom (api, require noattement)
-
-*/
-
 import {parse as parseUrl} from '@jsenv/url';
 import api from '@jsenv/api';
 import {
