@@ -13,23 +13,23 @@ import {
     createServer
 } from '../server/index.js';
 
-const rest = createRest();
+// function ensureHeader(request, headerName) {
+//     return request.headers.has(headerName);
+// }
+// function ensureSearchParam(request, paramName) {
+//     return request.url.searchParams.has(paramName);
+// }
+// function getInvalidProperties(request) {
+//     if (!ensureHeader(request, 'user-agent')) {
+//         return 400;
+//     }
+//     if (!ensureSearchParam(request, 'features')) {
+//         return 400;
+//     }
+//     return null;
+// }
 
-function ensureHeader(request, headerName) {
-    return request.headers.has(headerName);
-}
-function ensureSearchParam(request, paramName) {
-    return request.url.searchParams.has(paramName);
-}
-function getInvalidProperties(request) {
-    if (!ensureHeader(request, 'user-agent')) {
-        return 400;
-    }
-    if (!ensureSearchParam(request, 'features')) {
-        return 400;
-    }
-    return null;
-}
+const rest = createRest();
 route(
     rest,
     request => {
@@ -37,11 +37,6 @@ route(
     },
     {
         get: request => {
-            var invalidProperties = getInvalidProperties(request);
-            if (invalidProperties) {
-                return invalidProperties;
-            }
-
             var featureIds = request.url.searchParams.get('features').split(',');
             var userAgentHeader = request.headers.get('user-agent');
             var agent = api.parseAgent(userAgentHeader);
@@ -67,11 +62,6 @@ route(
     },
     {
         get: request => {
-            var invalidProperties = getInvalidProperties(request);
-            if (invalidProperties) {
-                return invalidProperties;
-            }
-
             var featureIds = request.url.searchParams.get('features').split(',');
             var userAgentHeader = request.headers.get('user-agent');
             var agent = api.parseAgent(userAgentHeader);
@@ -92,7 +82,7 @@ route(
 );
 const fileService = createFileService({
     root: api.rootFolder + '/',
-    index: './scan-browser.html'
+    index: './src/server-compat/client.html'
 });
 route(
     rest,

@@ -169,7 +169,6 @@ function createFileService(options) {
                 urlRessource = options.index;
             }
             const ressourceUrl = rootURL.resolve(urlRessource);
-            console.log('getting', rootURL.toString());
 
             const ressource = {
                 id: ressourceUrl.ressource,

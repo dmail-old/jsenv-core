@@ -401,6 +401,11 @@ const Url = compose('Url', properties, helpers);
 
 export default Url;
 
+function parse(string) {
+    return Url.create(string);
+}
+export {parse};
+
 // import '../polyfill/url-search-params/index.js#?env|default.needs.url-search-params';
 
 // var absURLRegEx = /^[^:\/?#]+:/;

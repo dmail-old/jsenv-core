@@ -1,0 +1,114 @@
+<!doctype html>
+
+<head>
+    <title>jsenv - client</title>
+    <meta charset="utf-8" />
+
+    <script src="./src/jsenv.js"></script>
+    <!--<script src="./polyfill.js"></script> replaced by code below -->
+    <script type="text/javascript">
+        var features = [
+            'string/prototype/at',
+            'system'
+        ];
+        function loadScriptUsingTag(url, callback) {
+            var scriptSource;
+            scriptSource = '<';
+            scriptSource += 'script type="text/javascript"';
+            if (callback) {
+                var scriptLoadedMethodName = 'scriptLoadedCallback';
+                var scriptLoadedGlobalMethodAssignment = jsenv.createCancellableAssignment(
+                    jsenv.global,
+                    scriptLoadedMethodName
+                );
+                scriptLoadedGlobalMethodAssignment.assign(function() {
+                    scriptLoadedGlobalMethodAssignment.cancel();
+                    callback();
+                });
+                scriptSource += ' onload="' + scriptLoadedMethodName + '()"';
+            }
+            scriptSource += ' src="';
+            scriptSource += url;
+            scriptSource += '">';
+            scriptSource += '<';
+            scriptSource += '/script>';
+            document.write(scriptSource);
+        }
+        function encode(value) {
+            return encodeURIComponent(value).replace(/[!'\(\)~]|%20|%00/g, function(match) {
+                return {
+                    '!': '%21',
+                    "'": '%27',
+                    '(': '%28',
+                    ')': '%29',
+                    '~': '%7E',
+                    '%20': '+',
+                    '%00': '\x00'
+                }[match];
+            });
+        }
+        function appendSearch(url, search) {
+            var query = '';
+            for (var paramName in search) {
+                var paramValue = search[paramName];
+                query += encode(paramName) + '=' + encode(paramValue);
+            }
+            if (query) {
+                url += '?' + query;
+            }
+            return url;
+        }
+        function insertPolyfillScript(features) {
+            var polyfillUrl = './polyfill.js';
+            if (features) {
+                polyfillUrl = appendSearch(polyfillUrl, {features: features});
+            }
+            loadScriptUsingTag(polyfillUrl);
+        }
+        insertPolyfillScript(features);
+    </script>
+    <script type="text/javascript">
+        /* eslint-env browser */
+        var Thenable = jsenv.Thenable;
+
+        function loadFileUsingScriptTag(filename, features) {
+            var search = {};
+            search.transpile = 1;
+            if (features) {
+                search.features = features;
+            }
+            filename = appendSearch(filename, search);
+            return new Thenable(function(resolve) {
+                loadScriptUsingTag(filename, resolve);
+            });
+        }
+
+        function createSystem(SystemJS) {
+            var mySystem = new SystemJS.constructor();
+            jsenv.global.System = mySystem;
+            var instantiateMethod = SystemJS.constructor.instantiate;
+            mySystem[instantiateMethod] = function(key, processAnonRegister) {
+                if (key.indexOf('@node/') === 0) {
+                    throw new Error('cannot load @node module in the browser');
+                }
+                console.log('loading', key);
+                return loadFileUsingScriptTag(key).then(function() {
+                    processAnonRegister();
+                });
+            };
+            return mySystem;
+        }
+        var System = createSystem(window.System);
+        System.import('./src/util/timeout/index.js').then(function(exports) {
+            console.log('exports', exports.default);
+        });
+        // eslint-disable-next-line eol-last, no-trailing-spaces
+    </script>
+</head>
+
+<body>
+    <main>
+    </main>
+</body>
+
+</html>

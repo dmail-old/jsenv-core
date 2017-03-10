@@ -7,17 +7,6 @@ https://github.com/kangax/compat-table/blob/gh-pages/data-es5.js
 https://github.com/kangax/compat-table/blob/gh-pages/data-es6.js
 
 - faire startFeatureServer qui sera un peu différent
-celui la possède une première api qui permet d'obtenir le polyfill qu'on obtiendra
-surement par l'injection d'une balise <script> dans le browser
-
-et une second api qui permet de transpile. attention un featureServeur est démarrer avec une liste de feature
-qu'on souhaite avoir de sorte que le client n'a plus besoin de repréciser la liste des features
-qu'ils souhaite ni pour le polyfill ni pour chaque fichier qu'on va transpile
--> bah on pourrais très bien préciser la liste à chaque fois en fait
-on a la main sur comment sont demandé les features lors du polyfill ou du transpile
-donc on pourrais très bien dire que c'est le client qui décide même s'il pourrait y avoir une liste par défaut
-
-pour transpile on va refaire, mais coté browser, ce qu'on a fait en bas dans createSystem et configSystem
 
 fsAsync.getFileContent() sera remplacé par l'insertion d'une balise <script>
 vm.runInThisContText n'aura besoin de rien puisque la balise <script> éxécutera le js qui est dedans
@@ -768,6 +757,8 @@ function polyfill(featureIds, agent, minify) {
 // });
 
 function getNodeFilename(filename) {
+    filename = String(filename);
+
     var nodeFilename;
     if (filename.indexOf('file:///') === 0) {
         nodeFilename = filename.slice('file:///'.length);
@@ -978,23 +969,28 @@ function startCompatServer(port) {
         });
     });
 }
-startCompatServer().catch(function(e) {
+// startCompatServer().catch(function(e) {
+//     setTimeout(function() {
+//         throw e;
+//     });
+// });
+
+function startFeatureServer(port) {
+    port = port || 8078;
+
+    return install().then(function(System) {
+        return System.import('/src/server-feature/feature-server.js').then(function(exports) {
+            var featureServer = exports.default;
+            var serverUrl = 'http://localhost:' + port;
+            return featureServer.open(serverUrl);
+        });
+    });
+}
+startFeatureServer().catch(function(e) {
     setTimeout(function() {
         throw e;
     });
 });
-
-function startFeatureServer() {
-    // port = port || 8078;
-
-    // return install().then(function(System) {
-    //     return System.import('/src/server/feature-server.js').then(function(exports) {
-    //         return exports.default;
-    //     }).then(function(featureServer) {
-
-    //     });
-    // });
-}
 
 api.rootFolder = rootFolder;
 api.parseAgent = Agent.parse;

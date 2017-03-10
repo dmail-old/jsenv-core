@@ -1,7 +1,7 @@
 <!doctype html>
 
 <head>
-    <title>jsenv - browser scanner</title>
+    <title>jsenv - feature compat runner</title>
     <meta charset="utf-8" />
 
     <script src="./src/jsenv.js"></script>
@@ -35,6 +35,19 @@
                     }
                 };
                 return body;
+            }
+            function encode(value) {
+                return encodeURIComponent(value).replace(/[!'\(\)~]|%20|%00/g, function(match) {
+                    return {
+                        '!': '%21',
+                        "'": '%27',
+                        '(': '%28',
+                        ')': '%29',
+                        '~': '%7E',
+                        '%20': '+',
+                        '%00': '\x00'
+                    }[match];
+                });
             }
             function appendSearch(url, search) {
                 var query = '';
@@ -119,19 +132,6 @@
                     {},
                     JSON.stringify(object)
                 ).then(checkStatus);
-            }
-            function encode(value) {
-                return encodeURIComponent(value).replace(/[!'\(\)~]|%20|%00/g, function(match) {
-                    return {
-                        '!': '%21',
-                        "'": '%27',
-                        '(': '%28',
-                        ')': '%29',
-                        '~': '%7E',
-                        '%20': '+',
-                        '%00': '\x00'
-                    }[match];
-                });
             }
             function readBody(response) {
                 return response.body.readAsString().then(function(body) {

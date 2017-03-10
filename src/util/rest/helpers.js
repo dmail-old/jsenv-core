@@ -21,6 +21,7 @@ function syncWithServer(rest, server) {
         return request;
     }
     function syncNodeResponseAndResponse(response, nodeResponse) {
+        console.log(`${response.status} ${response.url}`);
         nodeResponse.writeHead(response.status, response.headers.toJSON());
 
         var keepAlive = response.headers.get('connection') === 'keep-alive';
@@ -48,12 +49,19 @@ function syncWithServer(rest, server) {
         // console.log('httpRequest url', httpRequest.url);
         // console.log('request url', request.url.toString());
 
-        rest.fetch(request).then(function(response) {
-            syncNodeResponseAndResponse(response, nodeResponse);
-        }).catch(function(e) {
-            nodeResponse.writeHead(500);
-            nodeResponse.end(e ? e.stack : '');
-        });
+        rest.fetch(request).then(
+            response => {
+                syncNodeResponseAndResponse(response, nodeResponse);
+            }
+        ).catch(
+            e => {
+                const rejectionResponse = rest.createResponse({
+                    status: 500,
+                    body: e ? e.stakc : ''
+                });
+                syncNodeResponseAndResponse(rejectionResponse, nodeResponse);
+            }
+        );
     }
     server.requestHandler = requestHandler;
 }
