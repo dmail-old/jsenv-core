@@ -6,8 +6,21 @@ with
 https://github.com/kangax/compat-table/blob/gh-pages/data-es5.js
 https://github.com/kangax/compat-table/blob/gh-pages/data-es6.js
 
-- simplifier createOwnmediator etc en une fonction utilitaire genre
-api.scanImplementation(featureIds);
+- faire startFeatureServer qui sera un peu différent
+celui la possède une première api qui permet d'obtenir le polyfill qu'on obtiendra
+surement par l'injection d'une balise <script> dans le browser
+
+et une second api qui permet de transpile. attention un featureServeur est démarrer avec une liste de feature
+qu'on souhaite avoir de sorte que le client n'a plus besoin de repréciser la liste des features
+qu'ils souhaite ni pour le polyfill ni pour chaque fichier qu'on va transpile
+-> bah on pourrais très bien préciser la liste à chaque fois en fait
+on a la main sur comment sont demandé les features lors du polyfill ou du transpile
+donc on pourrais très bien dire que c'est le client qui décide même s'il pourrait y avoir une liste par défaut
+
+pour transpile on va refaire, mais coté browser, ce qu'on a fait en bas dans createSystem et configSystem
+
+fsAsync.getFileContent() sera remplacé par l'insertion d'une balise <script>
+vm.runInThisContText n'aura besoin de rien puisque la balise <script> éxécutera le js qui est dedans
 
 - a priori si on a un résultat de test positif pour array/from pour node0.12 on ne relance pas le test si
 la version actuelle de node est ulétieure
@@ -603,14 +616,15 @@ function createOwnMediator(featureIds, agent) {
         return data;
     }
 }
-// var ownMediator = createOwnMediator(
-//     [
-//         'string/prototype/at'
-//     ],
-//     jsenv.agent
-// );
-// var client = jsenv.createImplementationClient(ownMediator);
-// client.scan().then(function() {
+function scanImplementation(featureIds) {
+    var ownMediator = createOwnMediator(
+        featureIds,
+        jsenv.agent
+    );
+    var client = jsenv.createImplementationClient(ownMediator);
+    return client.scan();
+}
+// scanImplementation(['string/prototype/at']).then(function() {
 //     console.log('scan done');
 // }).catch(function(e) {
 //     setTimeout(function() {
@@ -907,7 +921,7 @@ function install() {
             'timeout',
             'url'
         ].forEach(function(libName) {
-            var libPath = '/src/server/' + libName + '/index.js';
+            var libPath = '/src/util/' + libName + '/index.js';
             var map = {};
             map[prefixModule(libName)] = libPath;
             System.config({
@@ -917,6 +931,7 @@ function install() {
         registerCoreModule(prefixModule(jsenv.rootModuleName), jsenv);
         registerCoreModule(prefixModule(jsenv.moduleName), jsenv);
         registerCoreModule(prefixModule('system'), System);
+        registerCoreModule(prefixModule('api'), api);
         registerCoreModule('@node/require', require);
 
         // var oldImport = System.import;
@@ -934,7 +949,7 @@ function install() {
         //     });
         // };
 
-        return System.import('/src/api/config-system.js').then(function(exports) {
+        return System.import('/src/config-system.js').then(function(exports) {
             return exports.default();
         }).then(function() {
             return System;
@@ -956,109 +971,45 @@ function startCompatServer(port) {
     port = port || 8079;
 
     return install().then(function(System) {
-        return System.import('/src/server/compat-server.js').then(function(exports) {
-            return exports.default;
-        }).then(function(compatServer) {
-            function ensureHeader(request, headerName) {
-                return request.headers.has(headerName);
-            }
-            function ensureSearchParam(request, paramName) {
-                return request.url.searchParams.has(paramName);
-            }
-            function getInvalidProperties(request) {
-                if (!ensureHeader(request, 'user-agent')) {
-                    return 400;
-                }
-                if (!ensureSearchParam(request, 'features')) {
-                    return 400;
-                }
-                return null;
-            }
-
-            compatServer.use({
-                match: function(request) {
-                    return request.url.pathname === 'instructions/test';
-                },
-                methods: {
-                    get: function(request) {
-                        var invalidProperties = getInvalidProperties(request);
-                        if (invalidProperties) {
-                            return invalidProperties;
-                        }
-
-                        var featureIds = request.url.searchParams.get('features').split(',');
-                        var userAgentHeader = request.headers.get('user-agent');
-                        var agent = Agent.parse(userAgentHeader);
-                        return getTestInstructions(featureIds, agent).then(
-                            compatServer.createJSResponse
-                        );
-                    },
-                    post: function(request) {
-                        var userAgentHeader = request.headers.get('user-agent');
-                        var agent = Agent.parse(userAgentHeader);
-                        return request.json().then(function(records) {
-                            return setAllTest(records, agent);
-                        }).then(function() {
-                            return 200;
-                        });
-                    }
-                }
-            });
-            compatServer.use({
-                match: function(request) {
-                    return request.url.pathname === 'instructions/fix';
-                },
-                methods: {
-                    get: function(request) {
-                        var invalidProperties = getInvalidProperties(request);
-                        if (invalidProperties) {
-                            return invalidProperties;
-                        }
-
-                        var featureIds = request.url.searchParams.get('features').split(',');
-                        var userAgentHeader = request.headers.get('user-agent');
-                        var agent = Agent.parse(userAgentHeader);
-                        return getFixInstructions(featureIds, agent).then(
-                            compatServer.createJSResponse
-                        );
-                    },
-                    post: function(request) {
-                        var userAgentHeader = request.headers.get('user-agent');
-                        var agent = Agent.parse(userAgentHeader);
-                        return request.json().then(function(records) {
-                            return setAllFix(records, agent);
-                        }).then(function() {
-                            return 200;
-                        });
-                    }
-                }
-            });
-            compatServer.serveFile({
-                root: rootFolder + '/',
-                index: './scan-browser.html'
-            });
+        return System.import('/src/server-compat/compat-server.js').then(function(exports) {
+            var compatServer = exports.default;
             var serverUrl = 'http://localhost:' + port;
             return compatServer.open(serverUrl);
         });
     });
 }
-// startCompatServer().catch(function(e) {
-//     setTimeout(function() {
-//         throw e;
-//     });
-// });
+startCompatServer().catch(function(e) {
+    setTimeout(function() {
+        throw e;
+    });
+});
 
+function startFeatureServer() {
+    // port = port || 8078;
+
+    // return install().then(function(System) {
+    //     return System.import('/src/server/feature-server.js').then(function(exports) {
+    //         return exports.default;
+    //     }).then(function(featureServer) {
+
+    //     });
+    // });
+}
+
+api.rootFolder = rootFolder;
+api.parseAgent = Agent.parse;
 api.getTestInstructions = getTestInstructions;
 api.setTest = featureMeta.setTest;
 api.setAllTest = setAllTest;
 api.getFixInstructions = getFixInstructions;
 api.setFix = featureMeta.setFix;
 api.setAllFix = setAllFix;
-api.createOwnMediator = createOwnMediator;
+api.scanImplementation = scanImplementation;
 
 api.polyfill = polyfill;
 api.transpile = transpile;
 api.install = install;
 api.startCompatServer = startCompatServer;
+api.startFeatureServer = startFeatureServer;
 
 module.exports = api;

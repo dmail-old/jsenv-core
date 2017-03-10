@@ -217,7 +217,7 @@ const ResponseGenerator = compose('ResponseGenerator', {
                         throw new TypeError('responseProperties must be a plain object');
                     }
                 } else {
-                    throw new TypeError('responseProperties must be an object');
+                    throw new TypeError(`responseProperties must be an object (got ${responseProperties})`);
                 }
 
                 return response;
@@ -258,10 +258,15 @@ const ResponseGenerator = compose('ResponseGenerator', {
 
                 return response;
             },
-            value => {
+            rejectedValue => {
                 generator.state = 'closed';
                 generator.clean();
-                return Promise.reject(value);
+                console.error('internal error', rejectedValue instanceof Error ? rejectedValue.stack : rejectedValue);
+                const response = Response.create({
+                    status: 500,
+                    body: rejectedValue instanceof Error ? rejectedValue.stack : rejectedValue
+                });
+                return response;
             }
         ).then(
             createResponseHandlerPromise

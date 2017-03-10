@@ -163,37 +163,32 @@ function createFileService(options) {
     const rootURL = Url.create('file:///' + options.root);
 
     return {
-        match() {
-            return true;
-        },
-
-        methods: {
-            get(request) {
-                var urlRessource = request.url.ressource;
-                if (urlRessource === '') {
-                    urlRessource = options.index;
-                }
-                var ressourceUrl = rootURL.resolve(urlRessource);
-
-                const ressource = {
-                    id: ressourceUrl.ressource,
-                    suffix: ressourceUrl.suffix,
-                    action: request.method,
-                    meta: {}
-                };
-
-                if (request.headers.has('if-modified-since')) {
-                    let cachedModificationDate;
-                    try {
-                        cachedModificationDate = new Date(request.headers.get('if-modified-since'));
-                    } catch (e) {
-                        // the request headers if-modified-since is not a valid date
-                        return 400;
-                    }
-                    ressource.meta.cachedModificationDate = cachedModificationDate;
-                }
-                return readRessource(ressource, options);
+        get(request) {
+            var urlRessource = request.url.ressource;
+            if (urlRessource === '') {
+                urlRessource = options.index;
             }
+            const ressourceUrl = rootURL.resolve(urlRessource);
+            console.log('getting', rootURL.toString());
+
+            const ressource = {
+                id: ressourceUrl.ressource,
+                suffix: ressourceUrl.suffix,
+                action: request.method,
+                meta: {}
+            };
+
+            if (request.headers.has('if-modified-since')) {
+                let cachedModificationDate;
+                try {
+                    cachedModificationDate = new Date(request.headers.get('if-modified-since'));
+                } catch (e) {
+                    // the request headers if-modified-since is not a valid date
+                    return 400;
+                }
+                ressource.meta.cachedModificationDate = cachedModificationDate;
+            }
+            return readRessource(ressource, options);
         }
     };
 }
