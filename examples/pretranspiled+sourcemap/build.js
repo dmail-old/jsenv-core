@@ -6,21 +6,13 @@ var builder = new Builder('');
 // https://github.com/systemjs/builder/blob/master/test/conditional-builds.js#L71
 
 builder.config({
-//   transpiler: false,
-//   'meta': {
-//     '*': {format: 'system'}
-//   }
-    // meta: {
-    //     '@feature/*': {
-    //         build: false
-    //     }
-    // }
+    meta: {
+        '*': {
+            format: 'system'
+        }
+    }
 });
 builder.bundle('module.js', 'outfile.js', {
-    fetch: function(load, fetch) {
-        console.log('fetching', load);
-        return fetch(load);
-    },
     sourceMaps: true
     // globalName: 'NavBar',
     // format: 'amd'

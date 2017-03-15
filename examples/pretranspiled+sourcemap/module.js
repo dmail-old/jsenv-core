@@ -8,4 +8,4 @@ System.register("module.js", [], function($__export) {
   };
 });
 
-//# sourceMappingURL=outfile.js.map
+//# sourceMappingURL=module.js.map

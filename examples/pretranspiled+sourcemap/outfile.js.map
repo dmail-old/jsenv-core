@@ -1,0 +1,7 @@
+{
+    "version":3,
+    "sources":["module.js"],
+    "names":[],
+    "mappings":"AAAA,AAAK,OAAS,AAAC,oCACc,WAAS,AAAQ;AAD9C;;AAAO;AACK,aAAmB,AACzB;AAAM,yBAFZ;AAAQ,AAAC,AAAC,gBAAK,AAAG,WAAI,AAAgB,AAAC,AAER;AAC3B,AAAM;AAFJ;AAAN,AAEW,AAAC",
+    "file":"outfile.js"
+}

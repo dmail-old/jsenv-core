@@ -1,11 +1,13 @@
-System.register("module.js", [], function($__export) {
+System.register('module.js', [], function ($__export) {
   "use strict";
+
   return {
     setters: [],
-    execute: function() {
+    execute: function () {
       $__export('default', 'module');
     }
   };
 });
+
 
 //# sourceMappingURL=outfile.js.map
