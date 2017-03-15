@@ -7,14 +7,14 @@ var builder = new Builder('');
 //     '*': {format: 'system'}
 //   }
 // });
-builder.buildStatic('module.js', 'outfile.js', {
+builder.bundle('module.js', 'outfile.js', {
     // globalName: 'NavBar',
-    format: 'amd',
+    // format: 'amd'
     // rollup: true,
     // minify: false
 }).then(function() {
-  console.log('Build complete');
+    console.log('Build complete');
 }).catch(function(err) {
-  console.log('Build error');
-  console.log(err);
+    console.log('Build error');
+    console.log(err.stack);
 });
