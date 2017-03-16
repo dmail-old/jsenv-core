@@ -467,4 +467,22 @@ function generateExport() {
 }
 createTranspiler.generateExport = generateExport;
 
+function removeImport() {
+    function removeImportPlugin() {
+        function visitImportDeclaration(path) {
+            console.log('will remove', path);
+            path.remove();
+        }
+
+        return {
+            visitor: {
+                ImportDeclaration: visitImportDeclaration
+            }
+        };
+    }
+
+    return removeImportPlugin;
+}
+createTranspiler.removeImport = removeImport;
+
 module.exports = createTranspiler;
