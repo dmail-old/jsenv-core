@@ -9,6 +9,7 @@ var path = require('path');
 var fs = require('fs');
 
 var find = require('./find.js');
+var mapAsync = require('./map-async.js');
 
 var visitors = [
     function(node) {
@@ -110,17 +111,13 @@ function fetch(filename) {
         });
     });
 }
-function parseAst(code) {
+function parse(code) {
     return babel.transform(code, {
         ast: true,
         code: false,
         babelrc: false,
         sourceMaps: false
-    }).ast;
-}
-function fetchAst(filename) {
-    // console.log('fetching', filename);
-    return fetch(filename).then(parseAst);
+    });
 }
 function normalize(path) {
     return path.replace(/\\/g, '/');
@@ -180,9 +177,9 @@ function readDependencies(filenames, options) {
             });
         });
     }
-    function findById(modules, id) {
-        return find(modules, function(module) {
-            return module.id === id;
+    function findById(iterable, id) {
+        return find(iterable, function(node) {
+            return node.id === id;
         });
     }
 
@@ -191,27 +188,27 @@ function readDependencies(filenames, options) {
     ).then(function(location) {
         var rootId = normalize(location);
 
-        return Promise.all(filenames.map(function(filename) {
+        return mapAsync(filenames, function(filename) {
             return locate(filename, rootId, rootId);
-        })).then(function(locations) {
+        }).then(function(locations) {
             var promisesMap = {};
-            var modules = [];
-            function createModule(id) {
-                var existingModule = findById(modules, id);
-                if (existingModule) {
-                    return existingModule;
+            var fileNodes = [];
+            function createFileNode(id) {
+                var existingNode = findById(fileNodes, id);
+                if (existingNode) {
+                    return existingNode;
                 }
-                var module = {
+                var fileNode = {
                     id: id,
                     dependencies: []
                 };
-                modules.push(module);
-                return module;
+                fileNodes.push(fileNode);
+                return fileNode;
             }
-            var fileModules = locations.map(function(location) {
-                return createModule(normalize(location));
+            var idsAsFileNodes = locations.map(function(location) {
+                return createFileNode(normalize(location));
             });
-            function getDependenciesFromAst(module, ast) {
+            function getDependenciesFromAst(fileNode, ast) {
                 var nodes = ast.program.body;
 
                 return nodes.map(function(node) {
@@ -219,28 +216,31 @@ function readDependencies(filenames, options) {
                 }).filter(function(result) {
                     return Boolean(result);
                 }).map(function(dependencyMeta) {
-                    var dependencyId = normalize(locate(dependencyMeta.path, module.id, rootId));
-                    return createModule(dependencyId);
+                    var dependencyId = normalize(locate(dependencyMeta.path, fileNode.id, rootId));
+                    return createFileNode(dependencyId);
                 });
             }
-            function fetchModules(modules) {
-                return Promise.all(modules.map(function(module) {
-                    return fetchModule(module);
-                }));
+            function fetchFileNodes(fileNodes) {
+                return mapAsync(fileNodes, fetchFileNode);
             }
-            function fetchModule(module) {
+            function fetchFileNode(fileNode) {
                 var fetchPromise;
+                var id = fileNode.id;
 
-                if (module in promisesMap) {
-                    fetchPromise = promisesMap[module.id];
+                if (id in promisesMap) {
+                    fetchPromise = promisesMap[id];
                 } else {
                     fetchPromise = Promise.resolve(
-                        fetchAst(module.id)
-                    ).then(function(ast) {
-                        var astDependencies = getDependenciesFromAst(module, ast);
+                        fetch(id)
+                    ).then(function(code) {
+                        fileNode.source = code;
+                        return parse(code);
+                    }).then(function(result) {
+                        var ast = result.ast;
+                        var astDependencies = getDependenciesFromAst(fileNode, ast);
                         var dependencies = astDependencies.slice();
                         return Promise.resolve(
-                            autoParentDependency ? autoParentDependency(module.id, rootId) : null
+                            autoParentDependency ? autoParentDependency(id, rootId) : null
                         ).then(function(parentDependencyId) {
                             if (parentDependencyId) {
                                 parentDependencyId = normalize(parentDependencyId);
@@ -250,7 +250,7 @@ function readDependencies(filenames, options) {
                                 } else {
                                     // console.log('auto add', parentDependencyId, 'to', module.id);
                                     dependencies.push(
-                                        createModule(parentDependencyId)
+                                        createFileNode(parentDependencyId)
                                     );
                                 }
                             }
@@ -258,21 +258,19 @@ function readDependencies(filenames, options) {
                         });
                     }).then(function(dependencies) {
                         return filterDependencies(dependencies).then(function(dependencies) {
-                            module.dependencies = dependencies;
+                            fileNode.dependencies = dependencies;
                             // console.log('the dependencies of', module.id, module.dependencies);
-                            return fetchModules(dependencies);
+                            return fetchFileNodes(dependencies);
                         });
                     });
-                    promisesMap[module.id] = fetchPromise;
+                    promisesMap[fileNode.id] = fetchPromise;
                 }
 
                 return fetchPromise;
             }
 
-            return Promise.all(fileModules.map(function(module) {
-                return fetchModule(module);
-            })).then(function() {
-                return fileModules;
+            return mapAsync(idsAsFileNodes, fetchFileNode).then(function() {
+                return idsAsFileNodes;
             });
         });
     });
