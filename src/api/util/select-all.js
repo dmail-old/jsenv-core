@@ -1,8 +1,7 @@
-var path = require('path');
 var getStatus = require('../get-status.js');
 
 var fsAsync = require('./fs-async.js');
-var readDependencies = require('./read-module-dependencies.js');
+var trace = require('./trace.js');
 
 var featureTranspiler = require('./feature-transpiler.js');
 var build = require('./build.js');
@@ -10,26 +9,20 @@ var build = require('./build.js');
 var mapAsync = require('./map-async.js');
 var idFromNode = require('./id-from-node.js');
 var getFolder = require('./get-folder.js');
+var collectDependencies = require('./collect-dependencies.js');
 
 require('../../jsenv.js');
 var Iterable = jsenv.Iterable;
-var collectDependencies = jsenv.collectDependencies;
 
 function getAllDependencies(featureIds, file) {
     var featureFiles = featureIds.map(function(featureId) {
         return './' + featureId + '/' + file;
     });
     var folderPath = getFolder();
-    return readDependencies(
+    return trace(
         featureFiles,
         {
             root: folderPath,
-            exclude: function(id) {
-                if (id.indexOf(folderPath) !== 0) {
-                    return true;
-                }
-                return path.basename(id) !== file;
-            },
             autoParentDependency: function(id) {
                 if (file === 'fix.js') {
                     return;
@@ -65,7 +58,7 @@ function getAllDependencies(featureIds, file) {
 }
 function filterAllNodes(featureIds, file, options) {
     return getAllDependencies(featureIds, file).then(function(nodes) {
-        var dependenciesNodes = jsenv.collectDependencies(nodes);
+        var dependenciesNodes = collectDependencies(nodes);
         var allNodes = nodes.concat(dependenciesNodes);
 
         if (options.include) {

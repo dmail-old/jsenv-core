@@ -90,8 +90,8 @@ function visit(node) {
     var j = visitors.length;
     var result;
     while (i < j) {
-        var visitWhen = visitors[i];
-        if (visitWhen(node)) {
+        var visitCondition = visitors[i];
+        if (visitCondition(node)) {
             i++;
             result = visitors[i](node);
             break;
@@ -123,13 +123,18 @@ function normalize(path) {
     return path.replace(/\\/g, '/');
 }
 
-function readDependencies(filenames, options) {
+function trace(filenames, options) {
     options = options || {};
     var autoParentDependency = options.autoParentDependency;
     var exclude = options.exclude || function() {
         return false;
     };
     var root = options.root || process.cwd();
+    var fetchFileNode = options.fetch ? function(fileNode) {
+        return options.fetch(fileNode, fetch);
+    } : function(fileNode) {
+        return fetch(fileNode.id);
+    };
 
     function resolve(importee, importer, rootImporter) {
         if (importee.slice(0, 2) === '//') {
@@ -162,12 +167,12 @@ function readDependencies(filenames, options) {
         //     'from',
         //     arguments[1]
         // );
-        return location;
+        return normalize(location);
     }
     function filterDependencies(dependencies) {
         return Promise.all(
             dependencies.map(function(dependency) {
-                return Promise.resolve(exclude(dependency.id)).then(function(isExcluded) {
+                return Promise.resolve(exclude(dependency)).then(function(isExcluded) {
                     return isExcluded ? null : dependency;
                 });
             })
@@ -187,27 +192,28 @@ function readDependencies(filenames, options) {
         locate(root, null, null)
     ).then(function(location) {
         var rootId = normalize(location);
+        var promisesMap = {};
+        var fileNodes = [];
+
+        function createFileNode(id, name) {
+            var existingNode = findById(fileNodes, id);
+            if (existingNode) {
+                return existingNode;
+            }
+            var fileNode = {
+                id: id,
+                name: name,
+                dependencies: []
+            };
+            fileNodes.push(fileNode);
+            return fileNode;
+        }
 
         return mapAsync(filenames, function(filename) {
-            return locate(filename, rootId, rootId);
-        }).then(function(locations) {
-            var promisesMap = {};
-            var fileNodes = [];
-            function createFileNode(id) {
-                var existingNode = findById(fileNodes, id);
-                if (existingNode) {
-                    return existingNode;
-                }
-                var fileNode = {
-                    id: id,
-                    dependencies: []
-                };
-                fileNodes.push(fileNode);
-                return fileNode;
-            }
-            var idsAsFileNodes = locations.map(function(location) {
-                return createFileNode(normalize(location));
+            return Promise.resolve(locate(filename, rootId, rootId)).then(function(id) {
+                return createFileNode(id, filename);
             });
+        }).then(function(idsAsFileNodes) {
             function getDependenciesFromAst(fileNode, ast) {
                 var nodes = ast.program.body;
 
@@ -216,14 +222,14 @@ function readDependencies(filenames, options) {
                 }).filter(function(result) {
                     return Boolean(result);
                 }).map(function(dependencyMeta) {
-                    var dependencyId = normalize(locate(dependencyMeta.path, fileNode.id, rootId));
-                    return createFileNode(dependencyId);
+                    var dependencyId = locate(dependencyMeta.path, fileNode.id, rootId);
+                    return createFileNode(dependencyId, dependencyMeta.path);
                 });
             }
-            function fetchFileNodes(fileNodes) {
-                return mapAsync(fileNodes, fetchFileNode);
+            function traceFileNodes(fileNodes) {
+                return mapAsync(fileNodes, traceFileNode);
             }
-            function fetchFileNode(fileNode) {
+            function traceFileNode(fileNode) {
                 var fetchPromise;
                 var id = fileNode.id;
 
@@ -231,7 +237,7 @@ function readDependencies(filenames, options) {
                     fetchPromise = promisesMap[id];
                 } else {
                     fetchPromise = Promise.resolve(
-                        fetch(id)
+                        fetchFileNode(fileNode)
                     ).then(function(code) {
                         fileNode.source = code;
                         return parse(code);
@@ -249,8 +255,9 @@ function readDependencies(filenames, options) {
                                     // console.log('parent dependency already declared in', module.id);
                                 } else {
                                     // console.log('auto add', parentDependencyId, 'to', module.id);
+                                    // le name doit être relatif genre path.relative(parentDependencyId)
                                     dependencies.push(
-                                        createFileNode(parentDependencyId)
+                                        createFileNode(parentDependencyId, parentDependencyId)
                                     );
                                 }
                             }
@@ -260,7 +267,7 @@ function readDependencies(filenames, options) {
                         return filterDependencies(dependencies).then(function(dependencies) {
                             fileNode.dependencies = dependencies;
                             // console.log('the dependencies of', module.id, module.dependencies);
-                            return fetchFileNodes(dependencies);
+                            return traceFileNodes(dependencies);
                         });
                     });
                     promisesMap[fileNode.id] = fetchPromise;
@@ -269,14 +276,14 @@ function readDependencies(filenames, options) {
                 return fetchPromise;
             }
 
-            return mapAsync(idsAsFileNodes, fetchFileNode).then(function() {
+            return mapAsync(idsAsFileNodes, traceFileNode).then(function() {
                 return idsAsFileNodes;
             });
         });
     });
 }
 
-module.exports = readDependencies;
+module.exports = trace;
 
 // readDependencies(
 //     [

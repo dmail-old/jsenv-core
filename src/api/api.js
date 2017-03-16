@@ -56,6 +56,7 @@ var getAllStatus = require('./get-all-status.js');
 var getAllSupportedAgent = require('./get-all-supported-agent.js');
 var getFirstSupportedAgentVersion = require('./get-first-supported-agent-version.js');
 var getStatus = require('./get-status.js');
+var getTestInstructions = require('./get-test-instructions.js');
 
 var api = {};
 
@@ -68,37 +69,6 @@ api.getAllStatus = getAllStatus;
 api.getAllSupportedAgent = getAllSupportedAgent;
 api.getFirstSupportedAgentVersion = getFirstSupportedAgentVersion;
 api.getStatus = getStatus;
-
-function getTestInstructions(featureIds, agent) {
-    return selectAll(
-        featureIds,
-        'test.js',
-        {
-            agent: agent,
-            include: function(statuses) {
-                var testStatus = statuses[0];
-
-                return (
-                    testStatus === 'missing' ||
-                    testStatus === 'invalid'
-                );
-            },
-            generate: true
-        }
-    ).then(function(result) {
-        return result.code;
-    });
-}
-// getTestInstructions(
-//     ['object/assign'],
-//     jsenv.agent
-// ).then(function(data) {
-//     console.log('required test data', data);
-// }).catch(function(e) {
-//     setTimeout(function() {
-//         throw e;
-//     });
-// });
 
 function setAllTest(records, agent) {
     return featureMeta.setAllTest(

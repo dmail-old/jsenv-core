@@ -181,6 +181,9 @@ function createTranspiler(transpilerOptions) {
             babelOptions.plugins = options.plugins;
             babelOptions.ast = true;
             babelOptions.sourceMaps = true;
+            if (options.moduleId) {
+                babelOptions.moduleId = options.moduleId;
+            }
             if (options.compact) {
                 babelOptions.compact = options.compact;
             }
