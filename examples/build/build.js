@@ -1,72 +1,74 @@
-// https://github.com/systemjs/builder/blob/f988373a164c9a5c868afc1e57664706d6f2ab79/lib/builder.js#L409
-// https://github.com/systemjs/builder/blob/master/test/fixtures/conditional-tree/custom-conditions.js
-// https://github.com/systemjs/builder/blob/master/test/conditional-builds.js#L71
+/*
+- vérifier que la prétranspilation fonctionne nickel avec le build sur tree
 
-// je pense qu'il faut forker systemjs builder en gros
-// et ptet utiliser '@empty' ou le empty module pour les imports dont on a finalement pas besoin
-// et en gros dans ce fork on est aussi capable de connaitre les dépendances
-// ce qui aura un intérêt
+- pour que ça marche les fichier fix.js devront s'éxécuter tout seul ou en tous cas kk chose dans ce gout là
+et les plugins babel ne devront plus être ajouté en éxécutant fix.js pour lire que c'est un plugin babel
+on se contente d'avoir une liste de plugin définie au départ pas l choix
 
-// est-ce que ça ne peut pas suffir ->
-// un premier build qui ignore les import
-// http://stackoverflow.com/questions/37403990/how-to-tell-systemjs-to-ignore-an-import
-// https://github.com/systemjs/builder/issues/434
-
-// l'idée serais très simple en fait
-// on dit aux builder d'ignore une partie des import qu'on redirige vers @empty
-// et on fait ça lisant en premier les dépendances et en regardant le status comme on le faisait avant
-// plus simple tu meurs
-// reste le souci du cache du builder + sourcemap que le builder ne supporte pas vraiment
-// ni la transpilation dynamique.
-// c'est là qu'intervient fetch
+- pouvoir exclure des noeuds pour éviter qu'il se retrouve dans le build ou alors les conserver
+mais les rediriger vers '@empty'en faisant depMap: {'a.js': '@empty', './b.js': '@empty'} + delete tree['a.js']
+*/
 
 // var path = require('path');
 var Builder = require('systemjs-builder');
-var builder = new Builder('');
-
+var builder = new Builder('./');
 builder.config({
-    // map: {
-    //     './a.js': '@empty'
-    // },
-    transpiler: false
-    // 'meta': {
-    //     '*': {format: 'system'}
-    // }
+    baseURL: process.cwd()
 });
 
-var createTranspiler = require('../../src/api/util/transpiler.js');
-var transpiler = createTranspiler({
-    cache: false,
-    sourceMaps: true,
-    plugins: [
-        'babel-plugin-transform-es2015-modules-systemjs'
-    ]
-});
-function transpile(source, filename, moduleId) {
-    return transpiler.transpile(source, {
-        filename: filename,
-        moduleId: moduleId
-    });
-}
+// var createTranspiler = require('../../src/api/util/transpiler.js');
+// var transpiler = createTranspiler({
+//     cache: false,
+//     sourceMaps: true,
+//     plugins: [
+//         'babel-plugin-transform-es2015-modules-systemjs'
+//     ]
+// });
+// function transpile(source, filename, moduleId) {
+//     return transpiler.transpile(source, {
+//         filename: filename,
+//         moduleId: moduleId
+//     });
+// }
 
-builder.bundle('module.js', 'outfile.js', {
-    fetch: function(load, fetch) {
-        return Promise.resolve(fetch(load)).then(function(source) {
-            return Promise.resolve(transpile(source, load.address, load.name)).then(function(result) {
-                load.metadata.sourceMap = result.map;
-                return result.code;
-            });
-        });
-    },
-    sourceMaps: true,
-    sourceMapContents: true
-    // globalName: 'NavBar',
-    // format: 'amd'
-    // rollup: true,
-    // minify: false
-}).then(function() {
-    console.log('Build complete');
+// var mapAsync;
+// function transpileTree(tree) {
+//     return mapAsync(Object.keys(tree), function(name) {
+//         var node = tree[name];
+//         return transpile(node.source, node.path, node.name).then(function(result) {
+//             node.source = result.code;
+
+//             node.metadata.format = 'system';
+//             node.metadata.sourceMap = result.map;
+//             if (result.ast) {
+//                 node.metadata.ast = result.ast;
+//             }
+//         });
+//     });
+// }
+
+builder.trace('object-assign.js').then(function(tree) {
+    console.log('tree from the module', tree);
+    return builder.bundle(tree);
 }).catch(function(err) {
-    console.log('Build error');
+    console.log('trace error');
     console.log(err);
 });
+
+// builder.bundle('object-assign.js', 'outfile.js', {
+//     fetch: function(load, fetch) {
+//         return Promise.resolve(fetch(load)).then(function(source) {
+//             return Promise.resolve(transpile(source, load.address, load.name)).then(function(result) {
+//                 load.metadata.sourceMap = result.map;
+//                 return result.code;
+//             });
+//         });
+//     },
+//     sourceMaps: true,
+//     sourceMapContents: true
+// }).then(function() {
+//     console.log('Build complete');
+// }).catch(function(err) {
+//     console.log('Build error');
+//     console.log(err);
+// });
