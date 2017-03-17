@@ -467,11 +467,16 @@ function generateExport() {
 }
 createTranspiler.generateExport = generateExport;
 
-function removeImport() {
+function removeImport(fn) {
     function removeImportPlugin() {
         function visitImportDeclaration(path) {
-            console.log('will remove', path);
-            path.remove();
+            if (fn(path)) {
+                var from = path.node.source.value;
+                path.remove();
+                // add a comment here to show original import even if it's not auto
+                // commented to prevent it's importe because it's unused
+                path.addComment('leading', 'import \'' + from + '\'');
+            }
         }
 
         return {
