@@ -1,1 +1,1 @@
-{"version":3,"sources":["object-keys.js","object-assign.js"],"names":[],"mappings":";;;;;;;;;yBAEA,AAAQ,AAAI,AAEG;;;;;;;;;;;;;yBCFf,AAAQ,AAAI,AAEG","file":"outfile.js"}
+{"version":3,"sources":["dir/object-assign.js","object-keys.js","object-assign.js","plat/node.js"],"names":[],"mappings":";;;;;;;;yBAAA,AAAQ,AAAI,AAEG;;;;;;;;;;;;;yBCAf,AAAQ,AAAI,AAEG;;;;;;;;;;;;;kBCJf,AAEA,AAGA,AAAQ,AAAI;;;;;;;;;;;;;;;;;;;;;;;;;yBCLG","file":"outfile.js"}

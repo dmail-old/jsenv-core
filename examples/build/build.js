@@ -18,18 +18,35 @@ qui va retourner la source nécéssaire pour build
 et d'une méthode run(entryModule)
 
 qui va appeler build + faire System.import(entryModule) ensuite
-*/
 
+*/
 // var path = require('path');
 var Builder = require('systemjs-builder');
 var builder = new Builder('./');
-// builder.config({
-//     baseURL: process.cwd()
-// });
+builder.config({
+
+});
+var variables = {
+    platform: 'node',
+    __esModule: true
+};
+function variablesToConditions(variables) {
+    var conditions = {};
+    Object.keys(variables).forEach(function(name) {
+        conditions['@env|' + name] = variables[name];
+    });
+    return conditions;
+}
+builder.loader.set('@env', builder.loader.newModule(variables));
 
 function getNodes(tree) {
     return Object.keys(tree).map(function(name) {
         return tree[name];
+    }).filter(function(node) {
+        if (typeof node === 'boolean') { // for thoose with build: false
+            return false;
+        }
+        return 'conditional' in node === false;
     });
 }
 var createTranspiler = require('../../src/api/util/transpiler.js');
@@ -61,12 +78,13 @@ function transpileNodes(nodes) {
     });
 }
 
-builder.trace('object-assign.js').then(function(tree) {
-    // console.log('the tree', tree);
+builder.trace('object-assign.js', {
+    conditions: variablesToConditions(variables)
+}).then(function(tree) {
     var nodes = getNodes(tree);
 
     var uselessNodes = nodes.filter(function(node) {
-        return node.name === 'dir/object-assign.js';
+        return node.name === 'dir/mock.js';
     });
     var usedNodes = nodes.filter(function(node) {
         return uselessNodes.some(function(uselessNode) {
@@ -76,21 +94,16 @@ builder.trace('object-assign.js').then(function(tree) {
     var importsToRemove = [];
     uselessNodes.forEach(function(uselessNode) {
         usedNodes.forEach(function(node) {
-            var dependencies = Object.keys(node.depMap).map(function(key) {
+            var dependencies = node.depMap ? Object.keys(node.depMap).map(function(key) {
                 return {
                     key: key,
                     name: node.depMap[key]
                 };
-            });
+            }) : [];
             var uselessDependency = dependencies.find(function(dependency) {
                 return dependency.name === uselessNode.name;
             });
             if (uselessDependency) {
-                // ceci doit être indiquer à systemjs et donc limite être mis dans le code source
-                // faudrais limite un plugin babel pour injecter le code qui fait ça
-                // ou alors un plugin babel pour remove le import tout simplement
-                // l'idée en gros c'est de le supprimer des deps dans le code qu'on output
-                // ah mais non encore mieux j'ai un plugin pour supprimer les imports
                 importsToRemove.push({
                     dependency: uselessDependency,
                     parent: node
@@ -102,11 +115,25 @@ builder.trace('object-assign.js').then(function(tree) {
         delete tree[uselessNode.name];
     });
 
+    tree['@env'] = {
+        name: '@env',
+        path: null,
+        metadata: {
+            format: 'json'
+        },
+        deps: [],
+        depMap: {},
+        source: JSON.stringify(variables),
+        fresh: true,
+        timestamp: null,
+        configHash: builder.loader.configHash
+    };
+
     var System = require('systemjs');
     return mapAsync(importsToRemove, function(info) {
         return System.resolveSync(info.dependency.key);
     }).then(function(toBeRemoved) {
-        transpiler.options.plugins.push(
+        transpiler.options.plugins.unshift(
             createTranspiler.removeImport(function(path) {
                 var from = System.resolveSync(path.node.source.value);
                 return toBeRemoved.some(function(id) {
@@ -134,10 +161,7 @@ function consume() {
     var SystemJS = require('systemjs');
     var System = new SystemJS.constructor();
     System.config({
-        transpiler: undefined,
-        map: {
-            'dir/object-assign.js': '@empty'
-        }
+        transpiler: undefined
     });
 
     global.System = System;

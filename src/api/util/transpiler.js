@@ -471,11 +471,21 @@ function removeImport(fn) {
     function removeImportPlugin() {
         function visitImportDeclaration(path) {
             if (fn(path)) {
+                var prev;//  = path.getSibling(path.key -1);
+                var next;//  = path.getSibling(path.key + 1);
+
                 var from = path.node.source.value;
+                var commentString = ' import \'' + from + '\'';
                 path.remove();
-                // add a comment here to show original import even if it's not auto
-                // commented to prevent it's importe because it's unused
-                path.addComment('leading', 'import \'' + from + '\'');
+                // add a comment here to show that there was an import here
+                // that was auto removed because not required
+                prev = path.getSibling(path.key - 1);
+                next = path.getSibling(path.key + 1);
+                if (prev && prev.node) {
+                    prev.addComment('trailing', commentString, true);
+                } else if (next && next.node) {
+                    next.addComment('leading', commentString, true);
+                }
             }
         }
 
