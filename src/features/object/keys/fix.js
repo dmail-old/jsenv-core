@@ -1,3 +1,5 @@
+import 'core-js/modules/es6.object.keys.js';
+
 // import {toIterable, hasOwnProperty, getSharedKey} from '/fix-helpers.js';
 
 // const IE_PROTO = getSharedKey('IE_PROTO');
@@ -21,9 +23,9 @@
 
 // export default fix;
 
-const fix = {
-    type: 'corejs',
-    value: 'es6.object.keys'
-};
+// const fix = {
+//     type: 'corejs',
+//     value: 'es6.object.keys'
+// };
 
-export default fix;
+// export default fix;

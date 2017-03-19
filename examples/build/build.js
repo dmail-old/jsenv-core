@@ -1,30 +1,28 @@
 /*
-conceptuellement je dirais qu'on est bon:
-c'est à dire qu'on peut supprimer certains import du build
 
-par contre il reste encore :
+- exporter une fonction: build(path)
+qui retourne le code à éxécuter (devrais retourne le path vers un fichier plutôt)
 
-à ajouter systemjs au build au début du polyfill
-à ajouter du code en aval du polyfill qui fera kk chose comme
-
-System.import('polyfill');
-
-enfin non c'est pas vraiment requis en vérité il "suffit" de faire System.import('main.js')
-pour que tous les fix.js requis s'éxécute donc ça c'est bon
-
-donc en gros j'aurais besoin d'une méthode genre build()
-qui va retourner la source nécéssaire pour build
-
-et d'une méthode run(entryModule)
-
-qui va appeler build + faire System.import(entryModule) ensuite
+- keep in mind : Promise & SystemJS are not added in the build, they must be provided
+before. The may be auto included ine the build one day.
+But to do this I must be able to prepend raw js code in the build, currently not possible.
 
 */
 // var path = require('path');
 var Builder = require('systemjs-builder');
-var builder = new Builder('./');
+var root = require('path').resolve(process.cwd(), '../../').replace(/\\/g, '/');
+var builder = new Builder('file:///' + root);
 builder.config({
-
+    map: {
+        'core-js': 'node_modules/core-js'
+    },
+    packages: {
+        'core-js': {
+            main: 'index.js',
+            format: 'cjs',
+            defaultExtension: 'js'
+        }
+    }
 });
 var variables = {
     platform: 'node',
@@ -78,7 +76,7 @@ function transpileNodes(nodes) {
     });
 }
 
-builder.trace('object-assign.js', {
+builder.trace('examples/build/object-assign.js', {
     conditions: variablesToConditions(variables)
 }).then(function(tree) {
     var nodes = getNodes(tree);
@@ -161,18 +159,29 @@ function consume() {
     var SystemJS = require('systemjs');
     var System = new SystemJS.constructor();
     System.config({
-        transpiler: undefined
+        baseURL: 'file:///' + root,
+        transpiler: undefined,
+        map: {
+            'core-js': 'node_modules/core-js'
+        },
+        packages: {
+            'core-js': {
+                main: 'index.js',
+                format: 'cjs',
+                defaultExtension: 'js'
+            }
+        }
     });
 
     global.System = System;
-    System.trace = true;
+    // System.trace = true;
     // console.log('before eval sys', System);
     var code = require('fs').readFileSync('./outfile.js').toString();
     var vm = require('vm');
     vm.runInThisContext(code, {filename: 'outfile.js'});
 
     // console.log('before import sys', System);
-    return System.import('object-assign.js').then(function(exports) {
+    return System.import('examples/build/object-assign.js').then(function(exports) {
         // console.log('after import', System);
         console.log('exports', exports);
     }).catch(function(e) {
