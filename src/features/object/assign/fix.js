@@ -1,5 +1,4 @@
-import '/object/keys/fix.js';
-import '/symbol/fix.js';
+import 'core-js/modules/es6.object.assign.js';
 
 // import {toObject, toIterable, isEnumerable, fixProperty} from '/fix-helpers.js';
 
@@ -33,10 +32,3 @@ import '/symbol/fix.js';
 // };
 
 // export default fix;
-
-const fix = {
-    type: 'corejs',
-    value: 'es6.object.assign'
-};
-
-export default fix;

@@ -1,4 +1,4 @@
-import {objectIsCoercible, fixProperty} from '/fix-helpers.js';
+import {objectIsCoercible, fixProperty} from '../../../fix-helpers.js';
 
 // https://github.com/mathiasbynens/String.prototype.at/blob/master/at.js
 function at(position) {
@@ -35,9 +35,4 @@ function at(position) {
     return string.slice(index, index + len);
 }
 
-const fix = {
-    type: 'inline',
-    value: fixProperty(String.prototype, 'at', at)
-};
-
-export default fix;
+fixProperty(String.prototype, 'at', at)();
