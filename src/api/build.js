@@ -1,5 +1,11 @@
 /*
 
+- il faudra que le systemjs que j'utilise ait un [resolve] qui lui aussi
+fix le fait que file:/// ne résoud pas pareil les imports commencant par /
+
+- lorsqu'un noeud est importé que par des noeuds useless
+ce noeud devient useless, ce n'est pas le cas pour le moment
+
 */
 
 var Builder = require('systemjs-builder');
@@ -30,54 +36,74 @@ function collectUselessImports(tree, builder, agent) {
     var nodes = getNodes(tree);
 
     return mapAsync(nodes, function(node) {
-        return isUrlUseless(builder.loader.normalizeSync(node.name), agent);
-    }).then(function(uselessFlags) {
-        var uselessNodes = nodes.map(function(node, index) {
-            return uselessFlags[index];
+        return builder.loader.normalize(node.name).then(function(loc) {
+            return isUrlUseless(loc, agent);
         });
-        var usedNodes = nodes.filter(function(node) {
-            return uselessNodes.some(function(uselessNode) {
-                return uselessNode.name !== node.name;
-            });
-        });
-
+    }).then(function() {
+        // var uselessNodes = nodes.filter(function(node, index) {
+        //     return uselessFlags[index];
+        // });
         var uselessImports = [];
-        uselessNodes.forEach(function(uselessNode) {
-            usedNodes.forEach(function(node) {
-                var dependencies = node.depMap ? Object.keys(node.depMap).map(function(key) {
-                    return {
-                        key: key,
-                        name: node.depMap[key]
-                    };
-                }) : [];
-                var uselessDependency = dependencies.find(function(dependency) {
-                    return dependency.name === uselessNode.name;
-                });
-                if (uselessDependency) {
-                    uselessImports.push({
-                        dependency: uselessDependency,
-                        parent: node
-                    });
-                    delete node.depMap[uselessDependency.key];
-                    node.deps.splice(node.deps.indexOf(uselessDependency.name), 1);
-                }
-            });
-            delete tree[uselessNode.name];
-        });
+        // l'idée c'est que tous les noeuds useless doivent être supprimé du tree
+        // en plus de ça tous les noeuds importé par ces noeuds useless deviennent useless
+        // s'il ne sont pas référencé ailleurs
+        // et lorsque cette référence est perdu il faut alors check si le dit noeud n'en invalide pas d'autre
+        // une sorte de garbage collect weak
+
+        // function propagateUselessState() {
+        //     uselessNodes.forEach(function(uselessNode) {
+        //         delete tree[uselessNode.name];
+
+        //         usedNodes.forEach(function(node) {
+        //             var dependencies = node.depMap ? Object.keys(node.depMap).map(function(key) {
+        //                 return {
+        //                     key: key,
+        //                     name: node.depMap[key]
+        //                 };
+        //             }) : [];
+        //             var uselessDependency = dependencies.find(function(dependency) {
+        //                 return dependency.name === uselessNode.name;
+        //             });
+        //             if (uselessDependency) {
+        //                 uselessImports.push({
+        //                     dependency: uselessDependency,
+        //                     parent: node
+        //                 });
+        //                 delete node.depMap[uselessDependency.key];
+        //                 node.deps.splice(node.deps.indexOf(uselessDependency.name), 1);
+        //             }
+        //         });
+        //     });
+        // }
+        // propagateUselessState();
+
         return uselessImports;
     });
+}
+function normalizeRootKey(key, loader) {
+    if (key[0] === '/' && key[1] !== '/') {
+        var baseURL = loader.baseURL;
+        if (baseURL.indexOf('file:///') === 0) {
+            return baseURL + key.slice(1);
+        }
+    }
+    return key;
 }
 function injectImportRemovalPlugin(tree, transpiler, builder, agent) {
     return collectUselessImports(tree, builder, agent).then(function(uselessImports) {
         return mapAsync(uselessImports, function(info) {
-            return builder.loader.normalizeSync(info.dependency.key);
+            return builder.loader.normalize(info.dependency.key);
         });
     }).then(function(importsToRemove) {
         var importRemovalPlugin = createTranspiler.removeImport(function(path) {
-            var from = builder.loader.normalizeSync(path.node.source.value);
-            return importsToRemove.some(function(id) {
+            var from = builder.loader.normalizeSync(
+                normalizeRootKey(path.node.source.value, builder.loader)
+            );
+            var isUseless = importsToRemove.some(function(id) {
                 return id === from;
             });
+            console.log('from', from, 'useless?', isUseless);
+            return isUseless;
         });
 
         transpiler.options.plugins.unshift(importRemovalPlugin);
@@ -112,7 +138,7 @@ function isUrlUseless(filename) {
         var featureName = ressource.split('/').slice(0, -1).join('/');
         if (featureName) {
             console.log('is feature useless', featureName);
-            return false;
+            return true;
         }
         return false;
     }
@@ -142,6 +168,12 @@ function build(entry, agent) {
         }
     });
     loader.set('@env', loader.newModule(variables));
+    // fix the fact file:/// & http:/// resolution differs for import starting by /
+    var normalize = loader.normalize;
+    loader.normalize = function(key, parentKey) {
+        key = normalizeRootKey(key, loader);
+        return normalize.call(this, key, parentKey);
+    };
 
     return builder.trace(entry, {
         conditions: variablesToConditions(variables)
