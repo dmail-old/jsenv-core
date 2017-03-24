@@ -3,6 +3,10 @@
 - lorsqu'un noeud est importé que par des noeuds useless
 ce noeud devient useless, ce n'est pas le cas pour le moment
 
+-> à retester, c'est censé fonctionner
+en gros fix-helpers ne doit pas faire partie du build lorsqu'on exclue
+string/prototype/at/fix.js
+
 */
 
 var Builder = require('systemjs-builder');
@@ -36,44 +40,76 @@ function collectUselessImports(tree, builder, agent) {
         return builder.loader.normalize(node.name).then(function(loc) {
             return isUrlUseless(loc, agent);
         });
-    }).then(function() {
-        // var uselessNodes = nodes.filter(function(node, index) {
-        //     return uselessFlags[index];
-        // });
+    }).then(function(uselessFlags) {
+        function getDependencies(node) {
+            var dependencies = node.depMap ? Object.keys(node.depMap).map(function(key) {
+                return {
+                    key: key,
+                    name: node.depMap[key]
+                };
+            }) : [];
+            return dependencies;
+        }
+        function findDependency(dependencies, name) {
+            return dependencies.find(function(dependency) {
+                return dependency.name === name;
+            });
+        }
+        function getPointer(node) {
+            var pointer = {
+                node: node,
+                alive: true,
+                references: []
+            };
+            nodes.forEach(function(otherNode) {
+                if (node !== otherNode) {
+                    var dependencies = getDependencies(otherNode);
+                    var dependency = findDependency(dependencies, node.name);
+                    if (dependency) {
+                        pointer.references.push({
+                            target: pointer,
+                            value: dependency
+                        });
+                    }
+                }
+            });
+            return pointer;
+        }
+        var pointers = nodes.map(function(node) {
+            return getPointer(node);
+        });
+        nodes.forEach(function(node, index) {
+            var nodePointer = pointers[index];
+            var isUseless = uselessFlags[index];
+            if (isUseless) {
+                nodePointer.alive = false;
+                pointers.forEach(function(pointer) {
+                    if (pointer !== nodePointer) {
+                        pointer.alive = pointer.references.some(function(reference) {
+                            return reference.target.alive;
+                        });
+                    }
+                });
+            }
+        });
         var uselessImports = [];
-        // l'idée c'est que tous les noeuds useless doivent être supprimé du tree
-        // en plus de ça tous les noeuds importé par ces noeuds useless deviennent useless
-        // s'il ne sont pas référencé ailleurs
-        // et lorsque cette référence est perdu il faut alors check si le dit noeud n'en invalide pas d'autre
-        // une sorte de garbage collect weak
-
-        // function propagateUselessState() {
-        //     uselessNodes.forEach(function(uselessNode) {
-        //         delete tree[uselessNode.name];
-
-        //         usedNodes.forEach(function(node) {
-        //             var dependencies = node.depMap ? Object.keys(node.depMap).map(function(key) {
-        //                 return {
-        //                     key: key,
-        //                     name: node.depMap[key]
-        //                 };
-        //             }) : [];
-        //             var uselessDependency = dependencies.find(function(dependency) {
-        //                 return dependency.name === uselessNode.name;
-        //             });
-        //             if (uselessDependency) {
-        //                 uselessImports.push({
-        //                     dependency: uselessDependency,
-        //                     parent: node
-        //                 });
-        //                 delete node.depMap[uselessDependency.key];
-        //                 node.deps.splice(node.deps.indexOf(uselessDependency.name), 1);
-        //             }
-        //         });
-        //     });
-        // }
-        // propagateUselessState();
-
+        pointers.forEach(function(pointer) {
+            var node = pointer.node;
+            if (pointer.alive === false) {
+                delete tree[node.name];
+            } else {
+                pointer.references.forEach(function(reference) {
+                    if (reference.target.alive === false) {
+                        delete node.depMap[reference.value.key];
+                        nodes.deps.splice(node.deps.indexOf(reference.value.name), 1);
+                        uselessImports.push({
+                            dependency: reference.value,
+                            parent: node
+                        });
+                    }
+                });
+            }
+        });
         return uselessImports;
     });
 }
