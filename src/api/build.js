@@ -1,8 +1,5 @@
 /*
 
-- il faudra que le systemjs que j'utilise ait un [resolve] qui lui aussi
-fix le fait que file:/// ne résoud pas pareil les imports commencant par /
-
 - lorsqu'un noeud est importé que par des noeuds useless
 ce noeud devient useless, ce n'est pas le cas pour le moment
 
@@ -80,15 +77,6 @@ function collectUselessImports(tree, builder, agent) {
         return uselessImports;
     });
 }
-function normalizeRootKey(key, loader) {
-    if (key[0] === '/' && key[1] !== '/') {
-        var baseURL = loader.baseURL;
-        if (baseURL.indexOf('file:///') === 0) {
-            return baseURL + key.slice(1);
-        }
-    }
-    return key;
-}
 function injectImportRemovalPlugin(tree, transpiler, builder, agent) {
     return collectUselessImports(tree, builder, agent).then(function(uselessImports) {
         return mapAsync(uselessImports, function(info) {
@@ -144,6 +132,29 @@ function isUrlUseless(filename) {
     }
     return false;
 }
+function normalizeRootKey(key, loader) {
+    if (key[0] === '/' && key[1] !== '/') {
+        var baseURL = loader.baseURL;
+        if (baseURL.indexOf('file:///') === 0) {
+            return baseURL + key.slice(1);
+        }
+    }
+    return key;
+}
+/*
+As examples (a) & (b) below demonstrates path resolution differs
+when base URL protocol if file or http
+(a) new URL('/dir/file.js', 'file://folder/').href; // file:///dir/file.js
+(b) new URL('/dir/file.js', 'https://google.com/folder/').href; // http://google.com/dir/file.js
+To avoid this inconsitency and because http behaviour is very convenient to load from baseURL
+We force path resolution of file://* to behave like http://*
+*/
+function createConsistentResolver(fn, loader) {
+    return function(key, parentKey) {
+        key = normalizeRootKey(key, loader);
+        return fn.call(this, key, parentKey);
+    };
+}
 
 function build(entry, agent) {
     var baseURL = 'file:///' + root;
@@ -170,10 +181,7 @@ function build(entry, agent) {
     loader.set('@env', loader.newModule(variables));
     // fix the fact file:/// & http:/// resolution differs for import starting by /
     var normalize = loader.normalize;
-    loader.normalize = function(key, parentKey) {
-        key = normalizeRootKey(key, loader);
-        return normalize.call(this, key, parentKey);
-    };
+    loader.normalize = createConsistentResolver(normalize, loader);
 
     return builder.trace(entry, {
         conditions: variablesToConditions(variables)
@@ -223,36 +231,39 @@ build('examples/entry.js').then(function(path) {
     });
 });
 
-// function consume() {
-//     var SystemJS = require('systemjs');
-//     var System = new SystemJS.constructor();
-//     System.config({
-//         baseURL: 'file:///' + root,
-//         transpiler: undefined,
-//         map: {
-//             'core-js': 'node_modules/core-js'
-//         },
-//         packages: {
-//             'core-js': {
-//                 main: 'index.js',
-//                 format: 'cjs',
-//                 defaultExtension: 'js'
-//             }
-//         }
-//     });
+function consume() {
+    var SystemJS = require('systemjs');
+    var System = new SystemJS.constructor();
+    System.config({
+        baseURL: 'file:///' + root,
+        transpiler: undefined,
+        map: {
+            'core-js': 'node_modules/core-js'
+        },
+        packages: {
+            'core-js': {
+                main: 'index.js',
+                format: 'cjs',
+                defaultExtension: 'js'
+            }
+        }
+    });
+    var resolveSymbol = System.constructor.resolve;
+    var resolve = System[resolveSymbol];
+    System[resolveSymbol] = createConsistentResolver(resolve, System);
+    global.System = System;
+    // System.trace = true;
+    // console.log('before eval sys', System);
+    var code = require('fs').readFileSync('./outfile.js').toString();
+    var vm = require('vm');
+    vm.runInThisContext(code, {filename: 'outfile.js'});
 
-//     global.System = System;
-//     // System.trace = true;
-//     // console.log('before eval sys', System);
-//     var code = require('fs').readFileSync('./outfile.js').toString();
-//     var vm = require('vm');
-//     vm.runInThisContext(code, {filename: 'outfile.js'});
-
-//     // console.log('before import sys', System);
-//     return System.import('examples/build/object-assign.js').then(function(exports) {
-//         // console.log('after import', System);
-//         console.log('exports', exports);
-//     }).catch(function(e) {
-//         console.log('error', e.stack);
-//     });
-// }
+    // console.log('before import sys', System);
+    return System.import('examples/build/object-assign.js').then(function(exports) {
+        // console.log('after import', System);
+        console.log('exports', exports);
+    }).catch(function(e) {
+        console.log('error', e.stack);
+    });
+}
+build.consume = consume;
