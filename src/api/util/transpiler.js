@@ -469,8 +469,8 @@ createTranspiler.generateExport = generateExport;
 
 function removeImport(fn) {
     function removeImportPlugin() {
-        function visitImportDeclaration(path) {
-            if (fn(path)) {
+        function visitImportDeclaration(path, state) {
+            if (fn(path.node.source.value, state.file.opts.filename)) {
                 var prev;//  = path.getSibling(path.key -1);
                 var next;//  = path.getSibling(path.key + 1);
 

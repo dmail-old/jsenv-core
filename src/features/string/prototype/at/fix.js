@@ -1,4 +1,4 @@
-import {objectIsCoercible, fixProperty} from '/src/features/fix-helpers.js';
+import {objectIsCoercible, fixProperty} from 'src/features/fix-helpers.js';
 
 // https://github.com/mathiasbynens/String.prototype.at/blob/master/at.js
 function at(position) {

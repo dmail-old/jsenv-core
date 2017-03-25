@@ -1,3 +1,4 @@
-import '../features.js';
+import './a.js';
+import 'examples/b.js';
 
-console.log('do something');
+console.log('entry.js');

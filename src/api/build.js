@@ -15,6 +15,10 @@ var createTranspiler = require('./util/transpiler.js');
 var mapAsync = require('./util/map-async.js');
 
 var root = require('path').resolve(process.cwd(), '../../').replace(/\\/g, '/');
+var variables = {
+    platform: 'node',
+    __esModule: true
+};
 
 function variablesToConditions(variables) {
     var conditions = {};
@@ -22,6 +26,35 @@ function variablesToConditions(variables) {
         conditions['@env|' + name] = variables[name];
     });
     return conditions;
+}
+function trace(entry) {
+    var baseURL = 'file:///' + root;
+    var builder = new Builder(baseURL);
+    var loader = builder.loader;
+
+    builder.config({
+        map: {
+            'core-js': 'node_modules/core-js',
+            'jsenv': '/'
+        },
+        packages: {
+            'core-js': {
+                main: 'index.js',
+                format: 'cjs',
+                defaultExtension: 'js'
+            }
+        }
+    });
+    loader.set('@env', loader.newModule(variables));
+
+    return builder.trace(entry, {
+        conditions: variablesToConditions(variables)
+    }).then(function(tree) {
+        return {
+            builder: builder,
+            tree: tree
+        };
+    });
 }
 function getNodes(tree) {
     return Object.keys(tree).map(function(name) {
@@ -33,7 +66,20 @@ function getNodes(tree) {
         return 'conditional' in node === false;
     });
 }
-function collectUselessImports(tree, builder, agent) {
+function isUrlUseless(filename) {
+    var featureFolderUrl = 'file:///' + root + '/src/features/';
+    if (filename.indexOf(featureFolderUrl) === 0) {
+        var ressource = filename.slice(featureFolderUrl.length);
+        var featureName = ressource.split('/').slice(0, -1).join('/');
+        if (featureName) {
+            // console.log('is feature useless', featureName);
+            return true;
+        }
+        return false;
+    }
+    return false;
+}
+function collectDeadImports(entry, tree, builder, agent) {
     var nodes = getNodes(tree);
 
     return mapAsync(nodes, function(node) {
@@ -42,99 +88,125 @@ function collectUselessImports(tree, builder, agent) {
         });
     }).then(function(uselessFlags) {
         function getDependencies(node) {
-            var dependencies = node.depMap ? Object.keys(node.depMap).map(function(key) {
-                return {
-                    key: key,
-                    name: node.depMap[key]
-                };
-            }) : [];
-            return dependencies;
-        }
-        function findDependency(dependencies, name) {
-            return dependencies.find(function(dependency) {
-                return dependency.name === name;
+            return Object.keys(node.depMap).map(function(name) {
+                var dependencyName = node.depMap[name];
+                var dependency = tree[dependencyName];
+                return dependency;
             });
         }
-        function getPointer(node) {
-            var pointer = {
-                node: node,
-                alive: true,
-                references: []
-            };
-            nodes.forEach(function(otherNode) {
-                if (node !== otherNode) {
-                    var dependencies = getDependencies(otherNode);
-                    var dependency = findDependency(dependencies, node.name);
+        function getDependents(node) {
+            var dependents = [];
+            nodes.forEach(function(possibleDependentNode) {
+                if (possibleDependentNode !== node) {
+                    var dependencies = getDependencies(possibleDependentNode);
+                    var dependency = dependencies.find(function(dependency) {
+                        return dependency.name === node.name;
+                    });
                     if (dependency) {
-                        pointer.references.push({
-                            target: pointer,
-                            value: dependency
-                        });
+                        dependents.push(possibleDependentNode);
                     }
                 }
             });
-            return pointer;
+            return dependents;
         }
-        var pointers = nodes.map(function(node) {
-            return getPointer(node);
-        });
+        function isDeadStatus(status) {
+            return (
+                status === 'useless' ||
+                status === 'all-dependents-are-dead' ||
+                status === 'no-dependents'
+            );
+        }
+        function getStatus(node) {
+            if (node.name === entry) {
+                return 'entry';
+            }
+            if (node.metadata.dead) {
+                return 'useless';
+            }
+            var dependents = getDependents(node);
+            if (dependents.length === 0) {
+                return 'no-dependents'; // not supposed to happen
+            }
+            var allDependentsAreDead = dependents.every(function(dependent) {
+                var referenceStatus = getStatus(dependent);
+                return isDeadStatus(referenceStatus);
+            });
+            if (allDependentsAreDead) {
+                return 'all-dependents-are-dead';
+            }
+            return 'alive';
+        }
         nodes.forEach(function(node, index) {
-            var nodePointer = pointers[index];
             var isUseless = uselessFlags[index];
             if (isUseless) {
-                nodePointer.alive = false;
-                pointers.forEach(function(pointer) {
-                    if (pointer !== nodePointer) {
-                        pointer.alive = pointer.references.some(function(reference) {
-                            return reference.target.alive;
-                        });
-                    }
-                });
+                node.metadata.dead = true;
+                console.log('mark', node.name, 'as dead');
             }
         });
-        var uselessImports = [];
-        pointers.forEach(function(pointer) {
-            var node = pointer.node;
-            if (pointer.alive === false) {
-                delete tree[node.name];
+        var deadImports = [];
+        var nodesToRemove = [];
+        var dependenciesToRemove = [];
+        nodes.forEach(function(node) {
+            var status = getStatus(node);
+            if (isDeadStatus(status)) {
+                console.log(node.name, 'removed from tree because', status);
+                nodesToRemove.push(node);
             } else {
-                pointer.references.forEach(function(reference) {
-                    if (reference.target.alive === false) {
-                        delete node.depMap[reference.value.key];
-                        nodes.deps.splice(node.deps.indexOf(reference.value.name), 1);
-                        uselessImports.push({
-                            dependency: reference.value,
-                            parent: node
+                getDependencies(node).forEach(function(dependency) {
+                    var dependencyStatus = getStatus(dependency);
+                    if (isDeadStatus(dependencyStatus)) {
+                        Object.keys(node.depMap).forEach(function(key) {
+                            if (node.depMap[key] === dependency.name) {
+                                dependenciesToRemove.push({
+                                    node: node,
+                                    key: key,
+                                    name: dependency.name
+                                });
+                            }
                         });
                     }
                 });
             }
         });
-        return uselessImports;
+        nodesToRemove.forEach(function(node) {
+            delete tree[node.name];
+        });
+        dependenciesToRemove.forEach(function(how) {
+            var node = how.node;
+            var key = how.key;
+            var name = how.name;
+
+            delete node.depMap[key];
+            node.deps.splice(node.deps.indexOf(name), 1);
+            deadImports.push({
+                parentName: node.name,
+                name: name,
+                key: key
+            });
+        });
+        console.log('the dead imports', deadImports);
+        return deadImports;
     });
 }
-function injectImportRemovalPlugin(tree, transpiler, builder, agent) {
-    return collectUselessImports(tree, builder, agent).then(function(uselessImports) {
-        return mapAsync(uselessImports, function(info) {
-            return builder.loader.normalize(info.dependency.key);
-        });
-    }).then(function(importsToRemove) {
-        var importRemovalPlugin = createTranspiler.removeImport(function(path) {
-            var from = builder.loader.normalizeSync(
-                normalizeRootKey(path.node.source.value, builder.loader)
-            );
-            var isUseless = importsToRemove.some(function(id) {
-                return id === from;
+function injectImportRemovalPlugin(entry, tree, transpiler, builder, agent) {
+    return collectDeadImports(entry, tree, builder, agent).then(function(deadImports) {
+        var importRemovalPlugin = createTranspiler.removeImport(function(importee, importer) {
+            console.log('importee', importee, 'importer', importer, 'deads', deadImports);
+            var isUseless = deadImports.some(function(description) {
+                return (
+                    importee === description.key &&
+                    importer === description.parentName
+                );
             });
-            console.log('from', from, 'useless?', isUseless);
+            // console.log('from', importee, 'useless?', isUseless);
             return isUseless;
         });
 
         transpiler.options.plugins.unshift(importRemovalPlugin);
     });
 }
-function transpile(tree, transpiler, builder, agent) {
-    return injectImportRemovalPlugin(tree, transpiler, builder, agent).then(function() {
+function transpile(entry, tree, transpiler, builder, agent) {
+    return injectImportRemovalPlugin(entry, tree, transpiler, builder, agent).then(function() {
         var nodes = getNodes(tree);
 
         return mapAsync(nodes, function(node) {
@@ -155,73 +227,11 @@ function transpile(tree, transpiler, builder, agent) {
         });
     });
 }
-function isUrlUseless(filename) {
-    var featureFolderUrl = 'file:///' + root + '/src/features/';
-    if (filename.indexOf(featureFolderUrl) === 0) {
-        var ressource = filename.slice(featureFolderUrl.length);
-        var featureName = ressource.split('/').slice(0, -1).join('/');
-        if (featureName) {
-            console.log('is feature useless', featureName);
-            return true;
-        }
-        return false;
-    }
-    return false;
-}
-function normalizeRootKey(key, loader) {
-    if (key[0] === '/' && key[1] !== '/') {
-        var baseURL = loader.baseURL;
-        if (baseURL.indexOf('file:///') === 0) {
-            return baseURL + key.slice(1);
-        }
-    }
-    return key;
-}
-/*
-As examples (a) & (b) below demonstrates path resolution differs
-when base URL protocol if file or http
-(a) new URL('/dir/file.js', 'file://folder/').href; // file:///dir/file.js
-(b) new URL('/dir/file.js', 'https://google.com/folder/').href; // http://google.com/dir/file.js
-To avoid this inconsitency and because http behaviour is very convenient to load from baseURL
-We force path resolution of file://* to behave like http://*
-*/
-function createConsistentResolver(fn, loader) {
-    return function(key, parentKey) {
-        key = normalizeRootKey(key, loader);
-        return fn.call(this, key, parentKey);
-    };
-}
-
 function build(entry, agent) {
-    var baseURL = 'file:///' + root;
-    var builder = new Builder(baseURL);
-    var loader = builder.loader;
-    var variables = {
-        platform: 'node',
-        __esModule: true
-    };
-
-    builder.config({
-        map: {
-            'core-js': 'node_modules/core-js',
-            'jsenv': '/'
-        },
-        packages: {
-            'core-js': {
-                main: 'index.js',
-                format: 'cjs',
-                defaultExtension: 'js'
-            }
-        }
-    });
-    loader.set('@env', loader.newModule(variables));
-    // fix the fact file:/// & http:/// resolution differs for import starting by /
-    var normalize = loader.normalize;
-    loader.normalize = createConsistentResolver(normalize, loader);
-
-    return builder.trace(entry, {
-        conditions: variablesToConditions(variables)
-    }).then(function(tree) {
+    return trace(entry).then(function(result) {
+        var tree = result.tree;
+        var builder = result.builder;
+        var loader = builder.loader;
         var transpiler = createTranspiler({
             cache: false,
             sourceMaps: true,
@@ -230,7 +240,7 @@ function build(entry, agent) {
             ]
         });
 
-        return transpile(tree, transpiler, builder, agent).then(function() {
+        return transpile(entry, tree, transpiler, builder, agent).then(function() {
             var hash = loader.configHash;
 
             tree['@env'] = {
@@ -284,9 +294,9 @@ function consume() {
             }
         }
     });
-    var resolveSymbol = System.constructor.resolve;
-    var resolve = System[resolveSymbol];
-    System[resolveSymbol] = createConsistentResolver(resolve, System);
+    // var resolveSymbol = System.constructor.resolve;
+    // var resolve = System[resolveSymbol];
+    // System[resolveSymbol] = createConsistentResolver(resolve, System);
     global.System = System;
     // System.trace = true;
     // console.log('before eval sys', System);
