@@ -500,11 +500,16 @@ function removeImport(fn) {
 }
 createTranspiler.removeImport = removeImport;
 
-function replaceImport(/* variables */) {
+function replaceImport(variables) {
     function replaceImportPlugin() {
         function visitImportDeclaration(path) {
             var from = path.node.source.value;
-            path.node.source.value = from.replace('${platform}', 'node');
+            path.node.source.value = from.replace(/\$\{([^{}]+)\}/g, function(match, name) {
+                if (name in variables) {
+                    return variables[name];
+                }
+                return match;
+            });
         }
 
         return {
@@ -513,7 +518,6 @@ function replaceImport(/* variables */) {
             }
         };
     }
-
     return replaceImportPlugin;
 }
 createTranspiler.replaceImport = replaceImport;
