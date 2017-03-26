@@ -15,7 +15,8 @@ export {defineNonEnumerableProperty as define};
 function fixProperty(object, property, value) {
     return function() {
         defineNonEnumerableProperty(object, property, value);
-        return jsenv.Output.pass('property-is-defined');
+        return 'property-is-defined';
+        // return jsenv.Output.pass('property-is-defined');
     };
 }
 export {fixProperty};

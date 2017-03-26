@@ -35,4 +35,6 @@ function at(position) {
     return string.slice(index, index + len);
 }
 
+console.log('fix string/prototype/at.js');
+
 fixProperty(String.prototype, 'at', at)();
