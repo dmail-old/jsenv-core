@@ -1,12 +1,5 @@
 /*
 
-- lorsqu'un noeud est importé que par des noeuds useless
-ce noeud devient useless, ce n'est pas le cas pour le moment
-
--> à retester, c'est censé fonctionner
-en gros fix-helpers ne doit pas faire partie du build lorsqu'on exclue
-string/prototype/at/fix.js
-
 */
 
 var Builder = require('systemjs-builder');
@@ -56,15 +49,18 @@ function trace(entry) {
         };
     });
 }
+function isConcreteNode(node) {
+    // thoose with build: false set by builder.config({meta: 'a': {build: false}});
+    if (typeof node === 'boolean') {
+        return false;
+    }
+    // conditional branch
+    return 'conditional' in node === false;
+}
 function getNodes(tree) {
     return Object.keys(tree).map(function(name) {
         return tree[name];
-    }).filter(function(node) {
-        if (typeof node === 'boolean') { // for thoose with build: false
-            return false;
-        }
-        return 'conditional' in node === false;
-    });
+    }).filter(isConcreteNode);
 }
 function isUrlUseless(filename) {
     var featureFolderUrl = 'file:///' + root + '/src/features/';
@@ -81,6 +77,8 @@ function isUrlUseless(filename) {
 }
 function collectDeadImports(entry, tree, builder, agent) {
     var nodes = getNodes(tree);
+    // console.log('the tree', tree);
+    // console.log('branches', tree['examples/build/plat/#{@env|platform}.js'].conditional.branches);
 
     return mapAsync(nodes, function(node) {
         return builder.loader.normalize(node.name).then(function(loc) {
@@ -92,7 +90,7 @@ function collectDeadImports(entry, tree, builder, agent) {
                 var dependencyName = node.depMap[name];
                 var dependency = tree[dependencyName];
                 return dependency;
-            });
+            }).filter(isConcreteNode);
         }
         function getDependents(node) {
             var dependents = [];
@@ -112,8 +110,8 @@ function collectDeadImports(entry, tree, builder, agent) {
         function isDeadStatus(status) {
             return (
                 status === 'useless' ||
-                status === 'all-dependents-are-dead' ||
-                status === 'no-dependents'
+                status === 'all-dependents-are-dead'
+                // status === 'no-dependents'
             );
         }
         function getStatus(node) {
@@ -140,7 +138,7 @@ function collectDeadImports(entry, tree, builder, agent) {
             var isUseless = uselessFlags[index];
             if (isUseless) {
                 node.metadata.dead = true;
-                console.log('mark', node.name, 'as dead');
+                // console.log('mark', node.name, 'as dead');
             }
         });
         var deadImports = [];
@@ -149,9 +147,10 @@ function collectDeadImports(entry, tree, builder, agent) {
         nodes.forEach(function(node) {
             var status = getStatus(node);
             if (isDeadStatus(status)) {
-                console.log(node.name, 'removed from tree because', status);
+                // console.log(node.name, 'removed from tree because', status);
                 nodesToRemove.push(node);
             } else {
+                // console.log(node.name, 'kept in tree because', status);
                 getDependencies(node).forEach(function(dependency) {
                     var dependencyStatus = getStatus(dependency);
                     if (isDeadStatus(dependencyStatus)) {
@@ -184,21 +183,19 @@ function collectDeadImports(entry, tree, builder, agent) {
                 key: key
             });
         });
-        console.log('the dead imports', deadImports);
         return deadImports;
     });
 }
 function injectImportRemovalPlugin(entry, tree, transpiler, builder, agent) {
     return collectDeadImports(entry, tree, builder, agent).then(function(deadImports) {
         var importRemovalPlugin = createTranspiler.removeImport(function(importee, importer) {
-            console.log('importee', importee, 'importer', importer, 'deads', deadImports);
             var isUseless = deadImports.some(function(description) {
                 return (
                     importee === description.key &&
                     importer === description.parentName
                 );
             });
-            // console.log('from', importee, 'useless?', isUseless);
+            // console.log('importee', importee, 'importer', importer, 'useless?', isUseless);
             return isUseless;
         });
 
@@ -256,6 +253,7 @@ function build(entry, agent) {
                 timestamp: null,
                 configHash: hash
             };
+            // console.log('final tree', Object.keys(tree));
 
             var buildOutputPath = root + '/build/' + hash + '/build.js';
             return builder.bundle(tree, buildOutputPath, {
