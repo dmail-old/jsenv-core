@@ -1,1 +1,1 @@
-import './#{@env|platform}.js';
+import './${platform}.js';

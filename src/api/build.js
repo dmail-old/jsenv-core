@@ -1,13 +1,14 @@
 /*
 
-- tester consume tout court, qui ne build pas mais doit se comporter comme le builder
+- mieux gérer @env (voir suggestion ou autre)
+-> ajouter un custom plugin qui supporte les variables dans le from de l'import
 
 */
 
 var Builder = require('systemjs-builder');
 
 var createTranspiler = require('./util/transpiler.js');
-var mapAsync = require('./util/map-async.js');
+// var mapAsync = require('./util/map-async.js');
 // var resolveIfNotPlain = require('./util/resolve-if-not-plain.js');
 // function resolve(importee, importer) {
 //     var location;
@@ -66,169 +67,6 @@ function variablesToConditions(variables) {
     });
     return conditions;
 }
-function isConcreteNode(node) {
-    // thoose with build: false set by builder.config({meta: 'a': {build: false}});
-    if (typeof node === 'boolean') {
-        return false;
-    }
-    // conditional branch
-    return 'conditional' in node === false;
-}
-function getNodes(tree) {
-    return Object.keys(tree).map(function(name) {
-        return tree[name];
-    }).filter(isConcreteNode);
-}
-function collectDeadImports(loader, entry, tree, agent) {
-    // console.log('the tree', tree);
-    // console.log('branches', tree['examples/build/plat/#{@env|platform}.js'].conditional.branches);
-
-    return Promise.resolve(getProfile(agent)).then(function(profile) {
-        var nodes = getNodes(tree);
-
-        return mapAsync(nodes, function(node) {
-            return isImportUseless(loader, profile, node.name, entry);
-        }).then(function(uselessFlags) {
-            function getDependencies(node) {
-                return Object.keys(node.depMap).map(function(name) {
-                    var dependencyName = node.depMap[name];
-                    var dependency = tree[dependencyName];
-                    return dependency;
-                }).filter(isConcreteNode);
-            }
-            function getDependents(node) {
-                var dependents = [];
-                nodes.forEach(function(possibleDependentNode) {
-                    if (possibleDependentNode !== node) {
-                        var dependencies = getDependencies(possibleDependentNode);
-                        var dependency = dependencies.find(function(dependency) {
-                            return dependency.name === node.name;
-                        });
-                        if (dependency) {
-                            dependents.push(possibleDependentNode);
-                        }
-                    }
-                });
-                return dependents;
-            }
-            function isDeadStatus(status) {
-                return (
-                    status === 'useless' ||
-                    status === 'all-dependents-are-dead'
-                    // status === 'no-dependents'
-                );
-            }
-            function getStatus(node) {
-                if (node.name === entry) {
-                    return 'entry';
-                }
-                if (node.metadata.dead) {
-                    return 'useless';
-                }
-                var dependents = getDependents(node);
-                if (dependents.length === 0) {
-                    return 'no-dependents'; // not supposed to happen
-                }
-                var allDependentsAreDead = dependents.every(function(dependent) {
-                    var referenceStatus = getStatus(dependent);
-                    return isDeadStatus(referenceStatus);
-                });
-                if (allDependentsAreDead) {
-                    return 'all-dependents-are-dead';
-                }
-                return 'alive';
-            }
-            nodes.forEach(function(node, index) {
-                var isUseless = uselessFlags[index];
-                if (isUseless) {
-                    node.metadata.dead = true;
-                    // console.log('mark', node.name, 'as dead');
-                }
-            });
-            var deadImports = [];
-            var nodesToRemove = [];
-            var dependenciesToRemove = [];
-            nodes.forEach(function(node) {
-                var status = getStatus(node);
-                if (isDeadStatus(status)) {
-                    // console.log(node.name, 'removed from tree because', status);
-                    nodesToRemove.push(node);
-                } else {
-                    // console.log(node.name, 'kept in tree because', status);
-                    getDependencies(node).forEach(function(dependency) {
-                        var dependencyStatus = getStatus(dependency);
-                        if (isDeadStatus(dependencyStatus)) {
-                            Object.keys(node.depMap).forEach(function(key) {
-                                if (node.depMap[key] === dependency.name) {
-                                    dependenciesToRemove.push({
-                                        node: node,
-                                        key: key,
-                                        name: dependency.name
-                                    });
-                                }
-                            });
-                        }
-                    });
-                }
-            });
-            nodesToRemove.forEach(function(node) {
-                delete tree[node.name];
-            });
-            dependenciesToRemove.forEach(function(how) {
-                var node = how.node;
-                var key = how.key;
-                var name = how.name;
-
-                delete node.depMap[key];
-                node.deps.splice(node.deps.indexOf(name), 1);
-                deadImports.push({
-                    parentName: node.name,
-                    name: name,
-                    key: key
-                });
-            });
-            return deadImports;
-        });
-    });
-}
-function injectImportRemovalPlugin(loader, entry, tree, transpiler, agent) {
-    return collectDeadImports(loader, entry, tree, agent).then(function(deadImports) {
-        var importRemovalPlugin = createTranspiler.removeImport(function(importee, importer) {
-            var isUseless = deadImports.some(function(description) {
-                return (
-                    importee === description.key &&
-                    importer === description.parentName
-                );
-            });
-            // console.log('importee', importee, 'importer', importer, 'useless?', isUseless);
-            return isUseless;
-        });
-
-        transpiler.options.plugins.unshift(importRemovalPlugin);
-    });
-}
-function transpile(loader, entry, tree, transpiler, agent) {
-    return injectImportRemovalPlugin(loader, entry, tree, transpiler, agent).then(function() {
-        var nodes = getNodes(tree);
-
-        return mapAsync(nodes, function(node) {
-            return Promise.resolve(
-                transpiler.transpile(node.source, {
-                    filename: node.path,
-                    moduleId: node.name
-                })
-            ).then(function(result) {
-                node.source = result.code;
-
-                node.metadata.format = 'system';
-                node.metadata.sourceMap = result.map;
-                if (result.ast) {
-                    node.metadata.ast = result.ast;
-                }
-            });
-        });
-    });
-}
 function getTranspiler() {
     var transpiler = createTranspiler({
         cache: false,
@@ -241,8 +79,7 @@ function getTranspiler() {
 }
 function setupLoader(loader) {
     loader.config({
-        // baseURL: rootHref,
-        // transpiler: undefined,
+        baseURL: rootHref,
         map: {
             'core-js': 'node_modules/core-js'
         },
@@ -254,7 +91,12 @@ function setupLoader(loader) {
             }
         }
     });
-    loader.set('@env', loader.newModule(variables));
+
+    if (loader.registry) {
+        loader.registry.set('@env', loader.newModule(variables));
+    } else {
+        loader.set('@env', loader.newModule(variables));
+    }
 
     // var resolveSymbol = loader.constructor.resolve;
     // var resolve = loader[resolveSymbol];
@@ -262,59 +104,83 @@ function setupLoader(loader) {
     // loader.trace = true;
 }
 function build(entry, agent) {
-    var builder = new Builder(rootHref);
-    var loader = builder.loader;
-    setupLoader(loader);
-
-    return builder.trace(entry, {
-        conditions: variablesToConditions(variables)
-    }).then(function(tree) {
+    return Promise.resolve(getProfile(agent)).then(function(profile) {
+        var builder = new Builder();
+        var loader = builder.loader;
+        setupLoader(loader);
         var transpiler = getTranspiler();
-
-        return transpile(loader, entry, tree, transpiler, agent).then(function() {
-            var hash = loader.configHash;
-
-            tree['@env'] = {
-                name: '@env',
-                path: null,
-                metadata: {
-                    format: 'json'
-                },
-                deps: [],
-                depMap: {},
-                source: JSON.stringify(variables),
-                fresh: true,
-                timestamp: null,
-                configHash: hash
-            };
-            // console.log('final tree', Object.keys(tree));
-
-            var buildOutputPath = root + '/build/' + hash + '/build.js';
-            return builder.bundle(tree, buildOutputPath, {
-                sourceMaps: true
-            }).then(function() {
-                return buildOutputPath;
+        var importRemovalPlugin = createTranspiler.removeImport(function(importee, importer) {
+            return isImportUseless(loader, profile, importee, importer);
+        });
+        var replaceImport = createTranspiler.replaceImport();
+        transpiler.options.plugins.unshift(replaceImport);
+        transpiler.options.plugins.unshift(importRemovalPlugin);
+        loader.config({
+            meta: {
+                '*': {
+                    format: 'register'
+                }
+            }
+        });
+        loader.translate = function(load) {
+            var filename = load.path;
+            var transpilationResult = transpiler.transpile(load.source, {
+                filename: filename,
+                moduleId: load.name
             });
+            return transpilationResult.code;
+        };
+        return builder.trace(entry, {
+            conditions: variablesToConditions(variables)
+        }).then(function(tree) {
+            console.log('the tree', tree);
+            // return transpile(tree, transpiler).then(function() {
+            //     var hash = loader.configHash;
+
+            //     tree['@env'] = {
+            //         name: '@env',
+            //         path: null,
+            //         metadata: {
+            //             format: 'json'
+            //         },
+            //         deps: [],
+            //         depMap: {},
+            //         source: JSON.stringify(variables),
+            //         fresh: true,
+            //         timestamp: null,
+            //         configHash: hash
+            //     };
+            //     // console.log('final tree', Object.keys(tree));
+
+            //     var buildOutputPath = root + '/build/' + hash + '/build.js';
+            //     return builder.bundle(tree, buildOutputPath, {
+            //         sourceMaps: true
+            //     }).then(function() {
+            //         return buildOutputPath;
+            //     });
+            // });
         });
     });
 }
-// build('examples/entry.js').then(function(path) {
-//     console.log('build path', path);
-// }).catch(function(e) {
-//     setTimeout(function() {
-//         throw e;
-//     });
-// });
+build('examples/entry.js').then(function(path) {
+    console.log('build path', path);
+}).catch(function(e) {
+    setTimeout(function() {
+        throw e;
+    });
+});
 
 function createSystem() {
     var SystemJS = require('systemjs');
     var System = new SystemJS.constructor();
     setupLoader(System);
+    System.config({
+        transpiler: undefined
+    });
     return System;
 }
 function consumeBuild() {
     var System = createSystem();
-    global.System = System;
 
     var buildPath = root + '/build/63c9ddd5b47ce990f3be45ffed733252/build.js';
     var code = require('fs').readFileSync(buildPath).toString();
@@ -344,10 +210,6 @@ function getNodeFilename(filename) {
 }
 function consume(entry, agent) {
     var System = createSystem();
-    global.System = System;
-    System.registry.set('@env', System.newModule(variables));
-
-    entry = System.resolveSync(entry, rootHref);
 
     var instantiate = System[instantiateMethod];
     var instantiateMethod = System.constructor.instantiate;

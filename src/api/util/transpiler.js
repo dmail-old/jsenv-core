@@ -500,4 +500,22 @@ function removeImport(fn) {
 }
 createTranspiler.removeImport = removeImport;
 
+function replaceImport(/* variables */) {
+    function replaceImportPlugin() {
+        function visitImportDeclaration(path) {
+            var from = path.node.source.value;
+            path.node.source.value = from.replace('${platform}', 'node');
+        }
+
+        return {
+            visitor: {
+                ImportDeclaration: visitImportDeclaration
+            }
+        };
+    }
+
+    return replaceImportPlugin;
+}
+createTranspiler.replaceImport = replaceImport;
+
 module.exports = createTranspiler;
