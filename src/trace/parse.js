@@ -1,9 +1,3 @@
-/*
-En rendant ça récursif en lisant ce qu'on trouve là ou c'est importé
-on peut récup la liste des dépendances
-il faudrais aussi pouvoir passer un locate custom
-*/
-
 var babel = require('babel-core');
 var fs = require('fs');
 
@@ -200,18 +194,7 @@ function parse(entryRelativeHref, absoluteRootHref, options) {
             code: false,
             sourceMaps: false,
             babelrc: false,
-            plugins: [
-                // createTranspiler.removeImport(function(importee, importer) {
-                //     return isImportUseless(
-                //         profile,
-                //         locate(importee, importer)
-                //     );
-                // }),
-                // createTranspiler.replaceImport(variables),
-                // 'babel-plugin-transform-es2015-modules-systemjs'
-                // il faudrais ne transformer
-                // qu'une partie des noeud
-            ]
+            plugins: []
         });
     }
     function fetchAndTransform(node) {
