@@ -1,4 +1,4 @@
-import {expect, presence} from '/test-helpers.js';
+import {expect, presence} from 'jsenv/src/test-helpers.js';
 
 const test = expect({
     'presence': presence('Array', 'from')
