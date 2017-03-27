@@ -1,6 +1,10 @@
 // https://astexplorer.net/
 // https://github.com/babel/babel/blob/master/packages/babel-plugin-undeclared-variables-check/src/index.js#L19
 
+/*
+- faudras tester iife non sont pas supprimé
+*/
+
 function removeReference(identifiers) {
     identifiers = identifiers.slice();
 
