@@ -1,5 +1,3 @@
-// exemple de tests https://github.com/rollup/rollup/blob/master/test/function/bindings/foo.js
-
 var removeReference = require('./babel-plugin-remove-reference.js');
 var fs = require('fs');
 var assert = require('assert');

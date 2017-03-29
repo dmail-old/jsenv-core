@@ -2,6 +2,8 @@
 scope : https://github.com/babel/babel/blob/8a82cc060ae0ab46bf52e05e592de770bd246f6f/packages/babel-traverse/src/scope/index.js
 binding : https://github.com/babel/babel/blob/8a82cc060ae0ab46bf52e05e592de770bd246f6f/packages/babel-traverse/src/scope/binding.js
 path : https://github.com/babel/babel/blob/8a82cc060ae0ab46bf52e05e592de770bd246f6f/packages/babel-traverse/src/path/index.js
+ast explorer : https://astexplorer.net/
+les tests qu'il faudra passer : https://github.com/rollup/rollup/blob/master/test/function/bindings/foo.js
 
 cette fonction doit être appelé avec comme premier arg un scope
 et comme second arg les bindings qu'on veut remove dans ce scope
