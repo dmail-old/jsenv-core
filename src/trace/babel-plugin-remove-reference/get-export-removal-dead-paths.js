@@ -4,40 +4,6 @@ binding : https://github.com/babel/babel/blob/8a82cc060ae0ab46bf52e05e592de770bd
 path : https://github.com/babel/babel/blob/8a82cc060ae0ab46bf52e05e592de770bd246f6f/packages/babel-traverse/src/path/index.js
 ast explorer : https://astexplorer.net/
 les tests qu'il faudra passer : https://github.com/rollup/rollup/blob/master/test/function/bindings/foo.js
-
-cette fonction doit être appelé avec comme premier arg un scope
-et comme second arg les bindings qu'on veut remove dans ce scope
-
-en gros le comportement sera que
-
-- (a)on peut remove un binding que si ce binding n'a aucune référence ou que des référence weak
-- (b)une référence est weak lorsqu'elle est elle même supprimé si le binding est supprimé (export default name)
-- (c)un binding peut aussi être supprimé si une référence strong est considéré comme weak
-parce qu'elle va elle même être supprimé ou n'a pas d'autre référence ou que les dites références sont weak
-
-- il faut un comportement récursif
-ça c'est "chaud", à voir au fur et à mesure
-
-- export default b doit être considéré comme weak parce que
-c'est supprimé en même temps que le binding
-je vois pas d'autre référence weak pour le moment
-
-function name() {} n'est pas une référence weak c'est juste la déclaration du binding
-aucunement une référence vers celui-ci
-
-- il faut pouvoir identifié comment le binding est utilisé pour être capable
-de répondre à : est ce que ce qui l'utilise sera supprimé ?
-
-const a = b; c'est a qui utilise b
-(function (t = b)) c'est t qui utilise b
-bref en gros être capable de trace qui utilise le binding
-pour dire est ce que c'est lui même un binding qu'on va supprimé
-
-- transform tous les globalScope.getAllBindings() en {binding, dependencies, dependents}
-- mark tous les export ayant le bon nom comme "toberemoved"
-- ensuite si tous les dependent d'un binding sont "toberemoved" il devient "toberemoved"
-et à ce moment ce binding on cherche toutes ses dependencies voir si il sont devenu éligible à "toberemoved"
-
 */
 
 function convertNodeToHumanString(node) {
