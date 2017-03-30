@@ -177,11 +177,8 @@ function getExportRemovalDeadPaths(path, state, exportNamesToRemove) {
     }
     function markPointerAsDead(pointer) {
         markAsDead(pointer.path);
-        // when path is marked as dead
-        // it may affet dependents & dependencies which
-        // may now be dead too
-        // pour pointer.dependencies en gros il faut juste check les dependents
-        // mais pas le
+        // when path is marked as dead it means we don't care about dependents anymore
+        // but dependencies may not be elligible for dead mark
         pointer.dependents.forEach(function(dependent) {
             visitPointer(dependent);
         });
@@ -190,41 +187,116 @@ function getExportRemovalDeadPaths(path, state, exportNamesToRemove) {
         });
     }
     function isPointerKillable(pointer) {
-        var path = pointer.path;
-        var node = path.node;
-
-        function killable() {
+        function getExportInstruction(path) {
+            var parentPath = path.parentPath;
+            var parentNode = parentPath.node;
+            if (parentNode.type === 'ExportNamedDeclaration') {
+                return parentPath;
+            }
+            return null;
+        }
+        function weak(reason) {
+            return {type: 'weak', reason: reason};
+        }
+        function strong(reason) {
+            return {type: 'strong', reason: reason};
+        }
+        function getPointerStatus(pointer) {
+            var path = pointer.path;
             if (isDead(path)) {
-                return true;
+                return weak('path-marked-as-dead');
             }
 
+            var node = path.node;
             if (node.type === 'ExportDefaultDeclaration') {
                 // var declaration = dependentNode.declaration;
-                return nameWillBeRemoved('default');
+                if (nameWillBeRemoved('default')) {
+                    return weak('export-default-is-dead');
+                }
+                return strong('export-default-is-alive');
             }
             if (node.type === 'ExportNamedDeclaration') {
                 var declaration = node.declaration;
                 if (declaration) {
                     if (declaration.type === 'VariableDeclaration') {
-                        return nameWillBeRemoved(declaration.declarations[0].id.name);
+                        if (nameWillBeRemoved(declaration.declarations[0].id.name)) {
+                            return weak('export-declared-variable-is-dead');
+                        }
+                        return strong('export-declared-variable-is-alive');
                     }
                     if (declaration.type === 'FunctionDeclaration') {
-                        return nameWillBeRemoved(node.declaration.id.name);
+                        if (nameWillBeRemoved(node.declaration.id.name)) {
+                            return weak('export-declared-function-is-dead');
+                        }
+                        return strong('export-declared-function-is-alive');
                     }
                 }
-                return false;
+                return weak('export-named-is-alive');
             }
             if (node.type === 'ExportSpecifier') {
-                return nameWillBeRemoved(node.local.name);
+                if (nameWillBeRemoved(node.local.name)) {
+                    return weak('export-specifier-is-dead');
+                }
+                return strong('export-specifier-is-alive');
             }
+            if (node.type === 'VariableDeclarator') {
+                var declarationPath = path.parentPath;
+                var exportPath = getExportInstruction(declarationPath);
+                if (exportPath) {
+                    if (nameWillBeRemoved(node.id.name)) {
+                        return weak('variable-export-is-dead');
+                    }
+                    return strong('variable-export-is-alive');
+                }
+                if (pointer.identifier) {
+                    return weak('global-variable-not-exported');
+                }
+                return strong('local-variable-is-strong');
+            }
+            if (node.type === 'FunctionDeclaration') {
+                var functionPath = path.parentPath;
+                var functionExportPath = getExportInstruction(functionPath);
+                if (functionExportPath) {
+                    if (nameWillBeRemoved(node.id.name)) {
+                        return weak('function-export-is-dead');
+                    }
+                    return strong('function-export-is-alive');
+                }
+                if (pointer.identifier) {
+                    return weak('global-function-not-exported');
+                }
+                return strong('local-function-is-strong');
+            }
+            return strong('strong-by-default');
+        }
+
+        var referenceStatus = getPointerStatus(pointer);
+        if (referenceStatus.type === 'strong') {
+            log(pointer, 'cannot be killed because', referenceStatus.reason);
             return false;
         }
 
-        var can = killable();
-        if (can) {
-            return pointer.dependents.every(isPointerKillable);
+        var strongDependent = pointer.dependents.find(function(dependent) {
+            return getPointerStatus(dependent).type === 'strong';
+        });
+        if (strongDependent) {
+            log(
+                pointer, 'alive by dependent',
+                strongDependent, getPointerStatus(strongDependent).reason
+            );
+            return false;
         }
-        return false;
+        var strongDependency = pointer.dependencies.find(function(dependency) {
+            return getPointerStatus(dependency).type === 'strong';
+        });
+        if (strongDependency) {
+            log(
+                pointer, 'alive by dependency',
+                strongDependency, getPointerStatus(strongDependency).reason
+            );
+            return false;
+        }
+        return true;
     }
     function visitPointer(pointer) {
         if (isDead(pointer.path)) {
@@ -244,48 +316,15 @@ function getExportRemovalDeadPaths(path, state, exportNamesToRemove) {
             // que si le noeud était utilisé par un export il est supprimé
             // mais pas si il n'est pas utilisé du tout
             log(pointer, 'has no dependents');
-            // markPointerAsDead(pointer);
+            var isKillable2 = isPointerKillable(pointer);
+            if (isKillable2) {
+                markPointerAsDead(pointer);
+            }
         } else {
             log(pointer, 'may be dead, check dependents');
-
-            var aliveDependent = pointer.dependents.find(function(dependent) {
-                var dependentPath = dependent.path;
-                var dependentIsDead = isDead(dependentPath);
-                if (dependentIsDead) {
-                    return false;
-                }
-
-                var isKillable = isPointerKillable(dependent);
-                if (isKillable) {
-                    markAsDead(dependent.path);
-                    return false;
-                }
-                return true;
-            });
-
-            if (aliveDependent) {
-                log(pointer, 'alive by dependent', aliveDependent);
-            } else {
-                var aliveDependency = pointer.dependencies.find(function(dependency) {
-                    var dependencyPath = dependency.path;
-                    var dependencyIsDead = isDead(dependencyPath);
-                    if (dependencyIsDead) {
-                        return false;
-                    }
-
-                    var isKillable = isPointerKillable(dependency);
-                    if (isKillable) {
-                        markAsDead(dependency.path);
-                        return false;
-                    }
-                    return true;
-                });
-                aliveDependency = null;
-                if (aliveDependency) {
-                    log(pointer, 'alive by dependency', aliveDependency);
-                } else {
-                    markPointerAsDead(pointer);
-                }
+            var isKillable = isPointerKillable(pointer);
+            if (isKillable) {
+                markPointerAsDead(pointer);
             }
         }
     }

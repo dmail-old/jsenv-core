@@ -16,11 +16,11 @@ function test(name, names) {
     assert.equal(actual, expected);
 }
 
-// test('export-default-declaration-function', ['default']);
-// test('export-default-declaration-identifier', ['default']);
-// test('export-named-declaration', ['willBeRemoved']);
-// test('export-named-specifier', ['willBeRemoved']);
-// test('export-named-specifier', ['willBeRemoved']);
+test('export-default-declaration-function', ['default']);
+test('export-default-declaration-identifier', ['default']);
+test('export-named-declaration', ['willBeRemoved']);
+test('export-named-specifier', ['willBeRemoved']);
+test('export-named-specifier', ['willBeRemoved']);
 test('weak-variable', ['willBeRemoved']);
-// test('strong-variable', ['willBeRemoved']);
+test('strong-variable', ['willBeRemoved']);
 // test('strong-function', ['willBeRemoved']);
