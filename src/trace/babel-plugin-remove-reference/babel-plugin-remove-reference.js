@@ -8,99 +8,97 @@
 
 */
 
-var getExportRemovalDeadPaths = require('./get-export-removal-dead-paths');
+var getExportRemovalDeadPaths = require('./get-export-removal-dead-paths')
 
-function removeReference(names) {
-    names = names.slice();
+const removeReference = (names) => {
+    names = names.slice()
 
-    function removeReferencePlugin() {
+    const removeReferencePlugin = () => {
         var removers = {
-            VariableDeclaration: function(path) {
-                var parentPath = path.parentPath;
-                var parentNode = parentPath.node;
+            VariableDeclaration(path) {
+                var parentPath = path.parentPath
+                var parentNode = parentPath.node
 
-                path.remove();
+                path.remove()
                 if (parentNode.type === 'ExportDefaultDeclaration') {
-                    removePath(parentPath);
-                } else if (parentNode.type === 'ExportNamedDeclaration') {
+                    removePath(parentPath)
+                }
+                else if (parentNode.type === 'ExportNamedDeclaration') {
                     // seems to be autoremoved when variable declaration is removed
                     // console.log('wanned remove named export', parentPath.node);
                     // removePath(parentPath);
                 }
             },
-            VariableDeclarator: function(path) {
-                var variableDeclarator = path.node;
-                var variableDeclarationPath = path.parentPath;
-                var variableDeclaration = variableDeclarationPath.node;
-                var declarations = variableDeclaration.declarations;
+            VariableDeclarator(path) {
+                var variableDeclarator = path.node
+                var variableDeclarationPath = path.parentPath
+                var variableDeclaration = variableDeclarationPath.node
+                var declarations = variableDeclaration.declarations
                 var filteredDeclarations = declarations.filter(function(declarator) {
-                    return declarator !== variableDeclarator;
-                });
-                variableDeclaration.declarations = filteredDeclarations;
+                    return declarator !== variableDeclarator
+                })
+                variableDeclaration.declarations = filteredDeclarations
 
                 if (filteredDeclarations.length === 0) {
-                    removePath(variableDeclarationPath);
+                    removePath(variableDeclarationPath)
                 }
             },
-            ExportDefaultDeclaration: function(path) {
+            ExportDefaultDeclaration(path) {
                 // var node = path.node;
                 // var declaration = node.declaration;
                 // if (declaration) {
                 //     console.log('the declaration', declaration);
                 // }
-                path.remove();
+                path.remove()
             },
-            ExportNamedDeclaration: function(path) {
+            ExportNamedDeclaration(path) {
                 // var node = path.node;
                 // var declaration = node.declaration;
                 // if (declaration) {
                 //     console.log('the declaration', declaration);
                 // }
-                path.remove();
+                path.remove()
             },
-            ExportSpecifier: function(path) {
-                var exportSpecifier = path.node;
-                var namedExportPath = path.parentPath;
-                var namedExport = namedExportPath.node;
-                var specifiers = namedExport.specifiers;
-                var filteredSpecifiers = specifiers.filter(function(specifier) {
-                    return specifier !== exportSpecifier;
-                });
-                namedExport.specifiers = filteredSpecifiers;
+            ExportSpecifier(path) {
+                var exportSpecifier = path.node
+                var namedExportPath = path.parentPath
+                var namedExport = namedExportPath.node
+                var specifiers = namedExport.specifiers
+                var filteredSpecifiers = specifiers.filter((specifier) => specifier !== exportSpecifier)
+                namedExport.specifiers = filteredSpecifiers
 
                 if (filteredSpecifiers.length === 0) {
-                    removePath(namedExportPath);
+                    removePath(namedExportPath)
                 }
             },
-            FunctionDeclaration: function(path) {
-                path.remove();
-            }
-        };
-        function removePath(path) {
-            var node = path.node;
-            var type = node.type;
-            if (type in removers) {
-                console.log('removing', type);
-                removers[type](path);
-            } else {
-                throw new Error('cannot remove ' + type);
+            FunctionDeclaration(path) {
+                path.remove()
             }
         }
-        function visitProgram(path, state) {
-            var deadPaths = getExportRemovalDeadPaths(path, state, names);
-            console.log('will remove', deadPaths.map(function(path) {
-                return path.node.type;
-            }));
-            deadPaths.forEach(removePath);
+        const removePath = (path) => {
+            var node = path.node
+            var type = node.type
+            if (type in removers) {
+                console.log('removing', type)
+                removers[type](path)
+            }
+            else {
+                throw new Error('cannot remove ' + type)
+            }
+        }
+        const visitProgram = (path, state) => {
+            const deadPaths = getExportRemovalDeadPaths(path, state, names)
+            console.log('will remove', deadPaths.map((path) => path.node.type))
+            deadPaths.forEach(removePath)
         }
 
         return {
             visitor: {
                 Program: visitProgram
             }
-        };
+        }
     }
-    return removeReferencePlugin;
+    return removeReferencePlugin
 }
 
-module.exports = removeReference;
+module.exports = removeReference

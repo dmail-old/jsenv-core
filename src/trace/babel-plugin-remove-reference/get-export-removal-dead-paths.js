@@ -4,339 +4,304 @@ binding : https://github.com/babel/babel/blob/8a82cc060ae0ab46bf52e05e592de770bd
 path : https://github.com/babel/babel/blob/8a82cc060ae0ab46bf52e05e592de770bd246f6f/packages/babel-traverse/src/path/index.js
 ast explorer : https://astexplorer.net/
 les tests qu'il faudra passer : https://github.com/rollup/rollup/blob/master/test/function/bindings/foo.js
+
+// l'idée en fait serais de détecter les dépendances
+// chose qu'on a pas du tout actuellement
+// l'idée c'est que j'ai des pointeurs globaux
+// qui peuvent avoir des dépendances entre eux
+// grace au références je suis capable de savoir ça
+// en fait on se fous de .references
+// par contre en utilisant ça + getMostSuperficialPath
+// on peut savoir si cette référence appartient à un autre globalBinding
+// et donc exprimé une dépendance entre deux pointeur globaux
+// et c'est CA qu'on veut
+
 */
 
-function convertNodeToHumanString(node) {
-    var humanString = '';
-    var type = node.type;
+const convertNodeToHumanString = (node) => {
+    var humanString = ''
+    var type = node.type
 
-    humanString = '';
+    humanString = ''
     if (type === 'VariableDeclarator') {
-        humanString += convertNodeToHumanString(node.id);
-    } else if (type === 'VariableDeclaration') {
-        humanString += node.declarations.map(function(declaration) {
-            return convertNodeToHumanString(declaration.id);
-        });
-    } else if (type === 'ExportDefaultDeclaration') {
-        humanString += 'export default ' + convertNodeToHumanString(node.declaration);
-    } else if (type === 'ExportNamedDeclaration') {
-        if (node.declaration) {
-            humanString += 'export {' + convertNodeToHumanString(node.declaration) + '}';
-        } else {
-            humanString += 'export {' + node.specifiers.map(convertNodeToHumanString) + '}';
-        }
-    } else if (type === 'ExportSpecifier') {
-        humanString += convertNodeToHumanString(node.local);
-    } else if (type === 'Identifier') {
-        humanString = node.name;
-    } else if (type === 'FunctionDeclaration') {
-        humanString += convertNodeToHumanString(node.id);
+        humanString += 'variable ' + convertNodeToHumanString(node.id)
     }
-    return humanString;
+    else if (type === 'VariableDeclaration') {
+        humanString += node.declarations.map((declaration) => (
+            convertNodeToHumanString(declaration.id)
+        ))
+    }
+    else if (type === 'ExportDefaultDeclaration') {
+        humanString += 'export default ' + convertNodeToHumanString(node.declaration)
+    }
+    else if (type === 'ExportNamedDeclaration') {
+        if (node.declaration) {
+            humanString += 'export {' + convertNodeToHumanString(node.declaration) + '}'
+        }
+        else {
+            humanString += 'export {' + node.specifiers.map(convertNodeToHumanString) + '}'
+        }
+    }
+    else if (type === 'ExportSpecifier') {
+        humanString += 'specifier ' + convertNodeToHumanString(node.local)
+    }
+    else if (type === 'Identifier') {
+        humanString = 'identifier ' + node.name
+    }
+    else if (type === 'FunctionDeclaration') {
+        humanString += 'function ' + convertNodeToHumanString(node.id)
+    }
+    return humanString
 }
 function log() {
-    var args = Array.prototype.slice.call(arguments);
-    args = args.map(function(arg) {
-        var node;
-        if (arg.node) {
-            node = arg.node;
-        }
-        if (arg.path) {
-            node = arg.path.node;
-        }
+    const args = Array.prototype.slice.call(arguments)
+    const formattedArgs = args.map((arg) => {
+        if (typeof arg === 'object') {
+            var node
+            if ('node' in arg) {
+                node = arg.node
+            }
+            else if ('path' in arg) {
+                node = arg.path.node
+            }
+            else if ('type' in arg) {
+                node = arg
+            }
 
-        if (node) {
-            return convertNodeToHumanString(node);
+            if (node) {
+                return convertNodeToHumanString(node)
+            }
         }
-        return arg;
-    });
-    console.log.apply(console, args);
+        return arg
+    })
+
+    console.log.apply(console, formattedArgs)
 }
 
-function getExportRemovalDeadPaths(path, state, exportNamesToRemove) {
-    var deadPaths = [];
+const getExportRemovalDeadPaths = (rootPath, state, exportNamesToRemove) => {
+    var deadPaths = []
 
-    function nameWillBeRemoved(name) {
-        return exportNamesToRemove.indexOf(name) > -1;
+    const nameWillBeRemoved = (name) => {
+        return exportNamesToRemove.indexOf(name) > -1
     }
-    function isDescendantOf(path, possibleAncestorPath) {
-        var parentOrAncestorPath = path.parentPath;
-        while (parentOrAncestorPath) {
-            if (parentOrAncestorPath === possibleAncestorPath) {
-                return true;
-            }
-            parentOrAncestorPath = parentOrAncestorPath.parentPath;
-        }
-        return false;
-    }
-    function getStatus(path) {
-        var i = 0;
-        var j = deadPaths.length;
-        var status = 'alive';
+    const getStatus = (path) => {
+        var i = 0
+        var j = deadPaths.length
+        var status = 'alive'
         while (i < j) {
-            var deadPath = deadPaths[i];
+            var deadPath = deadPaths[i]
             if (path === deadPath) {
-                status = 'dead';
-                break;
+                status = 'dead'
+                break
             }
-            if (isDescendantOf(path, deadPath)) {
-                status = 'dead-by-inheritance';
-                break;
+            // https://github.com/babel/babel/blob/8a82cc060ae0ab46bf52e05e592de770bd246f6f/packages/babel-traverse/src/path/ancestry.js#L188
+            if (path.isDescendant(deadPath)) {
+                status = 'dead-by-inheritance'
+                break
             }
-            i++;
+            i++
         }
-        return status;
+        return status
     }
-    function isDead(path) {
-        return getStatus(path) !== 'alive';
+    const isDead = (path) => {
+        return getStatus(path) !== 'alive'
     }
-    function markAsDead(path) {
-        var status = getStatus(path);
+    const markAsDead = (path) => {
+        var status = getStatus(path)
         if (status === 'dead') {
-            log(path, 'already marked as dead');
-            return false;
+            log(path, 'already marked as dead')
+            return false
         }
         if (status === 'dead-by-inheritance') {
-            log(path, 'already dead by ancestor');
-            return false;
+            log(path, 'already dead by ancestor')
+            return false
         }
         // supprime les noeuds dead lorsqu'ils sont
         // à l'intérieur d'un path lui même dead
         deadPaths = deadPaths.filter(function(deadPath) {
-            var isDescendant = isDescendantOf(deadPath, path);
+            var isDescendant = deadPath.isDescendant(path)
             if (isDescendant) {
                 log(
                     'exclude', deadPath,
                     'because inside', path
-                );
+                )
             }
-            return isDescendant === false;
-        });
-        deadPaths.push(path);
-        log(path, 'marked as dead');
-        return true;
+            return isDescendant === false
+        })
+        deadPaths.push(path)
+        log(path, 'marked as dead')
+        return true
     }
-    function createGraph() {
-        var scope = path.scope;
-        var bindings = scope.getAllBindings();
-        var pointers = [];
-        function createPointer(path) {
-            var pointer = pointers.find(function(pointer) {
-                return pointer.path === path;
-            });
-            if (pointer) {
-                return pointer;
-            }
-            pointer = {
+    /*
+    on veut récuperer le scope le plus proche de program ou program
+    // https://github.com/babel/babel/blob/8a82cc060ae0ab46bf52e05e592de770bd246f6f/packages/babel-traverse/src/scope/index.js#L817
+    */
+    const createPointers = () => {
+        const pointers = []
+        const createPointer = (path) => {
+            const pointer = {
                 path: path,
-                dependencies: [],
-                dependents: []
-            };
-            pointers.push(pointer);
-            return pointer;
-        }
-        function getPathOwner(path) {
-            var node = path.node;
-            if (node.type === 'Identifier') {
-                return path.parentPath;
+                references: []
             }
-            return path;
+            return pointer
         }
-        function getGlobalPathOwner(path) {
-            var currentPath = getPathOwner(path);
-            var currentScope = path.scope;
-            while (currentScope !== scope) {
-                currentPath = getPathOwner(currentPath.parentPath);
-                if (!currentPath) {
-                    throw new Error('cannot find a shared scope');
-                }
-                currentScope = currentPath.scope;
+        const findPointer = (path) => pointers.find((pointer) => pointer.path === path)
+        const addPointer = (path) => {
+            const existingPointer = findPointer(path)
+            if (existingPointer) {
+                return existingPointer
             }
-            return currentPath;
+            const pointer = createPointer(path)
+            pointers.push(pointer)
+            return pointer
         }
-        var globalPointers = Object.keys(bindings).map(function(name) {
-            var binding = bindings[name];
-            var pointer = createPointer(binding.path);
+        const rootScope = rootPath.scope
+        const bindings = rootScope.getAllBindings()
 
-            pointer.identifier = binding.identifier;
-            binding.referencePaths.forEach(function(referencePath) {
-                var dependentPath = getGlobalPathOwner(referencePath);
+        Object.keys(bindings).map((name) => {
+            const binding = bindings[name]
+            const path = binding.path
+            // const scope = path.scope
+            const pointer = addPointer(path)
+            binding.referencePaths.forEach((referencePath) => {
+                pointer.references.push(referencePath)
+                log(pointer, 'is referenced by', referencePath)
+            })
+            return pointer
+        })
 
-                if (dependentPath) {
-                    var dependent = createPointer(dependentPath);
-                    pointer.dependents.push(dependent);
-                    dependent.dependencies.push(pointer);
-                    // log(dependent, 'depends on', pointer);
-                }
-            });
-
-            return pointer;
-        });
-
-        return globalPointers;
+        return pointers
     }
-    function markPointerAsDead(pointer) {
-        markAsDead(pointer.path);
-        // when path is marked as dead it means we don't care about dependents anymore
-        // but dependencies may not be elligible for dead mark
-        pointer.dependents.forEach(function(dependent) {
-            visitPointer(dependent);
-        });
-        pointer.dependencies.forEach(function(dependency) {
-            visitPointer(dependency);
-        });
+    const pointers = createPointers()
+    const getExportInstruction = (path) => {
+        var parentPath = path.parentPath
+        var parentNode = parentPath.node
+        if (parentNode.type === 'ExportNamedDeclaration') {
+            return parentPath
+        }
+        return null
     }
-    function isPointerKillable(pointer) {
-        function getExportInstruction(path) {
-            var parentPath = path.parentPath;
-            var parentNode = parentPath.node;
-            if (parentNode.type === 'ExportNamedDeclaration') {
-                return parentPath;
+    const weak = (reason) => {
+        return {type: 'weak', reason: reason}
+    }
+    const strong = (reason) => {
+        return {type: 'strong', reason: reason}
+    }
+    // https://github.com/babel/babel/blob/8a82cc060ae0ab46bf52e05e592de770bd246f6f/packages/babel-traverse/src/scope/index.js#L817
+    const getMostSuperficialScope = (scope) => {
+        var mostSuperficialScope = scope
+        var previousValidScope = null
+        var scopeOrAncestor = scope
+        while (scopeOrAncestor) {
+            if (scopeOrAncestor.path.isProgram()) {
+                mostSuperficialScope = previousValidScope || scopeOrAncestor
+                break
             }
-            return null;
-        }
-        function weak(reason) {
-            return {type: 'weak', reason: reason};
-        }
-        function strong(reason) {
-            return {type: 'strong', reason: reason};
-        }
-        function getPointerStatus(pointer) {
-            var path = pointer.path;
-            if (isDead(path)) {
-                return weak('path-marked-as-dead');
+            else if (scopeOrAncestor.path.isBlockParent()) {
+                previousValidScope = scopeOrAncestor
+                mostSuperficialScope = scopeOrAncestor
             }
+            scopeOrAncestor = scopeOrAncestor.parent
+        }
+        return mostSuperficialScope
+    }
+    const getMostSuperficialPath = (path) => getMostSuperficialScope(path.scope).path
+    const getPathStatus = (path) => {
+        if (isDead(path)) {
+            return weak('path-marked-as-dead')
+        }
 
-            var node = path.node;
-            if (node.type === 'ExportDefaultDeclaration') {
-                // var declaration = dependentNode.declaration;
-                if (nameWillBeRemoved('default')) {
-                    return weak('export-default-is-dead');
-                }
-                return strong('export-default-is-alive');
+        const node = path.node
+        if (node.type === 'ExportDefaultDeclaration') {
+            if (nameWillBeRemoved('default')) {
+                return weak('export-default-is-dead')
             }
-            if (node.type === 'ExportNamedDeclaration') {
-                var declaration = node.declaration;
-                if (declaration) {
-                    if (declaration.type === 'VariableDeclaration') {
-                        if (nameWillBeRemoved(declaration.declarations[0].id.name)) {
-                            return weak('export-declared-variable-is-dead');
-                        }
-                        return strong('export-declared-variable-is-alive');
+            return strong('export-default-is-alive')
+        }
+        if (node.type === 'ExportNamedDeclaration') {
+            var declaration = node.declaration
+            if (declaration) {
+                if (declaration.type === 'VariableDeclaration') {
+                    if (nameWillBeRemoved(declaration.declarations[0].id.name)) {
+                        return weak('export-declared-variable-is-dead')
                     }
-                    if (declaration.type === 'FunctionDeclaration') {
-                        if (nameWillBeRemoved(node.declaration.id.name)) {
-                            return weak('export-declared-function-is-dead');
-                        }
-                        return strong('export-declared-function-is-alive');
+                    return strong('export-declared-variable-is-alive')
+                }
+                if (declaration.type === 'FunctionDeclaration') {
+                    if (nameWillBeRemoved(node.declaration.id.name)) {
+                        return weak('export-declared-function-is-dead')
                     }
+                    return strong('export-declared-function-is-alive')
                 }
-                return weak('export-named-is-alive');
             }
-            if (node.type === 'ExportSpecifier') {
-                if (nameWillBeRemoved(node.local.name)) {
-                    return weak('export-specifier-is-dead');
-                }
-                return strong('export-specifier-is-alive');
+            return strong('export-named-is-alive')
+        }
+        if (node.type === 'ExportSpecifier') {
+            if (nameWillBeRemoved(node.local.name)) {
+                return weak('export-specifier-is-dead')
             }
-            if (node.type === 'VariableDeclarator') {
-                var declarationPath = path.parentPath;
-                var exportPath = getExportInstruction(declarationPath);
-                if (exportPath) {
-                    if (nameWillBeRemoved(node.id.name)) {
-                        return weak('variable-export-is-dead');
-                    }
-                    return strong('variable-export-is-alive');
+            return strong('export-specifier-is-alive')
+        }
+        if (node.type === 'VariableDeclarator') {
+            var declarationPath = path.parentPath
+            var exportPath = getExportInstruction(declarationPath)
+            if (exportPath) {
+                if (nameWillBeRemoved(node.id.name)) {
+                    return weak('variable-export-is-dead')
                 }
-                if (pointer.identifier) {
-                    return weak('global-variable-not-exported');
-                }
-                return strong('local-variable-is-strong');
+                return strong('variable-export-is-alive')
             }
-            if (node.type === 'FunctionDeclaration') {
-                var functionPath = path.parentPath;
-                var functionExportPath = getExportInstruction(functionPath);
+            return strong('variable')
+            // const mostSuperficialScope = getMostSuperficialScope(path)
+            // return getPathStatus()
+        }
+        if (node.type === 'FunctionDeclaration') {
+            const mostSuperficialPath = getMostSuperficialPath(path)
+            // global function
+            if (mostSuperficialPath === path) {
+                var functionExportPath = getExportInstruction(path)
                 if (functionExportPath) {
                     if (nameWillBeRemoved(node.id.name)) {
-                        return weak('function-export-is-dead');
+                        return weak('function-export-is-dead')
                     }
-                    return strong('function-export-is-alive');
+                    return strong('function-export-is-alive')
                 }
-                if (pointer.identifier) {
-                    return weak('global-function-not-exported');
-                }
-                return strong('local-function-is-strong');
+                // if the function is not exported it's supposed to be dead
+                // but preserve them for now
+                return strong('function-global-not-exported')
             }
-            return strong('strong-by-default');
+            return getPathStatus(mostSuperficialPath)
         }
 
-        var referenceStatus = getPointerStatus(pointer);
-        if (referenceStatus.type === 'strong') {
-            log(pointer, 'cannot be killed because', referenceStatus.reason);
-            return false;
-        }
-
-        var strongDependent = pointer.dependents.find(function(dependent) {
-            return getPointerStatus(dependent).type === 'strong';
-        });
-        if (strongDependent) {
-            log(
-                pointer, 'alive by dependent',
-                strongDependent, getPointerStatus(strongDependent).reason
-            );
-            return false;
-        }
-        var strongDependency = pointer.dependencies.find(function(dependency) {
-            return getPointerStatus(dependency).type === 'strong';
-        });
-        if (strongDependency) {
-            log(
-                pointer, 'alive by dependency',
-                strongDependency, getPointerStatus(strongDependency).reason
-            );
-            return false;
-        }
-        return true;
+        return strong('strong-by-default')
     }
-    function visitPointer(pointer) {
-        if (isDead(pointer.path)) {
-            return;
-        }
-        // la seule manière qu'un pointeur soit dead c'est qu'il ait dans ses dependents
-        // un export qu'on souhait supprimé
-        // et rien qu'on ne souhaite garder
 
-        var dependents = pointer.dependents;
-        var hasNoDependents = dependents.length === 0;
-        if (hasNoDependents) {
-            // si pointer.dependents.length === 0
-            // il ne "faut pas" supprimer ce noeud parce que même si a priori
-            // cela signifique que le noeud n'ets utilisé nul part
-            // ça ne fait pas partie de la logique quo'n met en place ici qui est
-            // que si le noeud était utilisé par un export il est supprimé
-            // mais pas si il n'est pas utilisé du tout
-            log(pointer, 'has no dependents');
-            var isKillable2 = isPointerKillable(pointer);
-            if (isKillable2) {
-                markPointerAsDead(pointer);
-            }
-        } else {
-            log(pointer, 'may be dead, check dependents');
-            var isKillable = isPointerKillable(pointer);
-            if (isKillable) {
-                markPointerAsDead(pointer);
-            }
+    pointers.forEach((pointer) => {
+        var pathStatus = getPathStatus(pointer.path)
+        if (pathStatus.type === 'strong') {
+            log(pointer, 'cannot be killed because', pathStatus.reason)
+            return false
         }
-    }
-    var graph = createGraph();
-    graph.forEach(function(pointer) {
-        visitPointer(pointer);
-    });
 
-    return deadPaths;
+        const references = pointer.references
+        const strongReference = references.find((reference) => {
+            return getPathStatus(reference).type === 'strong'
+        })
+        if (strongReference) {
+            log(
+                pointer, 'alive by reference',
+                strongReference, 'which is alive because', getPathStatus(strongReference).reason
+            )
+            return false
+        }
+
+        markAsDead(pointer.path)
+    })
+
+    return deadPaths
 }
 
-module.exports = getExportRemovalDeadPaths;
+module.exports = getExportRemovalDeadPaths
 
  // path.traverse({
 //     ExportDefaultDeclaration: function(path) {

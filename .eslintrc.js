@@ -43,6 +43,21 @@ module.exports = {
         ],
         "no-eval": [
             "off"
+        ],
+        "semi": [
+            "error",
+            "never"
+        ],
+        "brace-style": [
+            "error",
+            "stroustrup"
+        ],
+        "arrow-parens": [
+            "error",
+            "always"
+            // {
+            //     "requireForBlockBody": true
+            // }
         ]
     }
 };
