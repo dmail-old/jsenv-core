@@ -8,9 +8,9 @@
 
 */
 
-var getExportRemovalDeadPaths = require('./get-export-removal-dead-paths')
+var getExportRemovalDeadPaths = require('./get-export-removal-dead-paths.js')
 
-const removeReference = (names) => {
+const createRemoveExportPlugin = (names) => {
     names = names.slice()
 
     const removeReferencePlugin = () => {
@@ -88,4 +88,4 @@ const removeReference = (names) => {
     return removeReferencePlugin
 }
 
-module.exports = removeReference
+module.exports = createRemoveExportPlugin

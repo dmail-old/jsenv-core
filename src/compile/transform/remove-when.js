@@ -11,35 +11,35 @@ et aussi pouvoir remplacer les variable des imports
 // var mapAsync = require('../api/util/map-async.js');
 
 function removeWhen(node, fn) {
-    var removedNodes = [];
+    const removedNodes = []
 
     function removeDependenciesWhen(node) {
         return node.dependencies.reduce(function(previous, dependency) {
             return previous.then(function() {
-                return fn(dependency);
+                return fn(dependency)
             }).then(function(isFiltered) {
                 if (isFiltered) {
-                    removedNodes.push(dependency);
+                    removedNodes.push(dependency)
                     dependency.dependents.forEach(function(dependent) {
-                        var index = dependent.dependencies.indexOf(dependency);
-                        var importation = dependent.importations[index];
+                        var index = dependent.dependencies.indexOf(dependency)
+                        var importation = dependent.importations[index]
                         if (importation.length > 0) {
-                            throw new Error('cannot remove a named import');
+                            throw new Error('cannot remove a named import')
                         }
-                        dependent.dependencies.splice(index, 1);
-                        dependent.importations.splice(index, 1);
-                    });
+                        dependent.dependencies.splice(index, 1)
+                        dependent.importations.splice(index, 1)
+                    })
                 }
-                return removeDependenciesWhen(dependency);
-            });
-        }, Promise.resolve());
+                return removeDependenciesWhen(dependency)
+            })
+        }, Promise.resolve())
     }
 
     return removeDependenciesWhen(node).then(function() {
-        return removedNodes;
-    });
+        return removedNodes
+    })
 }
-module.exports = removeWhen;
+module.exports = removeWhen
 
 // var parse = require('./parse.js');
 // parse('src/trace/fixtures/conditional/entry.js').then(function(trace) {

@@ -1,4 +1,4 @@
-var removeReference = require('./babel-plugin-remove-reference.js')
+var createRemoveExport = require('./create-remove-export.js')
 var fs = require('fs')
 var assert = require('assert')
 
@@ -8,7 +8,7 @@ const test = (name, names) => {
     const babel = require('babel-core')
     const result = babel.transform(fixture, {
         plugins: [
-            removeReference(names)
+            createRemoveExport(names)
         ]
     })
     const actual = result.code
