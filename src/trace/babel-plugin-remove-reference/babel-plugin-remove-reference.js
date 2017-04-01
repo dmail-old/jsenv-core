@@ -14,27 +14,42 @@ const removeReference = (names) => {
     names = names.slice()
 
     const removeReferencePlugin = () => {
-        var removers = {
+        const removers = {
+            ExportDefaultDeclaration(path) {
+                path.remove()
+            },
+            ExportNamedDeclaration(path) {
+                path.remove()
+            },
+            ExportSpecifier(path) {
+                const exportSpecifier = path.node
+                const namedExportPath = path.parentPath
+                const namedExport = namedExportPath.node
+                const specifiers = namedExport.specifiers
+                const filteredSpecifiers = specifiers.filter((specifier) => specifier !== exportSpecifier)
+                namedExport.specifiers = filteredSpecifiers
+
+                if (filteredSpecifiers.length === 0) {
+                    removePath(namedExportPath)
+                }
+            },
             VariableDeclaration(path) {
-                var parentPath = path.parentPath
-                var parentNode = parentPath.node
+                const parentPath = path.parentPath
 
                 path.remove()
-                if (parentNode.type === 'ExportDefaultDeclaration') {
+                if (parentPath.isExportDefaultDeclaration()) {
                     removePath(parentPath)
                 }
-                else if (parentNode.type === 'ExportNamedDeclaration') {
+                else if (parentPath.isExportNamedDeclaration()) {
                     // seems to be autoremoved when variable declaration is removed
-                    // console.log('wanned remove named export', parentPath.node);
-                    // removePath(parentPath);
                 }
             },
             VariableDeclarator(path) {
-                var variableDeclarator = path.node
-                var variableDeclarationPath = path.parentPath
-                var variableDeclaration = variableDeclarationPath.node
-                var declarations = variableDeclaration.declarations
-                var filteredDeclarations = declarations.filter(function(declarator) {
+                const variableDeclarator = path.node
+                const variableDeclarationPath = path.parentPath
+                const variableDeclaration = variableDeclarationPath.node
+                const declarations = variableDeclaration.declarations
+                const filteredDeclarations = declarations.filter(function(declarator) {
                     return declarator !== variableDeclarator
                 })
                 variableDeclaration.declarations = filteredDeclarations
@@ -43,40 +58,8 @@ const removeReference = (names) => {
                     removePath(variableDeclarationPath)
                 }
             },
-            ExportDefaultDeclaration(path) {
-                // var node = path.node;
-                // var declaration = node.declaration;
-                // if (declaration) {
-                //     console.log('the declaration', declaration);
-                // }
-                path.remove()
-            },
-            ExportNamedDeclaration(path) {
-                // var node = path.node;
-                // var declaration = node.declaration;
-                // if (declaration) {
-                //     console.log('the declaration', declaration);
-                // }
-                path.remove()
-            },
-            ExportSpecifier(path) {
-                var exportSpecifier = path.node
-                var namedExportPath = path.parentPath
-                var namedExport = namedExportPath.node
-                var specifiers = namedExport.specifiers
-                var filteredSpecifiers = specifiers.filter((specifier) => specifier !== exportSpecifier)
-                namedExport.specifiers = filteredSpecifiers
-
-                if (filteredSpecifiers.length === 0) {
-                    removePath(namedExportPath)
-                }
-            },
             FunctionDeclaration(path) {
                 path.remove()
-            },
-            Identifier(path) {
-                const parentPath = path.parentPath
-                removePath(parentPath)
             }
         }
         const removePath = (path) => {

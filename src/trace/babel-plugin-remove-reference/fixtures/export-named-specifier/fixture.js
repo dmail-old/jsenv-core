@@ -1,2 +1,2 @@
-const willBeRemoved = true;
-export {willBeRemoved};
+const willBeRemoved = true
+export {willBeRemoved}

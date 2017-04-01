@@ -45,7 +45,11 @@ const convertNodeToHumanString = (node) => {
     }
     return humanString
 }
+const logEnabled = !true
 function log() {
+    if (!logEnabled) {
+        return
+    }
     const args = Array.prototype.slice.call(arguments)
     const formattedArgs = args.map((arg) => {
         if (typeof arg === 'object') {
@@ -71,51 +75,72 @@ function log() {
 }
 
 const getExportRemovalDeadPaths = (rootPath, state, exportNamesToRemove) => {
-    var deadPaths = []
+    let deadPaths = []
 
-    const isGlobalVariableDeclarator = (path) => {
-        if (path.isVariableDeclarator() === false) {
-            return false
-        }
-        const variableDeclaration = path.parentPath
-        const variableDeclarationParent = variableDeclaration.parentPath
-        if (variableDeclarationParent.isProgram()) {
-            return true
-        }
-        if (variableDeclarationParent.isExportNamedDeclaration()) {
-            return true
-        }
-        return false
+    const nameWillBeRemoved = (name) => {
+        return exportNamesToRemove.indexOf(name) > -1
     }
-    const isGlobalFunctionDeclaration = (path) => {
-        if (path.isFunctionDeclaration() === false) {
-            return false
-        }
-        const parent = path.parentPath
-        if (parent.isProgram()) {
-            return true
-        }
-        if (parent.isExportNamedDeclaration()) {
-            return true
-        }
-        if (parent.isExportDefaultDeclaration()) {
-            return true
-        }
-        return false
-    }
-    const getGlobalOwner = (path) => {
-        return path.find((pathOrAncestor) => {
-            if (pathOrAncestor.parentPath.isProgram()) {
-                return true
+    // special case when export default does not use binding at all (expression)
+    if (nameWillBeRemoved('default')) {
+        let exportDefaultDeclaration
+        rootPath.traverse({
+            ExportDefaultDeclaration(path) {
+                exportDefaultDeclaration = path
             }
-            if (isGlobalVariableDeclarator(pathOrAncestor)) {
-                return true
-            }
-            if (isGlobalFunctionDeclaration(pathOrAncestor)) {
-                return true
-            }
-            return false
         })
+        if (exportDefaultDeclaration) {
+            const declaration = exportDefaultDeclaration.get('declaration')
+            if (declaration.isExpression() || declaration.isLiteral()) {
+                deadPaths.push(exportDefaultDeclaration)
+            }
+        }
+    }
+    const weak = (reason) => {
+        return {type: 'weak', reason: reason}
+    }
+    const strong = (reason) => {
+        return {type: 'strong', reason: reason}
+    }
+    const isWeak = (state) => state.type === 'weak'
+    const isStrong = (state) => state.type === 'strong'
+    const visitors = {
+        Program() {
+            return weak('weak-when-owned-by-program')
+        },
+        ExportNamedDeclaration(path) {
+            const declaration = path.get('declaration')
+            if (declaration) {
+                if (declaration.isVariableDeclaration()) {
+                    const firstVariableDeclarator = declaration.get('declarations')[0]
+                    if (nameWillBeRemoved(firstVariableDeclarator.node.id.name)) {
+                        return weak('export-named-declaration-is-dead')
+                    }
+                    return strong('export-named-declaration-is-alive')
+                }
+                if (declaration.isFunctionDeclaration()) {
+                    if (nameWillBeRemoved(declaration.node.id.name)) {
+                        return weak('export-named-declaration-is-dead')
+                    }
+                    return strong('export-named-declaration-is-alive')
+                }
+            }
+        },
+        ExportSpecifier(path) {
+            if (nameWillBeRemoved(path.node.local.name)) {
+                return weak('export-specifier-is-dead')
+            }
+            return strong('export-specifier-is-alive')
+        },
+        ExportDefaultDeclaration() {
+            if (nameWillBeRemoved('default')) {
+                return weak('export-default-is-dead')
+            }
+            return strong('export-default-is-alive')
+        }
+    }
+    const isGlobalOwner = (path) => path.node.type in visitors
+    const getGlobalOwner = (path) => {
+        return path.find((pathOrAncestor) => isGlobalOwner(pathOrAncestor))
     }
     const createPointers = () => {
         const createPointer = (path) => {
@@ -134,21 +159,18 @@ const getExportRemovalDeadPaths = (rootPath, state, exportNamesToRemove) => {
             const binding = bindings[name]
             const path = binding.path
             const pointer = createPointer(path)
-            log('global pointer', pointer)
+            // log('global pointer', pointer)
             pointer.references = binding.referencePaths.slice()
             return pointer
         })
-
         pointers.forEach((pointer) => {
             pointer.references.forEach((reference) => {
-                const ownerPath = getGlobalOwner(reference)
-                const ownerPointer = pointers.find((pointer) => {
+                const ownerPointer = pointers.find((possibleOwner) => {
                     return (
-                        pointer.path === ownerPath ||
-                        ownerPath.isDescendant(pointer.path)
+                        reference === possibleOwner.path ||
+                        reference.isDescendant(possibleOwner.path)
                     )
                 })
-
                 if (ownerPointer) {
                     if (pointer === ownerPointer) {
                         log(reference, 'is internal to', pointer)
@@ -160,183 +182,143 @@ const getExportRemovalDeadPaths = (rootPath, state, exportNamesToRemove) => {
                     }
                 }
                 else {
-                    // no owner means program is the owner
-                    log('no owner for', reference)
-                    // console.log('which is inside', reference.parentPath.node)
+                    log(reference, 'owned by program')
+                }
+                if (pointer) {
+                    return true
                 }
             })
         })
-
         return pointers
     }
-
-    const nameWillBeRemoved = (name) => {
-        return exportNamesToRemove.indexOf(name) > -1
-    }
-    const getStatus = (path) => {
-        var i = 0
-        var j = deadPaths.length
-        var status = 'alive'
-        while (i < j) {
-            var deadPath = deadPaths[i]
+    const getAliveState = (path) => {
+        for (const deadPath of deadPaths) {
             if (path === deadPath) {
-                status = 'dead'
-                break
-            }
-            if (!path.isDescendant) {
-                console.log('path', path)
+                return weak('marked-as-dead')
             }
             if (path.isDescendant(deadPath)) {
-                status = 'dead-by-ancestor'
-                break
+                return weak('dead-by-ancestor')
             }
-            i++
         }
-        return status
+        return strong('alive')
     }
-    const markAsDead = (path) => {
-        var status = getStatus(path)
-        if (status === 'dead') {
-            log(path, 'already marked as dead')
+    const getPathState = (path) => {
+        const ownerPath = getGlobalOwner(path)
+        if (!ownerPath) {
+            throw new Error('no owner path')
+        }
+        else if (ownerPath === path) {
+
+        }
+        else {
+            // log('getState delagated to', ownerPath, 'from', path)
+        }
+
+        const aliveState = getAliveState(ownerPath)
+        if (isWeak(aliveState)) {
+            return aliveState
+        }
+        return visitors[ownerPath.node.type](ownerPath)
+    }
+    const getPointerState = (pointer, visiteds = []) => {
+        if (visiteds.includes(pointer)) {
+            return weak('visited')
+        }
+        visiteds.push(pointer)
+
+        const pathState = getPathState(pointer.path)
+        if (isStrong(pathState)) {
+            return pathState
+        }
+
+        const findStrongReference = (pointer) => {
+            for (const reference of pointer.references) {
+                const referenceState = getPathState(reference)
+                if (isStrong(referenceState)) {
+                    return reference
+                }
+            }
+        }
+        const strongReference = findStrongReference(pointer)
+        if (strongReference) {
+            log(
+                pointer, 'alive by reference',
+                strongReference, 'which is alive because', getPathState(strongReference).reason
+            )
+            return strong('alive-by-reference')
+        }
+
+        const findStrongDependency = (pointer) => {
+            const dependencies = pointer.dependencies
+
+            for (const dependency of dependencies) {
+                const dependencyState = getPointerState(dependency, visiteds)
+                if (isStrong(dependencyState)) {
+                    return dependency
+                }
+                const strongNestedDependency = findStrongDependency(dependency)
+                if (strongNestedDependency) {
+                    return strongNestedDependency
+                }
+            }
+        }
+        const strongDependency = findStrongDependency(pointer)
+        if (strongDependency) {
+            log(
+                pointer, 'alive by dependency to',
+                strongDependency, 'which is alive because', getPointerState(strongDependency).reason
+            )
+            return strong('alive-by-dependency')
+        }
+
+        const strongDependent = pointer.dependents.find((dependent) => {
+            const dependentState = getPointerState(dependent, visiteds)
+            if (isStrong(dependentState)) {
+                return true
+            }
+            return false
+        })
+        if (strongDependent) {
+            log(
+                pointer, 'alive by dependent',
+                strongDependent, 'which is alive because', getPointerState(strongDependent).reason
+            )
+            return strong('alive-by-dependent')
+        }
+
+        return pathState
+    }
+    const isKillable = (pointer) => {
+        const state = getPointerState(pointer)
+        if (isStrong(state)) {
+            log(pointer, 'cannot be killed because', state.reason)
             return false
         }
-        if (status === 'dead-by-ancestor') {
-            log(path, 'already dead by ancestor')
+        log(pointer, 'can be killed because', state.reason)
+        return true
+    }
+    const markAsDead = (path) => {
+        const ownerPath = getGlobalOwner(path)
+        const pathToRemove = ownerPath.isProgram() ? path : ownerPath
+        const aliveState = getAliveState(pathToRemove)
+        if (isWeak(aliveState)) {
+            log(pathToRemove, 'already dead because', aliveState.reason)
             return false
         }
         // supprime les noeuds dead lorsqu'ils sont
         // à l'intérieur d'un path lui même dead
         deadPaths = deadPaths.filter(function(deadPath) {
-            var isDescendant = deadPath.isDescendant(path)
+            var isDescendant = deadPath.isDescendant(pathToRemove)
             if (isDescendant) {
                 log(
                     'exclude', deadPath,
-                    'because inside', path
+                    'because inside', pathToRemove
                 )
             }
             return isDescendant === false
         })
-        deadPaths.push(path)
-        log(path, 'marked as dead')
-        return true
-    }
-    const isDead = (path) => {
-        return getStatus(path) !== 'alive'
-    }
-    const weak = (reason) => {
-        return {type: 'weak', reason: reason}
-    }
-    const strong = (reason) => {
-        return {type: 'strong', reason: reason}
-    }
-    const getState = (path) => {
-        if (isDead(path)) {
-            return weak('path-marked-as-dead')
-        }
-        if (path.isIdentifier()) {
-            return getState(path.parentPath)
-        }
-        if (path.isExportNamedDeclaration()) {
-            const declaration = path.get('declaration')
-            if (declaration.isVariableDeclaration()) {
-                const firstVariableDeclarator = declaration.get('declarations')[0]
-                return getState(firstVariableDeclarator)
-            }
-            return getState(declaration)
-        }
-        if (path.isExportDefaultDeclaration()) {
-            if (nameWillBeRemoved('default')) {
-                return weak('export-default-is-dead')
-            }
-            return strong('export-default-is-alive')
-        }
-        if (path.isExportSpecifier()) {
-            if (nameWillBeRemoved(path.node.local.name)) {
-                return weak('export-specifier-is-dead')
-            }
-            return strong('export-specifier-is-alive')
-        }
-        if (path.isVariableDeclarator()) {
-            const declarationPath = path.parentPath
-            const declarationParentPath = declarationPath.parentPath
-            if (declarationParentPath.isExportNamedDeclaration()) {
-                if (nameWillBeRemoved(path.node.id.name)) {
-                    return weak('export-named-declared-variable-is-dead')
-                }
-                return strong('export-named-declared-variable-is-alive')
-            }
-            // const exportDefaultDeclaration = pointer.references.find((reference) => {
-            //     return reference.parentPath.isExportDefaultDeclaration()
-            // })
-            // if (exportDefaultDeclaration) {
-            //     if (nameWillBeRemoved('default')) {
-            //         return weak('identifier-referenced-by-dead-export-default')
-            //     }
-            //     return strong('identifier-referenced-by-alive-export-default')
-            // }
-            return weak('variable')
-        }
-        if (path.isFunctionDeclaration()) {
-            const parentPath = path.parentPath
-            if (parentPath.isExportNamedDeclaration()) {
-                if (nameWillBeRemoved(path.node.id.name)) {
-                    return weak('export-named-declared-function-is-dead')
-                }
-                return strong('export-named-declared-function-is-alive')
-            }
-            if (parentPath.isExportDefaultDeclaration()) {
-                if (nameWillBeRemoved('default')) {
-                    return weak('export-default-declared-function-is-dead')
-                }
-                return strong('export-default-declared-function-is-alive')
-            }
-            return weak('function')
-        }
-
-        return strong('strong-by-default')
-    }
-    const isKillable = (pointer) => {
-        const state = getState(pointer.path)
-        if (state.type === 'strong') {
-            log(pointer, 'cannot be killed because', getState.reason)
-            return false
-        }
-
-        const references = pointer.references
-        const strongReference = references.find((reference) => {
-            return getState(reference).type === 'strong'
-        })
-        if (strongReference) {
-            log(
-                pointer, 'alive by reference',
-                strongReference, 'which is alive because', getState(strongReference).reason
-            )
-            return false
-        }
-
-        const dependencies = pointer.dependencies
-        const strongDependency = dependencies.find((dependency) => {
-            return getState(dependency.path).type === 'strong'
-        })
-        if (strongDependency) {
-            log(
-                pointer, 'alive by dependency to',
-                strongDependency, 'which is alive because', getState(strongDependency.path).reason
-            )
-            return false
-        }
-
-        // const dependents = pointer.dependencies
-        // const strongDependency = dependencies.find((dependency) => {
-        //     return getPointerStatus(dependency).type === 'strong'
-        // })
-        // if (strongDependency) {
-        //     log(
-        //         pointer, 'alive by dependency to',
-        //         strongDependency, 'which is alive because', getPointerStatus(strongDependency).reason
-        //     )
-        //     return false
-        // }
+        deadPaths.push(pathToRemove)
+        log(pathToRemove, 'marked as dead')
         return true
     }
 
@@ -344,7 +326,6 @@ const getExportRemovalDeadPaths = (rootPath, state, exportNamesToRemove) => {
     pointers.forEach((pointer) => {
         if (isKillable(pointer)) {
             markAsDead(pointer.path)
-            // supprime aussi toutes les références qui sont donc dead
             pointer.references.forEach((reference) => {
                 markAsDead(reference)
             })
