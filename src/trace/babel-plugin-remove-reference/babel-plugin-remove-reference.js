@@ -73,6 +73,10 @@ const removeReference = (names) => {
             },
             FunctionDeclaration(path) {
                 path.remove()
+            },
+            Identifier(path) {
+                const parentPath = path.parentPath
+                removePath(parentPath)
             }
         }
         const removePath = (path) => {

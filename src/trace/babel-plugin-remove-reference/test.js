@@ -13,14 +13,19 @@ const test = (name, names) => {
     })
     const actual = result.code
 
-    assert.equal(actual, expected, name + ' did not matched expected output')
+    assert.equal(actual, expected, `${name} failed
+---- actual -----
+${actual}
+----- expected -----
+${expected}
+`)
 }
 
 // test('export-default-declaration-function', ['default'])
 // test('export-default-declaration-identifier', ['default'])
 // test('export-named-declaration', ['willBeRemoved'])
 // test('export-named-specifier', ['willBeRemoved'])
-// test('export-named-specifier', ['willBeRemoved'])
+// test('export-named-specifier-multiple', ['willBeRemoved'])
 // test('weak-variable', ['willBeRemoved'])
 // test('strong-variable', ['willBeRemoved'])
-test('strong-function', ['willBeRemoved'])
+// test('strong-function', ['willBeRemoved'])

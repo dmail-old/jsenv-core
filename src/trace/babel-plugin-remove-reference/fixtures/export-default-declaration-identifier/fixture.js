@@ -1,2 +1,2 @@
-const willBeRemoved = true;
-export default willBeRemoved;
+const willBeRemoved = true
+export default willBeRemoved
