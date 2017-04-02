@@ -2,14 +2,9 @@
 
 // http://exploringjs.com/es6/ch_modules.html#sec_importing-exporting-details
 
-encore un truc: je pense qu'il faudrais ptet changer la manière dont on exprime tout ça
-pour qu'on ne répète pas from sur chaque member mais surtout pour qu'on puisse détecter
-import 'file.js' parce que comme on importe rien de file.js ici
-bah en gros on ne saurais même pas que cet import existe
-
 */
 
-const createParseRessourcesPlugin = (ressources) => {
+const createParseRessourcesPlugin = (ressources, normalize = (id) => id) => {
     const createRessource = (id) => {
         return {
             id,
@@ -17,14 +12,14 @@ const createParseRessourcesPlugin = (ressources) => {
             members: []
         }
     }
-    const addRessource = (id) => {
-        const ressource = createRessource(id)
+    const traceRessource = (importee, importer) => {
+        const normalizedId = normalize(importee, importer)
+        const existingRessource = ressources.find((ressource) => ressource.id === normalizedId)
+        if (existingRessource) {
+            return existingRessource
+        }
+        const ressource = createRessource(normalizedId)
         ressources.push(ressource)
-        return ressource
-    }
-    const traceRessource = (id) => {
-        const existingRessource = ressources.find((ressource) => ressource.id === id)
-        const ressource = existingRessource || addRessource(id)
         return ressource
     }
 
@@ -68,24 +63,15 @@ const createParseRessourcesPlugin = (ressources) => {
         // console.log(path.node.type, 'bindings are declared by import & only used by export')
         return 'unreferenced'
     }
-    const traceMember = (member, id) => {
-        const ressource = traceRessource(id)
+    const traceImportedMember = (member, from) => {
+        const ressource = traceRessource(from, filename)
         ressource.members.push(member)
     }
-    const traceImportedMember = (member, from) => {
-        traceMember(Object.assign(
-            {},
-            member
-        ), from)
-    }
     const traceExportedMember = (member, path) => {
-        traceMember(Object.assign(
-            {},
-            member,
-            {
-                state: typeof path === 'string' ? path : getMemberState(path)
-            }
-        ), filename)
+        const ressource = traceRessource(filename)
+        ressource.members.push(Object.assign({}, member, {
+            state: typeof path === 'string' ? path : getMemberState(path)
+        }))
     }
 
     const visitors = {
@@ -96,7 +82,7 @@ const createParseRessourcesPlugin = (ressources) => {
             const node = path.node
             const source = node.source
 
-            traceRessource(source.value)
+            traceRessource(source.value, filename)
 
             path.traverse({
                 ImportSpecifier(path) {

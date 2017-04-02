@@ -1,8 +1,21 @@
+/*
+
+il faudra pouvoir en gros savoir quels member sont importé par qui et savoir si certain
+member sont inutilisé et candidat à être supprimé
+
+*/
+
 const babel = require('babel-core')
 const fs = require('fs')
 
 const mapAsync = require('../../api/util/map-async.js')
 const resolveIfNotPlain = require('./resolve-if-not-plain.js')
+const createReplaceImportVariables = require(
+    '../babel-plugin-transform-replace-import-variables/create-replace-import-variables.js'
+)
+const createParseRessources = require(
+    '../babel-plugin-parse-ressources/create-parse-ressources.js'
+)
 // const root = require('path').resolve(process.cwd(), '../../../').replace(/\\/g, '/')
 // const rootHref = 'file:///' + root
 
@@ -20,6 +33,7 @@ function getNodeFilename(filename) {
 }
 function readSource(filename) {
     filename = getNodeFilename(filename)
+    // console.log('reading', filename)
     return new Promise((resolve, reject) => {
         return fs.readFile(filename, (error, buffer) => {
             if (error) {
@@ -39,10 +53,10 @@ function parse(entryRelativeHref, {
     variables = {},
     baseHref,
     fetch = function(node, readSource) {
-        return readSource(node.path)
+        return readSource(node.href)
     }
 } = {}) {
-    baseHref = baseHref || 'file:///' + normalize(process.cwd()) + '/'
+    baseHref = baseHref || 'file:///' + normalize(process.cwd())
 
     // ensure trailing / so that we are absolutely sure it's a folder
     if (baseHref[baseHref.length - 1] !== '/') {
@@ -50,120 +64,94 @@ function parse(entryRelativeHref, {
     }
     // baseHref = baseHref.slice(0, baseHref.lastIndexOf('/'))
 
-    function resolve(importee, importer) {
+    const resolve = (importee, importer) => {
         const resolved = resolveIfNotPlain(importee, importer)
         if (resolved) {
             return resolved
         }
-        return baseHref + '/' + importee
+        return baseHref + importee
     }
-    function locate() {
-        const absoluteHref = resolve.apply(this, arguments)
-        // console.log(
-        //     'locate',
-        //     arguments[0],
-        //     '->',
-        //     absoluteHref,
-        //     'from',
-        //     arguments[1]
-        // );
-        return normalize(absoluteHref)
+    const locate = (...args) => normalize(resolve(...args))
+
+    const hrefToId = (href) => href.slice(baseHref.length)
+    const locateId = (importee, importer) => {
+        return hrefToId(locate(importee, importer))
     }
 
     const nodes = []
-    function findById(id) {
-        return nodes.find((node) => node.id === id)
+    const createNode = (href) => {
+        const node = {
+            id: hrefToId(href),
+            href,
+            dependencies: [],
+            dependents: [],
+            members: []
+        }
+        return node
     }
-    function createNode(href) {
-        var id = href.slice(baseHref.length)
-
-        var existingNode = findById(id)
+    const findNodeByHref = (href) => {
+        return nodes.find((node) => node.href === href)
+    }
+    const getNode = (href) => {
+        const existingNode = findNodeByHref(href)
         if (existingNode) {
             return existingNode
         }
-        var node = {
-            id: id,
-            path: href,
-            importations: [],
-            dependencies: [],
-            dependents: []
-        }
+        const node = createNode(href)
         nodes.push(node)
         return node
     }
-    function getDependenciesFromAst(node, ast) {
-        var astNodes = ast.program.body
-
-        return astNodes.map(
-            (astNode) => visit(astNode)
-        ).filter(
-            (result) => Boolean(result)
-        )
-    }
-    function transform(code) {
-        const trace = {}
-        babel.transform(code, {
+    const parseRessource = (node) => {
+        const ressources = []
+        // console.log('transforming', node.href)
+        babel.transform(node.code, {
             ast: true,
             code: false,
             sourceMaps: false,
             babelrc: false,
+            filename: node.href,
             plugins: [
-                createParseModule(trace)
+                createReplaceImportVariables(variables),
+                createParseRessources(ressources, locateId)
             ]
         })
-        return trace
+        return ressources
     }
-    function fetchAndTransform(node) {
+    const fetchAndParseRessources = (node) => {
         // console.log('fetching', node.id);
-        return Promise.resolve(fetch(node, readSource)).then(transform)
+        return Promise.resolve(fetch(node, readSource)).then((code) => {
+            node.code = code
+            return parseRessource(node)
+        })
     }
 
     const parseCache = {}
-    function parseNode(node) {
+    const parseNode = (node) => {
         let promise
         if (node.id in parseCache) {
             promise = parseCache[node.id]
         }
         else {
             promise = Promise.resolve(
-                fetchAndTransform(node)
-            ).then((result) => {
-                var astDependencies = getDependenciesFromAst(node, result.ast).map((astDependency) => {
-                    astDependency.path = astDependency.path.replace(/\$\{([^{}]+)\}/g, function(match, name) {
-                        if (name in variables) {
-                            return variables[name]
-                        }
-                        return match
-                    })
-                    return astDependency
-                })
-                const dependencies = astDependencies.map((astDependency) => {
-                    var dependencyHref = locate(astDependency.path, node.path)
-                    var dependencyNode = createNode(dependencyHref)
-                    return dependencyNode
-                })
-                dependencies.forEach((dependency, index) => {
-                    var dependencyIndex = node.dependencies.indexOf(dependency)
-                    if (dependencyIndex === -1) {
-                        node.dependencies.push(dependency)
-                        node.importations.push([])
+                fetchAndParseRessources(node)
+            ).then((ressources) => {
+                ressources.forEach((ressource) => {
+                    if (ressource.id === node.id) {
+                        console.log(node.id, 'is exporting', ressource.members)
+                        node.members.push(...ressource.members)
                     }
-
-                    if (dependency.dependents.indexOf(node) === -1) {
-                        dependency.dependents.push(node)
-                    }
-
-                    var astDependency = astDependencies[index]
-                    var importations = node.importations[index]
-                    var members = astDependency.members
-                    members.forEach((member) => {
-                        var memberName = member.name
-                        if (memberName) {
-                            if (importations.indexOf(memberName) === -1) {
-                                importations.push(memberName)
-                            }
+                    else {
+                        const dependency = getNode(baseHref + ressource.id)
+                        if (node.dependencies.includes(dependency) === false) {
+                            node.dependencies.push(dependency)
                         }
-                    })
+                        if (dependency.dependents.includes(node) === false) {
+                            dependency.dependents.push(node)
+                        }
+
+                        console.log(node.id, 'is importing', ressource.members)
+                        node.members.push(...ressource.members)
+                    }
                 })
 
                 return mapAsync(node.dependencies, parseNode).then(() => {
@@ -177,7 +165,7 @@ function parse(entryRelativeHref, {
     }
 
     return Promise.resolve(locate(entryRelativeHref, baseHref)).then((entryHref) => {
-        const entryNode = createNode(entryHref)
+        const entryNode = getNode(entryHref)
         return parseNode(entryNode).then(() => {
             return {
                 locate: locate,
