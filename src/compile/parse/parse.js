@@ -6,86 +6,6 @@ const resolveIfNotPlain = require('./resolve-if-not-plain.js')
 // const root = require('path').resolve(process.cwd(), '../../../').replace(/\\/g, '/')
 // const rootHref = 'file:///' + root
 
-const visitors = [
-    (node) => node.type === 'ImportDeclaration',
-    function transformImportDeclarationToDependency(node) {
-        var source = node.source
-        var specifiers = node.specifiers
-        var members = specifiers.map(function(specifier) { // eslint-disable-line
-            if (specifier.type === 'ImportSpecifier') {
-                return {
-                    name: specifier.local.name,
-                    as: specifier.imported ? specifier.imported.name : null
-                }
-            }
-            if (specifier.type === 'ImportDefaultSpecifier') {
-                return {
-                    name: 'default',
-                    as: specifier.local.name
-                }
-            }
-            if (specifier.type === 'ImportNamespaceSpecifier') {
-                return {
-                    name: '*',
-                    as: specifier.local.name
-                }
-            }
-        })
-        return {
-            path: source.value,
-            members: members
-        }
-    },
-
-    (node) => node.type === 'ExportNamedDeclaration',
-    function transformExportNamedDeclarationToDependency(node) {
-        var source = node.source
-
-        if (source) {
-            var specifiers = node.specifiers
-            var members = specifiers.map(function(specifier) { // eslint-disable-line
-                if (specifier.type === 'ExportSpecifier') {
-                    return {
-                        name: specifier.local.name,
-                        as: specifier.exported ? specifier.exported.name : null
-                    }
-                }
-            })
-            return {
-                path: source.value,
-                members: members
-            }
-        }
-    },
-
-    (node) => node.type === 'ExportAllDeclaration',
-    function transformExportAllDeclarationToDependency(node) {
-        var source = node.source
-        if (source) {
-            return {
-                path: source.value,
-                members: [
-                    {
-                        name: '*',
-                        as: null
-                    }
-                ]
-            }
-        }
-    }
-]
-function visit(node) {
-    let i = 0
-    const j = visitors.length
-    while (i < j) {
-        const visitWhen = visitors[i]
-        if (visitWhen(node)) {
-            i++
-            return visitors[i](node)
-        }
-        i += 2
-    }
-}
 function getNodeFilename(filename) {
     filename = String(filename)
 
@@ -118,8 +38,8 @@ function normalize(path) {
 function parse(entryRelativeHref, {
     variables = {},
     baseHref,
-    fetch = function(path, readSource) {
-        return readSource(path)
+    fetch = function(node, readSource) {
+        return readSource(node.path)
     }
 } = {}) {
     baseHref = baseHref || 'file:///' + normalize(process.cwd()) + '/'
@@ -181,17 +101,21 @@ function parse(entryRelativeHref, {
         )
     }
     function transform(code) {
-        return babel.transform(code, {
+        const trace = {}
+        babel.transform(code, {
             ast: true,
             code: false,
             sourceMaps: false,
             babelrc: false,
-            plugins: []
+            plugins: [
+                createParseModule(trace)
+            ]
         })
+        return trace
     }
     function fetchAndTransform(node) {
         // console.log('fetching', node.id);
-        return Promise.resolve(fetch(node.path, readSource)).then(transform)
+        return Promise.resolve(fetch(node, readSource)).then(transform)
     }
 
     const parseCache = {}
@@ -232,7 +156,7 @@ function parse(entryRelativeHref, {
                     var astDependency = astDependencies[index]
                     var importations = node.importations[index]
                     var members = astDependency.members
-                    members.forEach(function(member) {
+                    members.forEach((member) => {
                         var memberName = member.name
                         if (memberName) {
                             if (importations.indexOf(memberName) === -1) {
@@ -257,9 +181,7 @@ function parse(entryRelativeHref, {
         return parseNode(entryNode).then(() => {
             return {
                 locate: locate,
-                fetch: (node) => {
-                    return fetch(node.path, readSource)
-                },
+                fetch: (node) => fetch(node, readSource),
                 root: entryNode
             }
         })

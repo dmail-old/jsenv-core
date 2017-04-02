@@ -5,6 +5,10 @@ path : https://github.com/babel/babel/blob/8a82cc060ae0ab46bf52e05e592de770bd246
 ast explorer : https://astexplorer.net/
 les tests qu'il faudra passer : https://github.com/rollup/rollup/blob/master/test/function/bindings/foo.js
 
+penser aussi a getBindingIdentifiers
+qui j'ai l'impression retourn tous les identifier utilisé dans un path
+mais pes ceux référencés
+
 */
 
 const convertNodeToHumanString = (node) => {

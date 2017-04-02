@@ -1,0 +1,13 @@
+[
+    {
+        "type": "imported",
+        "path": "./file.js",
+        "name": "*"
+    },
+    {
+        "type": "exported",
+        "path": "fixture.js",
+        "name": "*",
+        "state": "inline-declaration"
+    }
+]
