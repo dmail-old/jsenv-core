@@ -1,0 +1,21 @@
+[
+    {
+        "id": "file.js",
+        "members": [
+            {
+                "name": "foo",
+                "as": "default"
+            }
+        ]
+    },
+    {
+        "id": "fixture.js",
+        "members": [
+            {
+                "name": "foo",
+                "as": "default",
+                "state": "unreferenced"
+            }
+        ]
+    }
+]

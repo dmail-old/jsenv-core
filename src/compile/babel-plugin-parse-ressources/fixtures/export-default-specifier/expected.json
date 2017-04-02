@@ -1,0 +1,11 @@
+[
+    {
+        "id": "fixture.js",
+        "members": [
+            {
+                "name": "default",
+                "state": "internal"
+            }
+        ]
+    }
+]

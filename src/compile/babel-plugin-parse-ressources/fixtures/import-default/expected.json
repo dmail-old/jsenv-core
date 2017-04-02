@@ -1,0 +1,11 @@
+[
+    {
+        "id": "file.js",
+        "members": [
+            {
+                "name": "default",
+                "as": "foo"
+            }
+        ]
+    }
+]
