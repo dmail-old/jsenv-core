@@ -3,6 +3,11 @@
 il faudra pouvoir en gros savoir quels member sont importé par qui et savoir si certain
 member sont inutilisé et candidat à être supprimé
 
+un truc qui a l'air cool aussi :
+
+rollup() retourne ceci : https://github.com/rollup/rollup/blob/master/src/rollup.js#L102
+et dedans y'a (si ça se trouve) tout ce dont j'ai besoin pour produire l'export que je souhaite
+
 */
 
 const babel = require('babel-core')
