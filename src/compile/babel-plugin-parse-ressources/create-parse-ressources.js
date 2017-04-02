@@ -41,6 +41,12 @@ const createParseRessourcesPlugin = (ressources, normalize = (id) => id) => {
         }
         const bindingReferencedOutsideOfExport = bindings.find((binding) => {
             const referenceOutsideOfExport = binding.referencePaths.find((referencePath) => {
+                // ce n'est pas suffisant, en vérité
+                // cette partie passera surement ailleurs (genre dans remove-export)
+                // parcequ'en vérité il ne faut pas que le binding soit dans une partie du code
+                // qui ne soit pas dead et ça on ne peut pas le savoir dès maintenant
+                // surtout si on prend en compte qu'une reference peut se trouver dans une fonction
+                // qui sera remove, alors l'export peut être remove
                 return (
                     referencePath.inType(
                         'ExportAllDeclaration',
