@@ -1,19 +1,8 @@
 [
     {
-        "id": "file.js",
-        "members": [
-            {
-                "name": "*"
-            }
-        ]
-    },
-    {
-        "id": "fixture.js",
-        "members": [
-            {
-                "name": "*",
-                "state": "unreferenced"
-            }
-        ]
+        "source": "file.js",
+        "start": 0,
+        "name": "*",
+        "type": "reexport"
     }
 ]

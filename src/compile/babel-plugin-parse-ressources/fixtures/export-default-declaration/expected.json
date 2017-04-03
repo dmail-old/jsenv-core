@@ -1,11 +1,8 @@
 [
     {
-        "id": "fixture.js",
-        "members": [
-            {
-                "name": "default",
-                "state": "inline"
-            }
-        ]
+        "source": "fixture.js",
+        "start": 0,
+        "name": "default",
+        "type": "export"
     }
 ]

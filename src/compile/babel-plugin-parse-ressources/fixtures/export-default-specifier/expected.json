@@ -1,11 +1,9 @@
 [
     {
-        "id": "fixture.js",
-        "members": [
-            {
-                "name": "default",
-                "state": "internal"
-            }
-        ]
+        "source": "fixture.js",
+        "start": 14,
+        "name": "default",
+        "localName": "foo",
+        "type": "export"
     }
 ]

@@ -2,186 +2,179 @@
 
 // http://exploringjs.com/es6/ch_modules.html#sec_importing-exporting-details
 
+https://github.com/rollup/rollup/blob/master/src/Module.js#L413
+https://github.com/rollup/rollup/blob/master/src/Module.js#L232
+
 */
 
-const createParseRessourcesPlugin = (ressources, normalize = (id) => id) => {
-    const createRessource = (id) => {
-        return {
-            id,
-            // type: id === filename ? 'internal' : 'external',
-            members: []
+const getProgramRessources = (program, normalize, filename) => {
+    const createRessource = (name, localName, source, start) => {
+        const ressource = {}
+        ressource.source = source
+        ressource.start = start
+        ressource.name = name
+        if (localName && name !== localName) {
+            ressource.localName = localName
         }
-    }
-    const traceRessource = (importee, importer) => {
-        const normalizedId = normalize(importee, importer)
-        const existingRessource = ressources.find((ressource) => ressource.id === normalizedId)
-        if (existingRessource) {
-            return existingRessource
-        }
-        const ressource = createRessource(normalizedId)
-        ressources.push(ressource)
         return ressource
     }
-
-    let filename
-    const getMemberState = (path) => {
-        const ids = path.scope.getAllBindings()
-        const bindings = Object.keys(ids).map((name) => ids[name])
-        if (bindings.length === 0) {
-            return 'inline'
+    const createImportedRessource = (name, localName, source, start) => {
+        const ressource = createRessource(name, localName, normalize(source, filename), start)
+        ressource.type = 'import'
+        return ressource
+    }
+    const createExportedRessource = (name, localName, source, start) => {
+        const ressource = createRessource(name, localName, filename, start)
+        ressource.type = 'export'
+        return ressource
+    }
+    const createReExportedRessource = (name, localName, source, start) => {
+        const ressource = createRessource(name, localName, normalize(source, filename), start)
+        ressource.type = 'reexport'
+        return ressource
+    }
+    const getImportSpecifierName = (specifier) => {
+        if (specifier.type === 'ImportDefaultSpecifier') {
+            return 'default'
         }
-        const bindingDeclaredOutsiteOfImport = bindings.find((binding) => {
-            return (
-                binding.path.inType('ImportDeclaration') === false
-            )
-        })
-        if (bindingDeclaredOutsiteOfImport) {
-            // console.log(bindingDeclaredOutsiteOfImport.path.node, 'declared outside of import')
-            return 'internal'
+        if (specifier.type === 'ImportNamespaceSpecifier') {
+            return '*'
         }
-        const bindingReferencedOutsideOfExport = bindings.find((binding) => {
-            const referenceOutsideOfExport = binding.referencePaths.find((referencePath) => {
-                // ce n'est pas suffisant, en vérité
-                // cette partie passera surement ailleurs (genre dans remove-export)
-                // parcequ'en vérité il ne faut pas que le binding soit dans une partie du code
-                // qui ne soit pas dead et ça on ne peut pas le savoir dès maintenant
-                // surtout si on prend en compte qu'une reference peut se trouver dans une fonction
-                // qui sera remove, alors l'export peut être remove
-                return (
-                    referencePath.inType(
-                        'ExportAllDeclaration',
-                        'ExportDefaultDeclaration',
-                        'ExportNamedDeclaration'
-                    ) === false
+        return specifier.imported.name
+    }
+    const generators = {
+        // import foo from '...'
+        // import { name } from '...'
+        // import { a, b } from '...'
+        // import { c as d } from '...'
+        // import e, * as f from '...'
+        // import g, { h } from '...'
+        // import '...'
+        importedSpecifiers(node) {
+            const source = node.source.value
+            return node.specifiers.map((specifier) => {
+                const localName = specifier.local.name
+                const name = getImportSpecifierName(specifier)
+                return createImportedRessource(name, localName, source, specifier.start)
+            })
+        },
+        // export * from '...'
+        reexportedNamespace(node) {
+            const ressource = createReExportedRessource('*', null, node.source.value, node.start)
+            return [ressource]
+        },
+        // export { name } from '...'
+        rexportedSpecifiers(node) {
+            const source = node.source.value
+            return node.specifiers.map((specifier) => {
+                return createReExportedRessource(
+                    specifier.exported.name,
+                    specifier.local.name,
+                    source,
+                    specifier.start
                 )
             })
-            if (referenceOutsideOfExport) {
-                // console.log(
-                //     'the ref outsite of export', referenceOutsideOfExport.node
-                // )
-            }
-            return Boolean(referenceOutsideOfExport)
-        })
-        if (bindingReferencedOutsideOfExport) {
-            // console.log(bindingReferencedOutsideOfExport.path.node, 'referenced outside of export')
-            return 'referenced'
+        },
+        // export var { foo, bar } = ...
+        // export var a, b = ...
+        exxportedVariableDeclaration(node) {
+            return node.declarations.map((variableDeclarator) => {
+                return createExportedRessource(variableDeclarator.id.name, null, null, node.start)
+            })
+        },
+        // export function foo () {}
+        // export class bar {}
+        exportedDeclaration(node) {
+            const localName = node.id.name
+            const exportedRessource = createExportedRessource(localName, null, null, node.start)
+            return [exportedRessource]
+        },
+        // export { foo, bar, baz }
+        exportedSpecifiers(node) {
+            return node.specifiers.map((specifier) => {
+                const localName = specifier.local.name
+                const exportedName = specifier.exported.name
+                return createExportedRessource(exportedName, localName, null, specifier.start)
+            })
+        },
+        // export default function foo () {}
+        // export default foo;
+        // export default 42;
+        exportedDefault(node) {
+            const localName = node.declaration.id ? node.declaration.id.name : node.declaration.name
+            const ressource = createExportedRessource('default', localName, null, node.start)
+            return [ressource]
         }
-        // console.log(path.node.type, 'bindings are declared by import & only used by export')
-        return 'unreferenced'
     }
-    const traceImportedMember = (member, from) => {
-        const ressource = traceRessource(from, filename)
-        ressource.members.push(member)
-    }
-    const traceExportedMember = (member, path) => {
-        const ressource = traceRessource(filename)
-        ressource.members.push(Object.assign({}, member, {
-            state: typeof path === 'string' ? path : getMemberState(path)
-        }))
+    const visitors = {
+        ImportDeclaration(node) {
+            return generators.importedSpecifiers(node)
+        },
+        ExportAllDeclaration(node) {
+            return generators.reexportedNamespace(node)
+        },
+        ExportNamedDeclaration(node) {
+            if (node.source) {
+                return generators.rexportedSpecifiers(node)
+            }
+            if (node.declaration) {
+                const declaration = node.declaration
+                if (declaration.type === 'VariableDeclaration') {
+                    return generators.exxportedVariableDeclaration(declaration)
+                }
+                return generators.exportedDeclaration(declaration)
+            }
+            return generators.exportedSpecifiers(node)
+        },
+        ExportDefaultDeclaration(node) {
+            return generators.exportedDefault(node)
+        }
     }
 
+    const ressources = []
+    for (const node of program.body) {
+        const {type} = node
+        if (type in visitors) {
+            const partialRessources = visitors[type](node)
+            ressources.push(...partialRessources)
+        }
+    }
+    return ressources
+}
+
+/*
+helpers to throw errors when code do weird things
+*/
+// const getDuplicateRessources = (ressources) => {
+//     return ressources.filter((ressource, index) => {
+//         return ressources.findIndex((otherRessource) => {
+//             return otherRessource.name === ressource.name
+//         }, index) > -1
+//     })
+// }
+// https://github.com/rollup/rollup/blob/ae54071232bb7236faf0848941c857f7c534ae09/src/Module.js#L125
+// const getDuplicateExports = (ressources) => {
+//     const exportedRessources = ressources.filter((ressource) => ressource.type !== 'import')
+//     return getDuplicateRessources(exportedRessources)
+// }
+// https://github.com/rollup/rollup/blob/ae54071232bb7236faf0848941c857f7c534ae09/src/Module.js#L219
+// const getDuplicateImports = (ressources) => {
+//     const importedRessources = ressources.filter((ressource) => ressource.type === 'import')
+//     return getDuplicateRessources(importedRessources)
+// }
+// https://github.com/rollup/rollup/blob/ae54071232bb7236faf0848941c857f7c534ae09/src/Bundle.js#L400
+// const getSelfImport = (ressources) => {
+//     return ressources.find((ressource) => {
+//         return ressource.type === 'import' && ressource.source === filename
+//     })
+// }
+
+function createParseRessourcesPlugin(ressources, normalize = (id) => id) {
     const visitors = {
         Program(path, state) {
-            filename = state.file.opts.filename
-        },
-        ImportDeclaration(path, state) {
-            const node = path.node
-            const source = node.source
-
-            traceRessource(source.value, filename)
-
-            path.traverse({
-                ImportSpecifier(path) {
-                    const specifier = path.node
-                    const imported = specifier.imported
-                    const local = specifier.local
-                    const member = {
-                        name: imported.name
-                    }
-                    if (local && local.name !== imported.name) {
-                        member.as = local.name
-                    }
-                    traceImportedMember(member, source.value)
-                },
-                ImportDefaultSpecifier(path) {
-                    const specifier = path.node
-                    const local = specifier.local
-                    const member = {
-                        name: 'default'
-                    }
-                    if (local.name !== member.name) {
-                        member.as = local.name
-                    }
-                    traceImportedMember(member, source.value)
-                },
-                ImportNamespaceSpecifier(path) {
-                    const specifier = path.node
-                    traceImportedMember({
-                        name: '*',
-                        as: specifier.local.name
-                    }, source.value)
-                }
-            }, state)
-        },
-        ExportNamedDeclaration(path) {
-            const declaration = path.get('declaration')
-            // https://github.com/babel/babel/blob/8a82cc060ae0ab46bf52e05e592de770bd246f6f/packages/babel-traverse/src/scope/index.js#L107
-            if (declaration.isDeclaration()) {
-                if (declaration.isFunctionDeclaration()) {
-                    const identifier = declaration.get('id')
-                    traceExportedMember({
-                        name: identifier.node.name
-                    }, 'inline')
-                }
-                else if (declaration.isVariableDeclaration()) {
-                    const declarations = declaration.get('declarations')
-                    for (const variableDeclarator of declarations) {
-                        traceExportedMember({
-                            name: variableDeclarator.node.id.name
-                        }, 'inline')
-                    }
-                }
-            }
-            else {
-                const node = path.node
-                const source = node.source
-                const specifiers = path.get('specifiers')
-                for (const specifier of specifiers) {
-                    const specifierNode = specifier.node
-                    const local = specifierNode.local
-                    const exported = specifierNode.exported
-
-                    const member = {
-                        name: local.name
-                    }
-                    if (exported && exported.name !== member.name) {
-                        member.as = exported.name
-                    }
-                    if (source) {
-                        traceImportedMember(member, source.value)
-                        traceExportedMember(member, 'unreferenced')
-                    }
-                    else {
-                        traceExportedMember(member, specifier)
-                    }
-                }
-            }
-        },
-        ExportAllDeclaration(path) {
-            const node = path.node
-            const source = node.source
-
-            traceImportedMember({
-                name: '*'
-            }, source.value)
-            traceExportedMember({
-                name: '*'
-            }, 'unreferenced')
-        },
-        ExportDefaultDeclaration(path) {
-            traceExportedMember({
-                name: 'default'
-            }, path)
+            const filename = state.file.opts.filename
+            const programRessources = getProgramRessources(path.node, normalize, filename)
+            ressources.push(...programRessources)
         }
     }
 
