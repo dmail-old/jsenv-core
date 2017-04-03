@@ -8,6 +8,11 @@ un truc qui a l'air cool aussi :
 rollup() retourne ceci : https://github.com/rollup/rollup/blob/master/src/rollup.js#L102
 et dedans y'a (si ça se trouve) tout ce dont j'ai besoin pour produire l'export que je souhaite
 
+
+pour le parseRessources on pourrait avoir cette approche
+https://github.com/rollup/rollup/blob/master/src/Module.js
+en gros on part d'un module de base qu'on populate en visitant un ast babel
+
 */
 
 const babel = require('babel-core')
@@ -24,7 +29,7 @@ const createParseRessources = require(
 // const root = require('path').resolve(process.cwd(), '../../../').replace(/\\/g, '/')
 // const rootHref = 'file:///' + root
 
-function getNodeFilename(filename) {
+const getNodeFilename = (filename) => {
     filename = String(filename)
 
     var nodeFilename
@@ -36,7 +41,7 @@ function getNodeFilename(filename) {
     }
     return nodeFilename
 }
-function readSource(filename) {
+const readSource = (filename) => {
     filename = getNodeFilename(filename)
     // console.log('reading', filename)
     return new Promise((resolve, reject) => {
@@ -50,16 +55,12 @@ function readSource(filename) {
         })
     })
 }
-function normalize(path) {
-    return path.replace(/\\/g, '/')
-}
+const normalize = (path) => path.replace(/\\/g, '/')
 
 function parse(entryRelativeHref, {
     variables = {},
     baseHref,
-    fetch = function(node, readSource) {
-        return readSource(node.href)
-    }
+    fetch = (node, readSource) => readSource(node.href)
 } = {}) {
     baseHref = baseHref || 'file:///' + normalize(process.cwd())
 
