@@ -43,13 +43,16 @@ const getProgramRessources = (program, normalize, filename) => {
         return specifier.imported.name
     }
     const generators = {
+        // import '...'
+        emptyImport(node) {
+            return createImportedRessource(null, null, node.source.value, node.start)
+        },
         // import foo from '...'
         // import { name } from '...'
         // import { a, b } from '...'
         // import { c as d } from '...'
         // import e, * as f from '...'
         // import g, { h } from '...'
-        // import '...'
         importedSpecifiers(node) {
             const source = node.source.value
             return node.specifiers.map((specifier) => {
@@ -77,7 +80,7 @@ const getProgramRessources = (program, normalize, filename) => {
         },
         // export var { foo, bar } = ...
         // export var a, b = ...
-        exxportedVariableDeclaration(node) {
+        exportedVariableDeclaration(node) {
             return node.declarations.map((variableDeclarator) => {
                 return createExportedRessource(variableDeclarator.id.name, null, null, node.start)
             })
@@ -143,7 +146,8 @@ const getProgramRessources = (program, normalize, filename) => {
 }
 
 /*
-helpers to throw errors when code do weird things
+helpers to throw errors when code do weird things such as duplicate_export, duplicate_import
+& selfReferencingImport
 */
 // const getDuplicateRessources = (ressources) => {
 //     return ressources.filter((ressource, index) => {
