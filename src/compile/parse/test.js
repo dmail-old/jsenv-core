@@ -19,7 +19,8 @@ const test = (name) => {
 }
 
 [
-    'variable'
+    // 'variable',
+    'consume-two',
 ].reduce((previous, name) => {
     return previous.then(() => {
         return test(name)
