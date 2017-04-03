@@ -1,5 +1,5 @@
 const rollup = require('rollup')
-const uneval = require('../../api/util/uneval.js')
+// const uneval = require('../../api/util/uneval.js')
 
 // is usedByBundle
 // https://github.com/rollup/rollup/blob/8466b4ce56415f27687842b3177138929efee62c/src/ast/nodes/shared/isUsedByBundle.js#L3
@@ -21,10 +21,10 @@ comme ça pas de rollup, pas de truc custom et on prépare l'arrivée de instanb
 */
 
 rollup.rollup({
-    entry: 'fixtures/variable/main.js'
+    entry: 'fixtures/basic/main.js'
 }).then((result) => {
     const secondModule = result.bundle.modules[1]
-    const firstNode = secondModule.ast.body[0]
+    // const firstNode = secondModule.ast.body[0]
     // clone c'est la version original de l'ast
     // const firstClonedNode = secondModule.astClone.body[0]
     // console.log('firstNode', firstClonedNode.declaration
