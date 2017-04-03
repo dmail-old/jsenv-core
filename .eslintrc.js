@@ -58,6 +58,10 @@ module.exports = {
             // {
             //     "requireForBlockBody": true
             // }
+        ],
+        "comma-dangle": [
+            "error",
+            "only-multiline"
         ]
     }
 };
