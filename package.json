@@ -44,6 +44,7 @@
     "core-js": "2.4.1",
     "cuid": "1.3.8",
     "regenerator-runtime": "0.10.3",
+    "rollup": "git@github.com:jsenv/rollup.git",
     "systemjs": "0.20.9",
     "systemjs-builder": "0.16.3",
     "useragent": "2.1.12"
@@ -52,7 +53,8 @@
     "node": ">=4.0.0"
   },
   "scripts": {
-    "start": "node start.js"
+    "start": "node start.js",
+    "preinstall": "npm link ../rollup"
   },
   "repository": {
     "type": "git",
