@@ -1,9 +1,9 @@
 [
     {
+        "type": "export",
         "source": "fixture.js",
         "start": 14,
         "name": "default",
-        "localName": "foo",
-        "type": "export"
+        "localName": "foo"
     }
 ]

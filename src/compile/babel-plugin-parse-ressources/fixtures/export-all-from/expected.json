@@ -1,8 +1,8 @@
 [
     {
+        "type": "reexport",
         "source": "file.js",
         "start": 0,
-        "name": "*",
-        "type": "reexport"
+        "name": "*"
     }
 ]

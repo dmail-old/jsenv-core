@@ -1,8 +1,8 @@
 [
     {
+        "type": "export",
         "source": "fixture.js",
         "start": 0,
-        "name": "default",
-        "type": "export"
+        "name": "default"
     }
 ]

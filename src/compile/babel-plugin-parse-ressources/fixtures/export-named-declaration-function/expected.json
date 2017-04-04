@@ -1,11 +1,8 @@
 [
     {
-        "id": "fixture.js",
-        "members": [
-            {
-                "name": "foo",
-                "state": "inline"
-            }
-        ]
+        "type": "export",
+        "source": "fixture.js",
+        "start": 7,
+        "name": "foo"
     }
 ]

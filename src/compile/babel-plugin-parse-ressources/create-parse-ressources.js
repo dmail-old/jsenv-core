@@ -7,31 +7,29 @@ https://github.com/rollup/rollup/blob/master/src/Module.js#L232
 
 */
 
-const getProgramRessources = (program, normalize, filename) => {
-    const createRessource = (name, localName, source, start) => {
-        const ressource = {}
-        ressource.source = source
-        ressource.start = start
-        ressource.name = name
-        if (localName && name !== localName) {
-            ressource.localName = localName
+const getProgramRessources = (program, filename) => {
+    const createRessource = (type, source, start, name, localName) => {
+        const ressource = {
+            type,
+            source,
+            start
+        }
+        if (name) {
+            ressource.name = name
+            if (localName && name !== localName) {
+                ressource.localName = localName
+            }
         }
         return ressource
     }
-    const createImportedRessource = (name, localName, source, start) => {
-        const ressource = createRessource(name, localName, normalize(source, filename), start)
-        ressource.type = 'import'
-        return ressource
+    const createImportedRessource = (source, start, name, localName) => {
+        return createRessource('import', source, start, name, localName)
     }
-    const createExportedRessource = (name, localName, source, start) => {
-        const ressource = createRessource(name, localName, filename, start)
-        ressource.type = 'export'
-        return ressource
+    const createExportedRessource = (start, name, localName) => {
+        return createRessource('export', filename, start, name, localName)
     }
-    const createReExportedRessource = (name, localName, source, start) => {
-        const ressource = createRessource(name, localName, normalize(source, filename), start)
-        ressource.type = 'reexport'
-        return ressource
+    const createReExportedRessource = (source, start, name, localName) => {
+        return createRessource('reexport', source, start, name, localName)
     }
     const getImportSpecifierName = (specifier) => {
         if (specifier.type === 'ImportDefaultSpecifier') {
@@ -45,7 +43,8 @@ const getProgramRessources = (program, normalize, filename) => {
     const generators = {
         // import '...'
         emptyImport(node) {
-            return createImportedRessource(null, null, node.source.value, node.start)
+            const ressource = createImportedRessource(node.source.value, node.start)
+            return [ressource]
         },
         // import foo from '...'
         // import { name } from '...'
@@ -58,12 +57,12 @@ const getProgramRessources = (program, normalize, filename) => {
             return node.specifiers.map((specifier) => {
                 const localName = specifier.local.name
                 const name = getImportSpecifierName(specifier)
-                return createImportedRessource(name, localName, source, specifier.start)
+                return createImportedRessource(source, specifier.start, name, localName)
             })
         },
         // export * from '...'
         reexportedNamespace(node) {
-            const ressource = createReExportedRessource('*', null, node.source.value, node.start)
+            const ressource = createReExportedRessource(node.source.value, node.start, '*')
             return [ressource]
         },
         // export { name } from '...'
@@ -71,10 +70,10 @@ const getProgramRessources = (program, normalize, filename) => {
             const source = node.source.value
             return node.specifiers.map((specifier) => {
                 return createReExportedRessource(
-                    specifier.exported.name,
-                    specifier.local.name,
                     source,
-                    specifier.start
+                    specifier.start,
+                    specifier.exported.name,
+                    specifier.local.name
                 )
             })
         },
@@ -82,14 +81,14 @@ const getProgramRessources = (program, normalize, filename) => {
         // export var a, b = ...
         exportedVariableDeclaration(node) {
             return node.declarations.map((variableDeclarator) => {
-                return createExportedRessource(variableDeclarator.id.name, null, null, node.start)
+                return createExportedRessource(node.start, variableDeclarator.id.name)
             })
         },
         // export function foo () {}
         // export class bar {}
         exportedDeclaration(node) {
             const localName = node.id.name
-            const exportedRessource = createExportedRessource(localName, null, null, node.start)
+            const exportedRessource = createExportedRessource(node.start, localName)
             return [exportedRessource]
         },
         // export { foo, bar, baz }
@@ -97,7 +96,7 @@ const getProgramRessources = (program, normalize, filename) => {
             return node.specifiers.map((specifier) => {
                 const localName = specifier.local.name
                 const exportedName = specifier.exported.name
-                return createExportedRessource(exportedName, localName, null, specifier.start)
+                return createExportedRessource(specifier.start, exportedName, localName)
             })
         },
         // export default function foo () {}
@@ -105,12 +104,16 @@ const getProgramRessources = (program, normalize, filename) => {
         // export default 42;
         exportedDefault(node) {
             const localName = node.declaration.id ? node.declaration.id.name : node.declaration.name
-            const ressource = createExportedRessource('default', localName, null, node.start)
+            const ressource = createExportedRessource(node.start, 'default', localName)
             return [ressource]
         }
     }
     const visitors = {
         ImportDeclaration(node) {
+            const specifiers = node.specifiers
+            if (specifiers.length === 0) {
+                return generators.emptyImport(node)
+            }
             return generators.importedSpecifiers(node)
         },
         ExportAllDeclaration(node) {
@@ -148,36 +151,44 @@ const getProgramRessources = (program, normalize, filename) => {
 /*
 helpers to throw errors when code do weird things such as duplicate_export, duplicate_import
 & selfReferencingImport
+const normalizeRessources = (ressources, ressourceOwnerHref, normalize) => {
+    return ressources.map((ressource) => {
+        if (ressource.type === 'export') {
+            return ressource
+        }
+        return {...ressource, ...{source: normalize(ressource.source, ressourceOwnerHref)}}
+    })
+}
+const getDuplicateRessources = (ressources) => {
+    return ressources.filter((ressource, index) => {
+        return ressources.findIndex((otherRessource) => {
+            return otherRessource.name === ressource.name
+        }, index) > -1
+    })
+}
+https://github.com/rollup/rollup/blob/ae54071232bb7236faf0848941c857f7c534ae09/src/Module.js#L125
+const getDuplicateExports = (ressources) => {
+    const exportedRessources = ressources.filter((ressource) => ressource.type !== 'import')
+    return getDuplicateRessources(exportedRessources)
+}
+https://github.com/rollup/rollup/blob/ae54071232bb7236faf0848941c857f7c534ae09/src/Module.js#L219
+const getDuplicateImports = (ressources) => {
+    const importedRessources = ressources.filter((ressource) => ressource.type === 'import')
+    return getDuplicateRessources(importedRessources)
+}
+https://github.com/rollup/rollup/blob/ae54071232bb7236faf0848941c857f7c534ae09/src/Bundle.js#L400
+const getSelfImport = (ressources, ressourceOwnerHref) => {
+    return ressources.find((ressource) => {
+        return ressource.type === 'import' && ressource.source === ressourceOwnerHref
+    })
+}
 */
-// const getDuplicateRessources = (ressources) => {
-//     return ressources.filter((ressource, index) => {
-//         return ressources.findIndex((otherRessource) => {
-//             return otherRessource.name === ressource.name
-//         }, index) > -1
-//     })
-// }
-// https://github.com/rollup/rollup/blob/ae54071232bb7236faf0848941c857f7c534ae09/src/Module.js#L125
-// const getDuplicateExports = (ressources) => {
-//     const exportedRessources = ressources.filter((ressource) => ressource.type !== 'import')
-//     return getDuplicateRessources(exportedRessources)
-// }
-// https://github.com/rollup/rollup/blob/ae54071232bb7236faf0848941c857f7c534ae09/src/Module.js#L219
-// const getDuplicateImports = (ressources) => {
-//     const importedRessources = ressources.filter((ressource) => ressource.type === 'import')
-//     return getDuplicateRessources(importedRessources)
-// }
-// https://github.com/rollup/rollup/blob/ae54071232bb7236faf0848941c857f7c534ae09/src/Bundle.js#L400
-// const getSelfImport = (ressources) => {
-//     return ressources.find((ressource) => {
-//         return ressource.type === 'import' && ressource.source === filename
-//     })
-// }
 
-function createParseRessourcesPlugin(ressources, normalize = (id) => id) {
+function createParseRessourcesPlugin(ressources) {
     const visitors = {
         Program(path, state) {
             const filename = state.file.opts.filename
-            const programRessources = getProgramRessources(path.node, normalize, filename)
+            const programRessources = getProgramRessources(path.node, filename)
             ressources.push(...programRessources)
         }
     }
