@@ -7,15 +7,67 @@ module.exports = {
         "jsenv": true
     },
     "plugins": ["import"],
+    "settings": {
+        'import/extensions': ['.js', '.jsx'],
+    },
     "rules": {
         "import/default": [
             "error"
         ],
-        "import/no-unresolved": [2, {commonjs: true, amd: true}],
-        "import/named": 2,
-        "import/namespace": 2,
-        "import/default": 2,
-        "import/export": 2,
+        "import/no-unresolved": [
+            "error",
+            {
+                commonjs: true,
+                amd: false
+            }
+        ],
+        "import/named": [
+            "error"
+        ],
+        "import/namespace": [
+            "error",
+            {
+                "allowComputed": true
+            }
+        ],
+        "import/no-absolute-path": [
+            "error"
+        ],
+        "import/no-dynamic-require": [
+            "error"
+        ],
+        "import/export": [
+            "error"
+        ],
+        "import/no-named-as-default": [
+            "warn"
+        ],
+        "import/first": [
+            "warn"
+        ],
+        "import/no-duplicates": [
+            "warn"
+        ],
+        "import/newline-after-import": [
+            "warn"
+        ],
+        "import/max-dependencies": [
+            "warn",
+            {
+                "max": 10
+            }
+        ],
+        "import/no-anonymous-default-export": [
+            "error",
+            {
+                "allowArray": true,
+                "allowArrowFunction": false,
+                "allowAnonymousClass": false,
+                "allowAnonymousFunction": false,
+                "allowLiteral": true,
+                "allowObject": true
+            }
+        ],
         /*
         because it seems like a good idea at first (to force specific quote style) but then
         you fall into edge case where you want to keep quote or not for good reasons
