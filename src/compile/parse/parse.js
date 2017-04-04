@@ -1,17 +1,17 @@
 /*
 
-il faudra pouvoir en gros savoir quels member sont importé par qui et savoir si certain
-member sont inutilisé et candidat à être supprimé
+à faire :
 
-un truc qui a l'air cool aussi :
+- l'erreur devrait append le code frame pour contextualiser le message
+https://github.com/rollup/rollup/blob/master/src/Module.js#L295
+https://github.com/rollup/rollup/blob/master/src/utils/error.js#L5
+apparement il suffit de copier les bonne props sur l'objet error pour obtenir une erreur cool
 
-rollup() retourne ceci : https://github.com/rollup/rollup/blob/master/src/rollup.js#L102
-et dedans y'a (si ça se trouve) tout ce dont j'ai besoin pour produire l'export que je souhaite
+- lorsqu'un import n'est pas trouvé faudrais aussi avoir la frame pour savoir quel import
+déclenche l'import du module et fail lorsqu'on essaye de le trouver (404 sur fetch ou normalize qui fail)
 
-
-pour le parseRessources on pourrait avoir cette approche
-https://github.com/rollup/rollup/blob/master/src/Module.js
-en gros on part d'un module de base qu'on populate en visitant un ast babel
+- dans utils/getCodeFrame supporter sourcemap si le fichier en contient
+(en gros cela signifie remonter sourcemap pour trouver le vrai codeframe)
 
 */
 
@@ -26,6 +26,8 @@ const createReplaceImportVariables = require(
 const createParseRessources = require(
     '../babel-plugin-parse-ressources/create-parse-ressources.js'
 )
+const ressourceUtil = require('../babel-plugin-parse-ressources/util.js')
+const util = require('./util.js')
 // const root = require('path').resolve(process.cwd(), '../../../').replace(/\\/g, '/')
 // const rootHref = 'file:///' + root
 
@@ -56,6 +58,65 @@ const readSource = (filename) => {
     })
 }
 const normalize = (path) => path.replace(/\\/g, '/')
+
+const createMissingExportError = ({
+    node,
+    ressource
+}) => ({
+    code: 'MISSING_EXPORT',
+    message: `${ressource.name} is not exported by ${ressource.source}`,
+    frame: util.getNodeFrame(node, ressource.start)
+})
+const createDuplicateExportDefaultError = ({
+    node,
+    ressource
+}) => ({
+    code: 'DUPLICATE_EXPORT_DEFAULT',
+    message: `A module can only have one default export`,
+    frame: util.getNodeFrame(node, ressource.start)
+})
+const createDuplicateExportError = ({
+    node,
+    ressource
+}) => ({
+    code: 'DUPLICATE_EXPORT',
+    message: `A module cannot have multiple exports with the same name ('${ressource.name}')`,
+    frame: util.getNodeFrame(node, ressource.start)
+})
+// https://github.com/rollup/rollup/blob/ae54071232bb7236faf0848941c857f7c534ae09/src/Module.js#L219
+const createDuplicateImportErrror = ({
+    node,
+    ressource
+}) => ({
+    code: 'DUPLICATE_IMPORT',
+    message: `Duplicated import of ('${ressource.localName}')`,
+    frame: util.getNodeFrame(node, ressource.start)
+})
+const createDuplicateReexportError = ({
+    node,
+    ressource
+}) => ({
+    code: 'DUPLICATE_REEXPORT',
+    message: `Duplicated reexport of ('${ressource.localName}')`,
+    frame: util.getNodeFrame(node, ressource.start)
+})
+// https://github.com/rollup/rollup/blob/ae54071232bb7236faf0848941c857f7c534ae09/src/Bundle.js#L400
+const createSelfImportError = ({
+    node,
+    ressource
+}) => ({
+    code: 'SELF_IMPORT',
+    message: `A module cannot import from itself`,
+    frame: util.getNodeFrame(node, ressource.start)
+})
+const createSelfReexportError = ({
+    node,
+    ressource
+}) => ({
+    code: 'SELF_REEXPORT',
+    message: `A module cannot export from itself`,
+    frame: util.getNodeFrame(node, ressource.start)
+})
 
 function parse(entryRelativeHref, {
     variables = {},
@@ -91,7 +152,7 @@ function parse(entryRelativeHref, {
             href,
             dependencies: [],
             dependents: [],
-            members: []
+            ressources: []
         }
         return node
     }
@@ -118,16 +179,50 @@ function parse(entryRelativeHref, {
             filename: node.href,
             plugins: [
                 createReplaceImportVariables(variables),
-                createParseRessources(ressources, locateId)
+                createParseRessources(ressources)
             ]
         })
-        return ressources
+
+        const normalizedRessources = ressourceUtil.normalize(ressources, node.href, locateId)
+        const internalDuplicate = ressourceUtil.findInternalDuplicate(normalizedRessources)
+        // https://github.com/rollup/rollup/blob/ae54071232bb7236faf0848941c857f7c534ae09/src/Module.js#L125
+        if (internalDuplicate) {
+            if (internalDuplicate.name === 'default') {
+                throw createDuplicateExportDefaultError({node, ressource: internalDuplicate})
+            }
+            throw createDuplicateExportError({node, ressource: internalDuplicate})
+        }
+        // https://github.com/rollup/rollup/blob/ae54071232bb7236faf0848941c857f7c534ae09/src/Module.js#L219
+        const externalDuplicate = ressourceUtil.findExternalDuplicate(normalizedRessources)
+        if (externalDuplicate) {
+            if (externalDuplicate.type === 'import') {
+                throw createDuplicateImportErrror({node, ressource: externalDuplicate})
+            }
+            if (externalDuplicate.type === 'reexport') {
+                throw createDuplicateReexportError({node, ressource: externalDuplicate})
+            }
+        }
+        // https://github.com/rollup/rollup/blob/ae54071232bb7236faf0848941c857f7c534ae09/src/Bundle.js#L400
+        const externalSelf = ressourceUtil.findExternalBySource(normalizedRessources, node.href)
+        if (externalSelf) {
+            if (externalSelf.type === 'import') {
+                throw createSelfImportError({node, ressource: externalSelf})
+            }
+            if (externalSelf.type === 'reexport') {
+                throw createSelfReexportError({node, ressource: externalSelf})
+            }
+        }
+
+        return normalizedRessources
     }
     const fetchAndParseRessources = (node) => {
         // console.log('fetching', node.id);
         return Promise.resolve(fetch(node, readSource)).then((code) => {
             node.code = code
             return parseRessource(node)
+        }).then((ressources) => {
+            node.ressources = ressources
+            return ressources
         })
     }
 
@@ -141,22 +236,16 @@ function parse(entryRelativeHref, {
             promise = Promise.resolve(
                 fetchAndParseRessources(node)
             ).then((ressources) => {
-                ressources.forEach((ressource) => {
-                    if (ressource.id === node.id) {
-                        console.log(node.id, 'is exporting', ressource.members)
-                        node.members.push(...ressource.members)
-                    }
-                    else {
-                        const dependency = getNode(baseHref + ressource.id)
-                        if (node.dependencies.includes(dependency) === false) {
-                            node.dependencies.push(dependency)
-                        }
-                        if (dependency.dependents.includes(node) === false) {
-                            dependency.dependents.push(node)
-                        }
+                const externalRessources = ressourceUtil.getExternals(ressources)
 
-                        console.log(node.id, 'is importing', ressource.members)
-                        node.members.push(...ressource.members)
+                externalRessources.forEach((ressource) => {
+                    const dependency = getNode(ressource.source)
+                    if (node.dependencies.includes(dependency) === false) {
+                        console.log(node.id, 'depends on', ressource.source)
+                        node.dependencies.push(dependency)
+                    }
+                    if (dependency.dependents.includes(node) === false) {
+                        dependency.dependents.push(node)
                     }
                 })
 
@@ -173,6 +262,12 @@ function parse(entryRelativeHref, {
     return Promise.resolve(locate(entryRelativeHref, baseHref)).then((entryHref) => {
         const entryNode = getNode(entryHref)
         return parseNode(entryNode).then(() => {
+            // https://github.com/rollup/rollup/blob/ae54071232bb7236faf0848941c857f7c534ae09/src/Module.js#L426}
+            const missingExport = util.getMissingExport(entryNode)
+            if (missingExport) {
+                throw createMissingExportError(missingExport)
+            }
+
             return {
                 locate: locate,
                 fetch: (node) => fetch(node, readSource),

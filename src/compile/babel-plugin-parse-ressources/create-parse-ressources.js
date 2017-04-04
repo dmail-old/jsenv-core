@@ -148,42 +148,6 @@ const getProgramRessources = (program, filename) => {
     return ressources
 }
 
-/*
-helpers to throw errors when code do weird things such as duplicate_export, duplicate_import
-& selfReferencingImport
-const normalizeRessources = (ressources, ressourceOwnerHref, normalize) => {
-    return ressources.map((ressource) => {
-        if (ressource.type === 'export') {
-            return ressource
-        }
-        return {...ressource, ...{source: normalize(ressource.source, ressourceOwnerHref)}}
-    })
-}
-const getDuplicateRessources = (ressources) => {
-    return ressources.filter((ressource, index) => {
-        return ressources.findIndex((otherRessource) => {
-            return otherRessource.name === ressource.name
-        }, index) > -1
-    })
-}
-https://github.com/rollup/rollup/blob/ae54071232bb7236faf0848941c857f7c534ae09/src/Module.js#L125
-const getDuplicateExports = (ressources) => {
-    const exportedRessources = ressources.filter((ressource) => ressource.type !== 'import')
-    return getDuplicateRessources(exportedRessources)
-}
-https://github.com/rollup/rollup/blob/ae54071232bb7236faf0848941c857f7c534ae09/src/Module.js#L219
-const getDuplicateImports = (ressources) => {
-    const importedRessources = ressources.filter((ressource) => ressource.type === 'import')
-    return getDuplicateRessources(importedRessources)
-}
-https://github.com/rollup/rollup/blob/ae54071232bb7236faf0848941c857f7c534ae09/src/Bundle.js#L400
-const getSelfImport = (ressources, ressourceOwnerHref) => {
-    return ressources.find((ressource) => {
-        return ressource.type === 'import' && ressource.source === ressourceOwnerHref
-    })
-}
-*/
-
 function createParseRessourcesPlugin(ressources) {
     const visitors = {
         Program(path, state) {
