@@ -6,7 +6,16 @@ module.exports = {
     "globals": {
         "jsenv": true
     },
+    "plugins": ["import"],
     "rules": {
+        "import/default": [
+            "error"
+        ],
+        "import/no-unresolved": [2, {commonjs: true, amd: true}],
+        "import/named": 2,
+        "import/namespace": 2,
+        "import/default": 2,
+        "import/export": 2,
         /*
         because it seems like a good idea at first (to force specific quote style) but then
         you fall into edge case where you want to keep quote or not for good reasons
