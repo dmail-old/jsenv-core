@@ -1,8 +1,3 @@
-/*
-check that the tree starting from rootNode
-is not missing export
-*/
-
 const ressourceUtil = require('../babel-plugin-parse-ressources/util.js')
 
 // https://gitlab.com/Rich-Harris/locate-character/blob/master/src/index.js
@@ -65,8 +60,9 @@ const spaces = (i) => {
 const tabsToSpaces = (str) => {
     return str.replace(/^\t+/, (match) => match.split('\t').join('  '))
 }
-const getCodeFrame = (source, line, column) => {
-    let lines = source.split('\n')
+// todo : support sourcemap (read sourcemap in source & find true source location)
+const getCodeFrame = (code, line, column) => {
+    let lines = code.split('\n')
 
     const frameStart = Math.max(0, line - 3)
     let frameEnd = Math.min(line + 2, lines.length)

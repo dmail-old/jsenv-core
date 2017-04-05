@@ -1,13 +1,5 @@
 /*
 
-à faire :
-
-- lorsqu'un import n'est pas trouvé faudrais aussi avoir la frame pour savoir quel import
-déclenche l'import du module et fail lorsqu'on essaye de le trouver (404 sur fetch ou normalize qui fail)
-
-- dans utils/getCodeFrame supporter sourcemap si le fichier en contient
-(en gros cela signifie remonter sourcemap pour trouver le vrai codeframe)
-
 */
 
 const babel = require('babel-core')
@@ -29,11 +21,7 @@ const ensureThenable = (fn) => {
     return function ensureReturnValueIsThenable() {
         try {
             const returnValue = fn.apply(this, arguments)
-            if (
-                typeof returnValue === 'object' &&
-                returnValue !== null &&
-                typeof returnValue.then === 'function'
-            ) {
+            if (returnValue && typeof returnValue.then === 'function') {
                 return returnValue
             }
             return Promise.resolve(returnValue)
@@ -83,6 +71,12 @@ const possibleErrors = [
         code: 'UNRESOLVED_REEXPORT',
         message: ({ressource, node}) => (
             `Could not resolve '${ressource.source}' from ${node.id}`
+        )
+    },
+    {
+        code: 'FETCH_ERROR',
+        message: ({ressource, importerNode}) => (
+            `Error while fetching '${ressource.source}' from ${importerNode.id}`
         )
     },
     {
@@ -152,6 +146,7 @@ function parse(entryRelativeHref, {
         }
         return baseHref + importee
     }
+    fetch = ensureThenable(fetch)
     const resolve = ensureThenable(defaultResolve)
     const locate = (...args) => resolve(...args).then(normalize)
     const hrefToId = (href) => href.slice(baseHref.length)
@@ -170,12 +165,13 @@ function parse(entryRelativeHref, {
     const findNodeByHref = (href) => {
         return nodes.find((node) => node.href === href)
     }
-    const getNode = (href) => {
+    const getNode = (href, ressource) => {
         const existingNode = findNodeByHref(href)
         if (existingNode) {
             return existingNode
         }
         const node = createNode(href)
+        node.createdByRessource = ressource
         nodes.push(node)
         return node
     }
@@ -197,8 +193,9 @@ function parse(entryRelativeHref, {
         const externalRessources = ressourceUtil.getExternals(ressources)
         return mapAsync(externalRessources, (ressource) => {
             return locate(ressource.source, node.href).then(
-                (normalizedSource) => {
-                    ressource.source = hrefToId(normalizedSource)
+                (href) => {
+                    ressource.href = href
+                    ressource.id = hrefToId(href)
                 },
                 () => {
                     if (ressource.type === 'import') {
@@ -216,7 +213,13 @@ function parse(entryRelativeHref, {
                 }
             )
         }).then(() => {
-            const internalDuplicate = ressourceUtil.findInternalDuplicate(ressources)
+            const [internals, externals] = ressourceUtil.bisect(ressources)
+
+            const internalDuplicate = internals.find((ressource, index, array) => {
+                return array.slice(index + 1).some((nextRessource) => (
+                    ressource.name === nextRessource.name
+                ))
+            })
             // https://github.com/rollup/rollup/blob/ae54071232bb7236faf0848941c857f7c534ae09/src/Module.js#L125
             if (internalDuplicate) {
                 if (internalDuplicate.name === 'default') {
@@ -231,7 +234,11 @@ function parse(entryRelativeHref, {
                 )
             }
             // https://github.com/rollup/rollup/blob/ae54071232bb7236faf0848941c857f7c534ae09/src/Module.js#L219
-            const externalDuplicate = ressourceUtil.findExternalDuplicate(ressources)
+            const externalDuplicate = externals.find((ressource, index, array) => {
+                return array.slice(index + 1).some((nextRessource) => (
+                    ressource.localName === nextRessource.localName
+                ))
+            })
             if (externalDuplicate) {
                 if (externalDuplicate.type === 'import') {
                     throw createContextualizedError(
@@ -247,7 +254,9 @@ function parse(entryRelativeHref, {
                 }
             }
             // https://github.com/rollup/rollup/blob/ae54071232bb7236faf0848941c857f7c534ae09/src/Bundle.js#L400
-            const externalSelf = ressourceUtil.findExternalBySource(ressources, node.href)
+            const externalSelf = externals.find((ressource) => (
+                ressource.href === node.href
+            ))
             if (externalSelf) {
                 if (externalSelf.type === 'import') {
                     throw createContextualizedError(
@@ -268,10 +277,30 @@ function parse(entryRelativeHref, {
     }
     const fetchAndParseRessources = (node) => {
         // console.log('fetching', node.id);
-        return Promise.resolve(fetch(node, readSource)).then((code) => {
-            node.code = code
-            return parseRessource(node)
-        }).then((ressources) => {
+        return fetch(node, readSource).then(
+            (code) => {
+                node.code = code
+                return parseRessource(node)
+            },
+            (e) => {
+                if (node.createdByRessource) {
+                    throw createContextualizedError(
+                        'FETCH_ERROR',
+                        {
+                            node,
+                            importerNode: node.dependents.find((dependent) => {
+                                return dependent.href === node.createdByRessource.href
+                            }),
+                            ressource: node.createdByRessource,
+                            error: e
+                        }
+                    )
+                }
+                const error = new Error(`error fetching entry ${node.href}`)
+                error.code = 'FETCH_ENTRY_ERROR'
+                throw error
+            }
+        ).then((ressources) => {
             node.ressources = ressources
             return ressources
         })
@@ -288,11 +317,10 @@ function parse(entryRelativeHref, {
                 fetchAndParseRessources(node)
             ).then((ressources) => {
                 const externalRessources = ressourceUtil.getExternals(ressources)
-
                 externalRessources.forEach((ressource) => {
-                    const dependency = getNode(ressource.source)
+                    const dependency = getNode(ressource.href, ressource)
                     if (node.dependencies.includes(dependency) === false) {
-                        console.log(node.id, 'depends on', ressource.source)
+                        console.log(node.id, 'depends on', dependency.id)
                         node.dependencies.push(dependency)
                     }
                     if (dependency.dependents.includes(node) === false) {
@@ -322,7 +350,7 @@ function parse(entryRelativeHref, {
 
                 return {
                     locate,
-                    fetch: (node) => fetch(node, readSource),
+                    fetch,
                     root: entryNode
                 }
             })

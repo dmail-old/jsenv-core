@@ -1,7 +1,7 @@
 // https://raw.githubusercontent.com/ModuleLoader/es-module-loader/2e44cef516c9317d19c072e18e016649a3c4d4b6/core/resolve.js
 
 const throwResolveError = (href, parentHref) => {
-    throw new RangeError('Unable to resolve "' + href + '" to ' + parentHref)
+    throw new RangeError(`Unable to resolve ${href} to ${parentHref}`)
 }
 const isProtocolRelative = (href) => {
     return href.slice(0, 2) === '//'

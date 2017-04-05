@@ -1,23 +1,12 @@
-/*
-helpers to throw errors when code do weird things such as duplicate_export, duplicate_import
-& selfReferencingImport
-*/
-
-const findDuplicateRessource = (ressources, property) => {
-    return ressources.find((ressource, index) => {
-        return ressources.findIndex((otherRessource) => {
-            return otherRessource[property] === ressource[property]
-        }, index) > -1
-    })
-}
-
 const isExternal = (ressource) => {
     return ressource.type === 'import' || ressource.type === 'reexport'
 }
+exports.isExternal = isExternal
 
 const isInternal = (ressource) => {
     return ressource.type === 'export'
 }
+exports.isInternal = isInternal
 
 const getExternals = (ressources) => {
     return ressources.filter(isExternal)
@@ -27,23 +16,14 @@ exports.getExternals = getExternals
 const getInternals = (ressources) => {
     return ressources.filter(isInternal)
 }
-exports.getExternals = getExternals
+exports.getExternals = getInternals
 
-const findInternalDuplicate = (ressources) => {
-    const exportedRessources = getInternals(ressources)
-    return findDuplicateRessource(exportedRessources, 'name')
+const bisect = (ressources) => {
+    const internals = []
+    const externals = []
+    for (const ressource of ressources) {
+        (isInternal ? internals : externals).push(ressource)
+    }
+    return [internals, externals]
 }
-exports.findInternalDuplicate = findInternalDuplicate
-
-const findExternalDuplicate = (ressources) => {
-    const importedRessources = getExternals(ressources)
-    return findDuplicateRessource(importedRessources, 'localName')
-}
-exports.findExternalDuplicate = findExternalDuplicate
-
-const findExternalBySource = (ressources, source) => {
-    return ressources.find((ressource) => {
-        return isExternal(ressource) && ressource.source === source
-    })
-}
-exports.findExternalBySource = findExternalBySource
+exports.bisect = bisect
