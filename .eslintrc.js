@@ -57,17 +57,17 @@ module.exports = {
                 "max": 10
             }
         ],
-        "import/no-anonymous-default-export": [
-            "error",
-            {
-                "allowArray": true,
-                "allowArrowFunction": false,
-                "allowAnonymousClass": false,
-                "allowAnonymousFunction": false,
-                "allowLiteral": true,
-                "allowObject": true
-            }
-        ],
+        // "import/no-anonymous-default-export": [
+        //     "error",
+        //     {
+        //         "allowArray": true,
+        //         "allowArrowFunction": false,
+        //         "allowAnonymousClass": false,
+        //         "allowAnonymousFunction": false,
+        //         "allowLiteral": true,
+        //         "allowObject": true
+        //     }
+        // ],
         /*
         because it seems like a good idea at first (to force specific quote style) but then
         you fall into edge case where you want to keep quote or not for good reasons

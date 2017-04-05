@@ -3,16 +3,6 @@ helpers to throw errors when code do weird things such as duplicate_export, dupl
 & selfReferencingImport
 */
 
-const normalize = (ressources, ressourceOwnerHref, normalize) => {
-    return ressources.map((ressource) => {
-        if (ressource.type === 'export') {
-            return ressource
-        }
-        return {...ressource, ...{source: normalize(ressource.source, ressourceOwnerHref)}}
-    })
-}
-exports.normalize = normalize
-
 const findDuplicateRessource = (ressources, property) => {
     return ressources.find((ressource, index) => {
         return ressources.findIndex((otherRessource) => {

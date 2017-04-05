@@ -110,6 +110,34 @@ const getNodeFrame = (node, index) => {
 }
 exports.getNodeFrame = getNodeFrame
 
+const createErrorGenerator = (branches) => {
+    const createContextualizedError = (data) => {
+        const {code, node, ressource} = data
+        const branch = branches.find((branch) => branch.code === code)
+        if (!branch) {
+            throw new Error(`no error matching code ${code}`)
+        }
+        const error = {}
+        error.code = code
+        if ('message' in branch) {
+            error.message = branch.message(data)
+        }
+        const frameData = getNodeFrame(node.ressource.start)
+
+        // apparement il suffit de copier les bonne props sur l'objet error pour obtenir une erreur cool
+        // https://github.com/rollup/rollup/blob/master/src/Module.js#L295
+        // https://github.com/rollup/rollup/blob/master/src/utils/error.js#L5
+        error.pos = ressource.start
+        error.loc = {file: frameData, line: frameData.line, column: frameData.column}
+        error.frame = frameData.frame
+
+        return error
+    }
+
+    return createContextualizedError
+}
+exports.createErrorGenerator = createErrorGenerator
+
 const getMissingExport = (rootNode) => {
     const getRessourceDependency = (node, ressource) => {
         return node.dependencies.find((dependency) => {

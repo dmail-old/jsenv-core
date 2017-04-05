@@ -2,11 +2,6 @@
 
 à faire :
 
-- l'erreur devrait append le code frame pour contextualiser le message
-https://github.com/rollup/rollup/blob/master/src/Module.js#L295
-https://github.com/rollup/rollup/blob/master/src/utils/error.js#L5
-apparement il suffit de copier les bonne props sur l'objet error pour obtenir une erreur cool
-
 - lorsqu'un import n'est pas trouvé faudrais aussi avoir la frame pour savoir quel import
 déclenche l'import du module et fail lorsqu'on essaye de le trouver (404 sur fetch ou normalize qui fail)
 
@@ -30,6 +25,24 @@ const ressourceUtil = require('../babel-plugin-parse-ressources/util.js')
 const util = require('./util.js')
 // const root = require('path').resolve(process.cwd(), '../../../').replace(/\\/g, '/')
 // const rootHref = 'file:///' + root
+const ensureThenable = (fn) => {
+    return function ensureReturnValueIsThenable() {
+        try {
+            const returnValue = fn.apply(this, arguments)
+            if (
+                typeof returnValue === 'object' &&
+                returnValue !== null &&
+                typeof returnValue.then === 'function'
+            ) {
+                return returnValue
+            }
+            return Promise.resolve(returnValue)
+        }
+        catch (e) {
+            return Promise.reject(e)
+        }
+    }
+}
 
 const getNodeFilename = (filename) => {
     filename = String(filename)
@@ -59,64 +72,65 @@ const readSource = (filename) => {
 }
 const normalize = (path) => path.replace(/\\/g, '/')
 
-const createMissingExportError = ({
-    node,
-    ressource
-}) => ({
-    code: 'MISSING_EXPORT',
-    message: `${ressource.name} is not exported by ${ressource.source}`,
-    frame: util.getNodeFrame(node, ressource.start)
-})
-const createDuplicateExportDefaultError = ({
-    node,
-    ressource
-}) => ({
-    code: 'DUPLICATE_EXPORT_DEFAULT',
-    message: `A module can only have one default export`,
-    frame: util.getNodeFrame(node, ressource.start)
-})
-const createDuplicateExportError = ({
-    node,
-    ressource
-}) => ({
-    code: 'DUPLICATE_EXPORT',
-    message: `A module cannot have multiple exports with the same name ('${ressource.name}')`,
-    frame: util.getNodeFrame(node, ressource.start)
-})
-// https://github.com/rollup/rollup/blob/ae54071232bb7236faf0848941c857f7c534ae09/src/Module.js#L219
-const createDuplicateImportErrror = ({
-    node,
-    ressource
-}) => ({
-    code: 'DUPLICATE_IMPORT',
-    message: `Duplicated import of ('${ressource.localName}')`,
-    frame: util.getNodeFrame(node, ressource.start)
-})
-const createDuplicateReexportError = ({
-    node,
-    ressource
-}) => ({
-    code: 'DUPLICATE_REEXPORT',
-    message: `Duplicated reexport of ('${ressource.localName}')`,
-    frame: util.getNodeFrame(node, ressource.start)
-})
-// https://github.com/rollup/rollup/blob/ae54071232bb7236faf0848941c857f7c534ae09/src/Bundle.js#L400
-const createSelfImportError = ({
-    node,
-    ressource
-}) => ({
-    code: 'SELF_IMPORT',
-    message: `A module cannot import from itself`,
-    frame: util.getNodeFrame(node, ressource.start)
-})
-const createSelfReexportError = ({
-    node,
-    ressource
-}) => ({
-    code: 'SELF_REEXPORT',
-    message: `A module cannot export from itself`,
-    frame: util.getNodeFrame(node, ressource.start)
-})
+const possibleErrors = [
+    {
+        code: 'UNRESOLVED_IMPORT',
+        message: ({ressource, node}) => (
+            `Could not resolve '${ressource.source}' from ${node.id}`
+        )
+    },
+    {
+        code: 'UNRESOLVED_REEXPORT',
+        message: ({ressource, node}) => (
+            `Could not resolve '${ressource.source}' from ${node.id}`
+        )
+    },
+    {
+        code: 'DUPLICATE_EXPORT_DEFAULT',
+        message: () => (
+            `A module can only have one default export`
+        )
+    },
+    {
+        code: 'DUPLICATE_EXPORT',
+        message: ({ressource}) => (
+            `A module cannot have multiple exports with the same name ('${ressource.name}')`
+        )
+    },
+    // https://github.com/rollup/rollup/blob/ae54071232bb7236faf0848941c857f7c534ae09/src/Module.js#L219
+    {
+        code: 'DUPLICATE_IMPORT',
+        message: ({ressource}) => (
+            `Duplicated import of ('${ressource.localName}')`
+        )
+    },
+    {
+        code: 'DUPLICATE_REEXPORT',
+        message: ({ressource}) => (
+            `Duplicated reexport of ('${ressource.localName}')`
+        )
+    },
+    // https://github.com/rollup/rollup/blob/ae54071232bb7236faf0848941c857f7c534ae09/src/Bundle.js#L400
+    {
+        code: 'SELF_IMPORT',
+        message: () => (
+            `A module cannot import from itself`
+        )
+    },
+    {
+        code: 'SELF_REEXPORT',
+        message: () => (
+            `A module cannot export from itself`
+        )
+    },
+    {
+        code: 'MISSING_EXPORT',
+        message: ({ressource}) => (
+            `${ressource.name} is not exported by ${ressource.source}`
+        )
+    }
+]
+const createContextualizedError = util.createErrorGenerator(possibleErrors)
 
 function parse(entryRelativeHref, {
     variables = {},
@@ -131,19 +145,16 @@ function parse(entryRelativeHref, {
     }
     // baseHref = baseHref.slice(0, baseHref.lastIndexOf('/'))
 
-    const resolve = (importee, importer) => {
+    const defaultResolve = (importee, importer) => {
         const resolved = resolveIfNotPlain(importee, importer)
         if (resolved) {
             return resolved
         }
         return baseHref + importee
     }
-    const locate = (...args) => normalize(resolve(...args))
-
+    const resolve = ensureThenable(defaultResolve)
+    const locate = (...args) => resolve(...args).then(normalize)
     const hrefToId = (href) => href.slice(baseHref.length)
-    const locateId = (importee, importer) => {
-        return hrefToId(locate(importee, importer))
-    }
 
     const nodes = []
     const createNode = (href) => {
@@ -183,37 +194,77 @@ function parse(entryRelativeHref, {
             ]
         })
 
-        const normalizedRessources = ressourceUtil.normalize(ressources, node.href, locateId)
-        const internalDuplicate = ressourceUtil.findInternalDuplicate(normalizedRessources)
-        // https://github.com/rollup/rollup/blob/ae54071232bb7236faf0848941c857f7c534ae09/src/Module.js#L125
-        if (internalDuplicate) {
-            if (internalDuplicate.name === 'default') {
-                throw createDuplicateExportDefaultError({node, ressource: internalDuplicate})
+        const externalRessources = ressourceUtil.getExternals(ressources)
+        return mapAsync(externalRessources, (ressource) => {
+            return locate(ressource.source, node.href).then(
+                (normalizedSource) => {
+                    ressource.source = hrefToId(normalizedSource)
+                },
+                () => {
+                    if (ressource.type === 'import') {
+                        throw createContextualizedError(
+                            'UNRESOLVED_IMPORT',
+                            {node, ressource}
+                        )
+                    }
+                    if (ressource.type === 'reexport') {
+                        throw createContextualizedError(
+                            'UNRESOLVED_REEXPORT',
+                            {node, ressource}
+                        )
+                    }
+                }
+            )
+        }).then(() => {
+            const internalDuplicate = ressourceUtil.findInternalDuplicate(ressources)
+            // https://github.com/rollup/rollup/blob/ae54071232bb7236faf0848941c857f7c534ae09/src/Module.js#L125
+            if (internalDuplicate) {
+                if (internalDuplicate.name === 'default') {
+                    throw createContextualizedError(
+                        'DUPLICATE_EXPORT_DEFAULT',
+                        {node, ressource: internalDuplicate}
+                    )
+                }
+                throw createContextualizedError(
+                    'DUPLICATE_EXPORT',
+                    {node, ressource: internalDuplicate}
+                )
             }
-            throw createDuplicateExportError({node, ressource: internalDuplicate})
-        }
-        // https://github.com/rollup/rollup/blob/ae54071232bb7236faf0848941c857f7c534ae09/src/Module.js#L219
-        const externalDuplicate = ressourceUtil.findExternalDuplicate(normalizedRessources)
-        if (externalDuplicate) {
-            if (externalDuplicate.type === 'import') {
-                throw createDuplicateImportErrror({node, ressource: externalDuplicate})
+            // https://github.com/rollup/rollup/blob/ae54071232bb7236faf0848941c857f7c534ae09/src/Module.js#L219
+            const externalDuplicate = ressourceUtil.findExternalDuplicate(ressources)
+            if (externalDuplicate) {
+                if (externalDuplicate.type === 'import') {
+                    throw createContextualizedError(
+                        'DUPLICATE_IMPORT',
+                        {node, ressource: externalDuplicate}
+                    )
+                }
+                if (externalDuplicate.type === 'reexport') {
+                    throw createContextualizedError(
+                        'DUPLICATE_REEXPORT',
+                        {node, ressource: externalDuplicate}
+                    )
+                }
             }
-            if (externalDuplicate.type === 'reexport') {
-                throw createDuplicateReexportError({node, ressource: externalDuplicate})
+            // https://github.com/rollup/rollup/blob/ae54071232bb7236faf0848941c857f7c534ae09/src/Bundle.js#L400
+            const externalSelf = ressourceUtil.findExternalBySource(ressources, node.href)
+            if (externalSelf) {
+                if (externalSelf.type === 'import') {
+                    throw createContextualizedError(
+                        'SELF_IMPORT',
+                        {node, ressource: externalSelf}
+                    )
+                }
+                if (externalSelf.type === 'reexport') {
+                    throw createContextualizedError(
+                        'SELF_REEXPORT',
+                        {node, ressource: externalSelf}
+                    )
+                }
             }
-        }
-        // https://github.com/rollup/rollup/blob/ae54071232bb7236faf0848941c857f7c534ae09/src/Bundle.js#L400
-        const externalSelf = ressourceUtil.findExternalBySource(normalizedRessources, node.href)
-        if (externalSelf) {
-            if (externalSelf.type === 'import') {
-                throw createSelfImportError({node, ressource: externalSelf})
-            }
-            if (externalSelf.type === 'reexport') {
-                throw createSelfReexportError({node, ressource: externalSelf})
-            }
-        }
 
-        return normalizedRessources
+            return ressources
+        })
     }
     const fetchAndParseRessources = (node) => {
         // console.log('fetching', node.id);
@@ -259,22 +310,30 @@ function parse(entryRelativeHref, {
         return promise
     }
 
-    return Promise.resolve(locate(entryRelativeHref, baseHref)).then((entryHref) => {
-        const entryNode = getNode(entryHref)
-        return parseNode(entryNode).then(() => {
-            // https://github.com/rollup/rollup/blob/ae54071232bb7236faf0848941c857f7c534ae09/src/Module.js#L426}
-            const missingExport = util.getMissingExport(entryNode)
-            if (missingExport) {
-                throw createMissingExportError(missingExport)
-            }
+    return locate(entryRelativeHref, baseHref).then(
+        (entryHref) => {
+            const entryNode = getNode(entryHref)
+            return parseNode(entryNode).then(() => {
+                // https://github.com/rollup/rollup/blob/ae54071232bb7236faf0848941c857f7c534ae09/src/Module.js#L426}
+                const missingExport = util.getMissingExport(entryNode)
+                if (missingExport) {
+                    throw createContextualizedError('MISSING_EXPORT', missingExport)
+                }
 
-            return {
-                locate: locate,
-                fetch: (node) => fetch(node, readSource),
-                root: entryNode
-            }
-        })
-    })
+                return {
+                    locate,
+                    fetch: (node) => fetch(node, readSource),
+                    root: entryNode
+                }
+            })
+        },
+        () => {
+            // https://github.com/rollup/rollup/blob/master/src/Bundle.js#L111
+            const error = new Error(`cannot resolve entry ${entryRelativeHref}`)
+            error.code = 'UNRESOLVED_ENTRY'
+            throw error
+        }
+    )
 }
 
 module.exports = parse
