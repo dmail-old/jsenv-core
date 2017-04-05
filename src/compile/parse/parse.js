@@ -17,20 +17,7 @@ const ressourceUtil = require('../babel-plugin-parse-ressources/util.js')
 const util = require('./util.js')
 // const root = require('path').resolve(process.cwd(), '../../../').replace(/\\/g, '/')
 // const rootHref = 'file:///' + root
-const ensureThenable = (fn) => {
-    return function ensureReturnValueIsThenable() {
-        try {
-            const returnValue = fn.apply(this, arguments)
-            if (returnValue && typeof returnValue.then === 'function') {
-                return returnValue
-            }
-            return Promise.resolve(returnValue)
-        }
-        catch (e) {
-            return Promise.reject(e)
-        }
-    }
-}
+const ensureThenable = require('../util/ensure-thenable.js')
 
 const getNodeFilename = (filename) => {
     filename = String(filename)
@@ -75,8 +62,8 @@ const possibleErrors = [
     },
     {
         code: 'FETCH_ERROR',
-        message: ({ressource, importerNode}) => (
-            `Error while fetching '${ressource.source}' from ${importerNode.id}`
+        message: ({ressource, node}) => (
+            `Error while fetching '${ressource.source}' from ${node.id}`
         )
     },
     {
@@ -129,25 +116,24 @@ const createContextualizedError = util.createErrorGenerator(possibleErrors)
 function parse(entryRelativeHref, {
     variables = {},
     baseHref,
-    fetch = (node, readSource) => readSource(node.href)
+    fetch = (node, readSource) => readSource(node.href),
+    resolve
 } = {}) {
     baseHref = baseHref || 'file:///' + normalize(process.cwd())
-
     // ensure trailing / so that we are absolutely sure it's a folder
     if (baseHref[baseHref.length - 1] !== '/') {
         baseHref += '/'
     }
     // baseHref = baseHref.slice(0, baseHref.lastIndexOf('/'))
-
-    const defaultResolve = (importee, importer) => {
+    resolve = resolve || function(importee, importer) {
         const resolved = resolveIfNotPlain(importee, importer)
         if (resolved) {
             return resolved
         }
         return baseHref + importee
     }
+    resolve = ensureThenable(resolve)
     fetch = ensureThenable(fetch)
-    const resolve = ensureThenable(defaultResolve)
     const locate = (...args) => resolve(...args).then(normalize)
     const hrefToId = (href) => href.slice(baseHref.length)
 
@@ -171,7 +157,9 @@ function parse(entryRelativeHref, {
             return existingNode
         }
         const node = createNode(href)
-        node.createdByRessource = ressource
+        if (ressource) {
+            node.createdByRessource = ressource
+        }
         nodes.push(node)
         return node
     }
@@ -217,7 +205,7 @@ function parse(entryRelativeHref, {
 
             const internalDuplicate = internals.find((ressource, index, array) => {
                 return array.slice(index + 1).some((nextRessource) => (
-                    ressource.name === nextRessource.name
+                    ressource.name && ressource.name === nextRessource.name
                 ))
             })
             // https://github.com/rollup/rollup/blob/ae54071232bb7236faf0848941c857f7c534ae09/src/Module.js#L125
@@ -284,14 +272,15 @@ function parse(entryRelativeHref, {
             },
             (e) => {
                 if (node.createdByRessource) {
+                    const ressource = node.createdByRessource
                     throw createContextualizedError(
                         'FETCH_ERROR',
                         {
-                            node,
-                            importerNode: node.dependents.find((dependent) => {
-                                return dependent.href === node.createdByRessource.href
+                            node: node.dependents.find((dependent) => {
+                                return dependent.href === ressource.href
                             }),
-                            ressource: node.createdByRessource,
+                            importee: node,
+                            ressource,
                             error: e
                         }
                     )
@@ -317,20 +306,20 @@ function parse(entryRelativeHref, {
                 fetchAndParseRessources(node)
             ).then((ressources) => {
                 const externalRessources = ressourceUtil.getExternals(ressources)
+                const dependencies = []
                 externalRessources.forEach((ressource) => {
                     const dependency = getNode(ressource.href, ressource)
-                    if (node.dependencies.includes(dependency) === false) {
-                        console.log(node.id, 'depends on', dependency.id)
-                        node.dependencies.push(dependency)
+                    if (dependencies.includes(dependency) === false) {
+                        // console.log(node.id, 'depends on', dependency.id)
+                        dependencies.push(dependency)
                     }
                     if (dependency.dependents.includes(node) === false) {
                         dependency.dependents.push(node)
                     }
                 })
+                node.dependencies = dependencies
 
-                return mapAsync(node.dependencies, parseNode).then(() => {
-                    return node
-                })
+                return mapAsync(dependencies, parseNode)
             })
             parseCache[node.id] = promise
         }

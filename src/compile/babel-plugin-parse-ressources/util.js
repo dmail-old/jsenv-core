@@ -16,7 +16,7 @@ exports.getExternals = getExternals
 const getInternals = (ressources) => {
     return ressources.filter(isInternal)
 }
-exports.getExternals = getInternals
+exports.getInternals = getInternals
 
 const bisect = (ressources) => {
     const internals = []

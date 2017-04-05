@@ -126,7 +126,7 @@ const getProgramRessources = (program, filename) => {
             if (node.declaration) {
                 const declaration = node.declaration
                 if (declaration.type === 'VariableDeclaration') {
-                    return generators.exxportedVariableDeclaration(declaration)
+                    return generators.exportedVariableDeclaration(declaration)
                 }
                 return generators.exportedDeclaration(declaration)
             }

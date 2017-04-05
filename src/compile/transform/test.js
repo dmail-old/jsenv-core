@@ -2,8 +2,19 @@
 //     'src/trace/fixtures/conditional/entry.js',
 //     null,
 //     {
-//         exclude(node) {
-//             return node.id === 'src/trace/fixtures/conditional/file.js'
+//         exclude(importee, importer) {
+//             if (
+//                 importee === 'fixtures/consume-two/consume-b.js' &&
+//                 importer === 'fixtures/consume-two/main.js'
+//             ) {
+//                 return true
+//             }
+//             if (
+//                 importee === 'fixtures/consume-two/produce.js' &&
+//                 importer === 'fixtures/consume-two/consume-a.js'
+//             ) {
+//                 return true
+//             }
 //         }
 //     }
 // ).then((result) => {
