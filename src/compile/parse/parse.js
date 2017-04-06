@@ -47,71 +47,94 @@ const readSource = (filename) => {
 }
 const normalize = (path) => path.replace(/\\/g, '/')
 
+const contextualizeError = ({node, ressource}) => {
+    const context = {
+        file: node.href,
+        content: node.code,
+        start: ressource.start
+    }
+    return context
+}
 const possibleErrors = [
     {
-        code: 'UNRESOLVED_IMPORT',
-        message: ({ressource, node}) => (
-            `Could not resolve '${ressource.source}' from ${node.id}`
+        code: 'RESOLVE_ENTRY_ERROR',
+        message: ({entryRelativeHref}) => (
+            `Error resolving entry ${entryRelativeHref}`
         )
     },
     {
-        code: 'UNRESOLVED_REEXPORT',
-        message: ({ressource, node}) => (
-            `Could not resolve '${ressource.source}' from ${node.id}`
+        code: 'FETCH_ENTRY_ERROR',
+        message: ({node}) => (
+            `Error fetching entry ${node.href}`
         )
+    },
+    {
+        code: 'RESOLVE_ERROR',
+        message: ({ressource, node}) => (
+            `Error resolving '${ressource.source}' from ${node.id}`
+        ),
+        context: contextualizeError
     },
     {
         code: 'FETCH_ERROR',
         message: ({ressource, node}) => (
-            `Error while fetching '${ressource.source}' from ${node.id}`
-        )
+            `Error fetching '${ressource.source}' from ${node.id}`
+        ),
+        context: contextualizeError
     },
     {
         code: 'DUPLICATE_EXPORT_DEFAULT',
         message: () => (
             `A module can only have one default export`
-        )
+        ),
+        context: contextualizeError
     },
     {
         code: 'DUPLICATE_EXPORT',
         message: ({ressource}) => (
             `A module cannot have multiple exports with the same name ('${ressource.name}')`
-        )
+        ),
+        context: contextualizeError
     },
     // https://github.com/rollup/rollup/blob/ae54071232bb7236faf0848941c857f7c534ae09/src/Module.js#L219
     {
         code: 'DUPLICATE_IMPORT',
         message: ({ressource}) => (
             `Duplicated import of ('${ressource.localName}')`
-        )
+        ),
+        context: contextualizeError
     },
     {
         code: 'DUPLICATE_REEXPORT',
         message: ({ressource}) => (
             `Duplicated reexport of ('${ressource.localName}')`
-        )
+        ),
+        context: contextualizeError
     },
     // https://github.com/rollup/rollup/blob/ae54071232bb7236faf0848941c857f7c534ae09/src/Bundle.js#L400
     {
         code: 'SELF_IMPORT',
         message: () => (
             `A module cannot import from itself`
-        )
+        ),
+        context: contextualizeError
     },
     {
         code: 'SELF_REEXPORT',
         message: () => (
             `A module cannot export from itself`
-        )
+        ),
+        context: contextualizeError
     },
     {
         code: 'MISSING_EXPORT',
         message: ({ressource}) => (
             `${ressource.name} is not exported by ${ressource.source}`
-        )
+        ),
+        context: contextualizeError
     }
 ]
-const createContextualizedError = util.createErrorGenerator(possibleErrors)
+const createError = util.createErrorGenerator(possibleErrors)
 
 function parse(entryRelativeHref, {
     variables = {},
@@ -185,19 +208,12 @@ function parse(entryRelativeHref, {
                     ressource.href = href
                     ressource.id = hrefToId(href)
                 },
-                () => {
-                    if (ressource.type === 'import') {
-                        throw createContextualizedError(
-                            'UNRESOLVED_IMPORT',
-                            {node, ressource}
-                        )
-                    }
-                    if (ressource.type === 'reexport') {
-                        throw createContextualizedError(
-                            'UNRESOLVED_REEXPORT',
-                            {node, ressource}
-                        )
-                    }
+                (error) => {
+                    throw createError('RESOLVE_ERROR', {
+                        node,
+                        ressource,
+                        error
+                    })
                 }
             )
         }).then(() => {
@@ -211,12 +227,12 @@ function parse(entryRelativeHref, {
             // https://github.com/rollup/rollup/blob/ae54071232bb7236faf0848941c857f7c534ae09/src/Module.js#L125
             if (internalDuplicate) {
                 if (internalDuplicate.name === 'default') {
-                    throw createContextualizedError(
+                    throw createError(
                         'DUPLICATE_EXPORT_DEFAULT',
                         {node, ressource: internalDuplicate}
                     )
                 }
-                throw createContextualizedError(
+                throw createError(
                     'DUPLICATE_EXPORT',
                     {node, ressource: internalDuplicate}
                 )
@@ -229,13 +245,13 @@ function parse(entryRelativeHref, {
             })
             if (externalDuplicate) {
                 if (externalDuplicate.type === 'import') {
-                    throw createContextualizedError(
+                    throw createError(
                         'DUPLICATE_IMPORT',
                         {node, ressource: externalDuplicate}
                     )
                 }
                 if (externalDuplicate.type === 'reexport') {
-                    throw createContextualizedError(
+                    throw createError(
                         'DUPLICATE_REEXPORT',
                         {node, ressource: externalDuplicate}
                     )
@@ -247,13 +263,13 @@ function parse(entryRelativeHref, {
             ))
             if (externalSelf) {
                 if (externalSelf.type === 'import') {
-                    throw createContextualizedError(
+                    throw createError(
                         'SELF_IMPORT',
                         {node, ressource: externalSelf}
                     )
                 }
                 if (externalSelf.type === 'reexport') {
-                    throw createContextualizedError(
+                    throw createError(
                         'SELF_REEXPORT',
                         {node, ressource: externalSelf}
                     )
@@ -273,7 +289,7 @@ function parse(entryRelativeHref, {
             (e) => {
                 if (node.createdByRessource) {
                     const ressource = node.createdByRessource
-                    throw createContextualizedError(
+                    throw createError(
                         'FETCH_ERROR',
                         {
                             node: node.dependents.find((dependent) => {
@@ -285,9 +301,7 @@ function parse(entryRelativeHref, {
                         }
                     )
                 }
-                const error = new Error(`error fetching entry ${node.href}`)
-                error.code = 'FETCH_ENTRY_ERROR'
-                throw error
+                throw createError('FETCH_ENTRY_ERROR', {node})
             }
         ).then((ressources) => {
             node.ressources = ressources
@@ -334,7 +348,7 @@ function parse(entryRelativeHref, {
                 // https://github.com/rollup/rollup/blob/ae54071232bb7236faf0848941c857f7c534ae09/src/Module.js#L426}
                 const missingExport = util.getMissingExport(entryNode)
                 if (missingExport) {
-                    throw createContextualizedError('MISSING_EXPORT', missingExport)
+                    throw createError('MISSING_EXPORT', missingExport)
                 }
 
                 return {
@@ -345,10 +359,7 @@ function parse(entryRelativeHref, {
             })
         },
         () => {
-            // https://github.com/rollup/rollup/blob/master/src/Bundle.js#L111
-            const error = new Error(`cannot resolve entry ${entryRelativeHref}`)
-            error.code = 'UNRESOLVED_ENTRY'
-            throw error
+            throw createError('RESOLVE_ENTRY_ERROR', {entryRelativeHref})
         }
     )
 }

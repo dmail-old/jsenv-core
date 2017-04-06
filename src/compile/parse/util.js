@@ -108,25 +108,38 @@ exports.getNodeFrame = getNodeFrame
 
 const createErrorGenerator = (branches) => {
     const createContextualizedError = (code, data) => {
-        const {node, ressource} = data
         const branch = branches.find((branch) => branch.code === code)
         if (!branch) {
             throw new Error(`no error matching code ${code}`)
         }
-        const error = new Error()
-        error.code = code
-        if ('message' in branch) {
-            error.message = branch.message(data)
+
+        let {message} = branch
+        if (message) {
+            if (typeof message === 'function') {
+                message = message(data)
+            }
         }
-        const frameData = getNodeFrame(node, ressource.start)
+        const error = new Error(message)
+        error.code = code
 
-        // apparement il suffit de copier les bonne props sur l'objet error pour obtenir une erreur cool
-        // https://github.com/rollup/rollup/blob/master/src/Module.js#L295
-        // https://github.com/rollup/rollup/blob/master/src/utils/error.js#L5
-        error.pos = ressource.start
-        error.loc = {file: frameData, line: frameData.line, column: frameData.column}
-        error.frame = frameData.frame
+        let {context} = branch
+        if (context) {
+            if (typeof context === 'function') {
+                context = context(data)
+            }
+            const frameData = getNodeFrame(context.content, context.start)
 
+            // apparement il suffit de copier les bonne props sur l'objet error pour obtenir une erreur cool
+            // https://github.com/rollup/rollup/blob/master/src/Module.js#L295
+            // https://github.com/rollup/rollup/blob/master/src/utils/error.js#L5
+            error.pos = context.start
+            error.loc = {
+                file: context.file,
+                line: frameData.line,
+                column: frameData.column
+            }
+            error.frame = frameData.frame
+        }
         return error
     }
 
