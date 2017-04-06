@@ -12,4 +12,4 @@ const ensureThenable = (fn) => {
         }
     }
 }
-exports.ensureThenable = ensureThenable
+module.exports = ensureThenable

@@ -18,4 +18,4 @@ const traverseGraphAsync = (rootNode, fn) => {
     }
     return visit(rootNode)
 }
-exports.traverseGraphAsync = traverseGraphAsync
+module.exports = traverseGraphAsync

@@ -50,7 +50,7 @@ const normalize = (path) => path.replace(/\\/g, '/')
 const contextualizeError = ({node, ressource}) => {
     const context = {
         file: node.href,
-        content: node.code,
+        content: node.content,
         start: ressource.start
     }
     return context
@@ -189,7 +189,7 @@ function parse(entryRelativeHref, {
     const parseRessource = (node) => {
         const ressources = []
         // console.log('transforming', node.href)
-        babel.transform(node.code, {
+        const result = babel.transform(node.content, {
             ast: true,
             code: false,
             sourceMaps: false,
@@ -200,6 +200,7 @@ function parse(entryRelativeHref, {
                 createParseRessources(ressources)
             ]
         })
+        node.ast = result.ast
 
         const externalRessources = ressourceUtil.getExternals(ressources)
         return mapAsync(externalRessources, (ressource) => {
@@ -282,8 +283,8 @@ function parse(entryRelativeHref, {
     const fetchAndParseRessources = (node) => {
         // console.log('fetching', node.id);
         return fetch(node, readSource).then(
-            (code) => {
-                node.code = code
+            (content) => {
+                node.content = content
                 return parseRessource(node)
             },
             (e) => {

@@ -64,13 +64,13 @@ function transform(tree, {
     }
     const transpileStep = () => {
         return traverseGraphAsync(root, (node) => {
-            const ast = node.ast // todo, save this in ../parse/parse.js
+            const ast = node.ast
             const transpiler = getTranspiler(node)
-            return transpiler.transpileFromAst(ast, {
+            return transpiler.transpileFromAst(ast, node.content, {
                 moduleId: node.id,
                 filename: node.href
             }).then((result) => {
-                node.transpiledCode = result.code
+                node.transpiledContent = result.code
                 // node.sourceMap = result.map;
                 // node.ast = result.ast;
             })
