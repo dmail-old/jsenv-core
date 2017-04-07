@@ -1,5 +1,5 @@
 # Auto detect text files, perform LF normalization, force tabs
-* text=auto eol=lf filter=spaces2tabs
+* text=auto eol=lf
 
 # Custom for Visual Studio
 *.cs     diff=csharp

@@ -17,11 +17,6 @@ module.exports = {
 			// I don't want to force people identation width to be 2 or 4
 			// they decide how much space a tab char takes (2, 4, 100) in their environment
 			// if you prefer indent using space
-			// https://alexzaytsev.me/2014/10/19/git-filter-to-convert-spaces-to-tabs-and-vice-versa/
-			// basically you go to paste the following into .gitconfig
-			// [filter "spaces2tabs"]
-    	//   clean = unexpand --tabs=4 --first-only
-    	//   smudge = expand --tabs=4 --initial
 			{
 				"SwitchCase": 1
 			}
