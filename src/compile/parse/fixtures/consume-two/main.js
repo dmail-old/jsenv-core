@@ -1,2 +1,2 @@
-import './consume-a.js'
-import './consume-b.js'
+import "./consume-a.js"
+import "./consume-b.js"
