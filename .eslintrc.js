@@ -16,7 +16,9 @@ module.exports = {
 			"tab",
 			// I don't want to force people identation width to be 2 or 4
 			// they decide how much space a tab char takes (2, 4, 100) in their environment
-			// if you prefer indent using space
+			// thanks to .editorconfig github respect a width of 2 for tabs so that
+			// remote public version remains consistent
+			// (see http://stackoverflow.com/a/33831598)
 			{
 				"SwitchCase": 1
 			}
