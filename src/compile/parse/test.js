@@ -1,31 +1,23 @@
 const parse = require("./parse.js")
 const assert = require('assert') // eslint-disable-line
-const fs = require("fs")
+const ensureThenable = require("../util/ensure-thenable.js")
 
 const test = (name) => {
-	return parse(
-		`./fixtures/${name}/main.js`,
-		{
-			variables: {
-				platform: "node"
-			}
-		}
-	).then((trace) => { // eslint-disable-line
-		const testSource = String(fs.readFileSync(`./fixtures/${name}/test.js`))
-		global.trace = trace
-		global.assert = assert
-		require("vm").runInThisContext(testSource)
-	})
+	const testFn = require(`./fixtures/${name}/test.js`) // eslint-disable-line import/no-dynamic-require
+	return ensureThenable(testFn)(parse, assert)
 }
 
 [
 	// 'variable',
 	"consume-two",
+	// "missing-default-export",
 ].reduce((previous, name) => {
 	return previous.then(() => {
 		return test(name)
 	})
-}, Promise.resolve()).catch((e) => {
+}, Promise.resolve()).then(() => {
+	console.log('tests passed')
+}).catch((e) => {
 	setTimeout(() => {
 		throw e
 	})

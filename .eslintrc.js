@@ -24,7 +24,7 @@ module.exports = {
 			}
 		],
 		"quotes": [
-			"warn",
+			"off", // because painful when you swtich between ""``
 			"double" // because JSON requires it so facilitates it
 		],
 		"prefer-template": [
