@@ -162,6 +162,9 @@ const getMissingExport = (rootNode) => {
 
 		const externalRessources = ressourceUtil.getExternals(node.ressources)
 		const externalRessourceNotExported = externalRessources.find((ressource) => {
+			if (!ressource.name) {
+				return false
+			}
 			const dependency = getRessourceDependency(node, ressource)
 			if (!dependency) {
 				throw new Error(`malformed tree: cannot dependency of ${ressource.id}`)
