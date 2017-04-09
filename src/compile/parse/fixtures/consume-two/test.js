@@ -1,8 +1,6 @@
 module.exports = (parse, assert) => {
-	const dir = "fixtures/consume-two"
-
-	return parse(`./${dir}/main.js`).then((trace) => {
+	return parse(`./main.js`, __dirname).then((trace) => {
 		const root = trace.root
-		assert.equal(root.id, `${dir}/main.js`)
+		assert.equal(root.id, `${__dirname}/main.js`)
 	})
 }

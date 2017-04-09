@@ -93,18 +93,17 @@ const getCodeFrame = (code, line, column) => {
 }
 exports.getCodeFrame = getCodeFrame
 
-const getNodeFrame = (node, index) => {
-	const code = node.code
-	const {line, column} = locateCharacter(code, index, {offsetLine: 1})
+const getContextFrame = ({content, start, file}) => {
+	const {line, column} = locateCharacter(content, start, {offsetLine: 1})
 	const location = {
-		file: node.href,
+		file,
 		line,
 		column,
-		frame: getCodeFrame(code, line, column)
+		frame: getCodeFrame(content, line, column)
 	}
 	return location
 }
-exports.getNodeFrame = getNodeFrame
+exports.getContextFrame = getContextFrame
 
 const createErrorGenerator = (branches) => {
 	const createContextualizedError = (code, data) => {
@@ -127,7 +126,7 @@ const createErrorGenerator = (branches) => {
 			if (typeof context === "function") {
 				context = context(data)
 			}
-			const frameData = getNodeFrame(context.content, context.start)
+			const frameData = getContextFrame(context)
 
 			// apparement il suffit de copier les bonne props sur l'objet error pour obtenir une erreur cool
 			// https://github.com/rollup/rollup/blob/master/src/Module.js#L295
@@ -167,12 +166,10 @@ const getMissingExport = (rootNode) => {
 			if (!dependency) {
 				throw new Error(`malformed tree: cannot dependency of ${ressource.id}`)
 			}
-			return dependency.ressources.some((dependencyRessource) => {
-				return (
-					ressourceUtil.isInternal(dependencyRessource) &&
-					dependencyRessource.name === ressource.name
-				)
-			})
+			const dependencyInternals = ressourceUtil.getInternals(dependency.ressources)
+			return dependencyInternals.some((dependencyRessource) => (
+				dependencyRessource.name === ressource.name
+			)) === false
 		})
 		if (externalRessourceNotExported) {
 			return {node, ressource: externalRessourceNotExported}

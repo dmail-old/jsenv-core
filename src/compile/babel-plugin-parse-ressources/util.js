@@ -22,7 +22,7 @@ const bisect = (ressources) => {
 	const internals = []
 	const externals = []
 	for (const ressource of ressources) {
-		(isInternal ? internals : externals).push(ressource)
+		(isInternal(ressource) ? internals : externals).push(ressource)
 	}
 	return [internals, externals]
 }

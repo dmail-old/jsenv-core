@@ -3,14 +3,14 @@ const assert = require('assert') // eslint-disable-line
 const ensureThenable = require("../util/ensure-thenable.js")
 
 const test = (name) => {
-	const testFn = require(`./fixtures/${name}/test.js`) // eslint-disable-line import/no-dynamic-require
+	const testFn = require(`${__dirname}/fixtures/${name}/test.js`) // eslint-disable-line import/no-dynamic-require
 	return ensureThenable(testFn)(parse, assert)
 }
 
 [
 	// 'variable',
 	"consume-two",
-	// "missing-default-export",
+	"missing-default-export",
 ].reduce((previous, name) => {
 	return previous.then(() => {
 		return test(name)

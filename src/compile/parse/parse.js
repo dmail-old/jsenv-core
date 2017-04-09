@@ -58,14 +58,14 @@ const contextualizeError = ({node, ressource}) => {
 const possibleErrors = [
 	{
 		code: "RESOLVE_ENTRY_ERROR",
-		message: ({entryRelativeHref}) => (
-			`Error resolving entry ${entryRelativeHref}`
+		message: ({entryRelativeHref, error}) => (
+			`Error resolving entry ${entryRelativeHref} : ${error}`
 		)
 	},
 	{
 		code: "FETCH_ENTRY_ERROR",
-		message: ({node}) => (
-			`Error fetching entry ${node.href}`
+		message: ({node, error}) => (
+			`Error fetching entry ${node.href}: ${error}`
 		)
 	},
 	{
@@ -136,13 +136,26 @@ const possibleErrors = [
 ]
 const createError = util.createErrorGenerator(possibleErrors)
 
-function parse(entryRelativeHref, {
-	variables = {},
-	baseHref,
-	fetch = (node, readSource) => readSource(node.href),
-	resolve
-} = {}) {
-	baseHref = baseHref || `file:///${normalize(process.cwd())}`
+function parse(entryRelativeHref, options = {}) {
+	if (typeof options === 'string') {
+		options = {
+			baseHref: options
+		}
+	}
+
+	let {
+		variables = {},
+		baseHref,
+		fetch = (node, readSource) => readSource(node.href),
+		resolve,
+	} = options
+
+	baseHref = baseHref || process.cwd()
+	baseHref = normalize(baseHref)
+	if (baseHref[0].match(/[a-z]/i) && baseHref[1] === ':' && baseHref[2] === '/') {
+		baseHref = `file:///${baseHref}`
+	}
+
 	// ensure trailing / so that we are absolutely sure it's a folder
 	if (baseHref[baseHref.length - 1] !== "/") {
 		baseHref += "/"
@@ -221,12 +234,14 @@ function parse(entryRelativeHref, {
 			const [internals, externals] = ressourceUtil.bisect(ressources)
 
 			const internalDuplicate = internals.find((ressource, index, array) => {
-				return array.slice(index + 1).some((nextRessource) => (
-					ressource.name && ressource.name === nextRessource.name
-				))
+				return (
+					ressource.name &&
+					array.slice(index + 1).some((nextRessource) => ressource.name === nextRessource.name)
+				)
 			})
 			// https://github.com/rollup/rollup/blob/ae54071232bb7236faf0848941c857f7c534ae09/src/Module.js#L125
 			if (internalDuplicate) {
+				// console.log('internals', internals, 'duplicate', internalDuplicate)
 				if (internalDuplicate.name === "default") {
 					throw createError(
 						"DUPLICATE_EXPORT_DEFAULT",
@@ -240,9 +255,10 @@ function parse(entryRelativeHref, {
 			}
 			// https://github.com/rollup/rollup/blob/ae54071232bb7236faf0848941c857f7c534ae09/src/Module.js#L219
 			const externalDuplicate = externals.find((ressource, index, array) => {
-				return array.slice(index + 1).some((nextRessource) => (
-					ressource.localName === nextRessource.localName
-				))
+				return (
+					ressource.localName &&
+					array.slice(index + 1).some((nextRessource) => ressource.localName === nextRessource.localName)
+				)
 			})
 			if (externalDuplicate) {
 				if (externalDuplicate.type === "import") {
@@ -287,7 +303,7 @@ function parse(entryRelativeHref, {
 				node.content = content
 				return parseRessource(node)
 			},
-			(e) => {
+			(error) => {
 				if (node.createdByRessource) {
 					const ressource = node.createdByRessource
 					throw createError(
@@ -298,11 +314,11 @@ function parse(entryRelativeHref, {
 							}),
 							importee: node,
 							ressource,
-							error: e
+							error,
 						}
 					)
 				}
-				throw createError("FETCH_ENTRY_ERROR", {node})
+				throw createError("FETCH_ENTRY_ERROR", {node, error})
 			}
 		).then((ressources) => {
 			node.ressources = ressources
@@ -359,8 +375,8 @@ function parse(entryRelativeHref, {
 				}
 			})
 		},
-		() => {
-			throw createError("RESOLVE_ENTRY_ERROR", {entryRelativeHref})
+		(error) => {
+			throw createError("RESOLVE_ENTRY_ERROR", {entryRelativeHref, error})
 		}
 	)
 }
