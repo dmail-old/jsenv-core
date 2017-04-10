@@ -37,9 +37,9 @@ const fail = (reason, detail) => {
 // 	return value
 // }
 
-const terminationBefore = (fn, ms) => {
+const terminationBefore = (fn) => {
 	fn = ensureThenable(fn)
-	function ensureTerminatedBefore() {
+	function ensureTerminatedBefore(ms) {
 		let id
 		return Thenable.race([
 			fn.apply(this, arguments),
@@ -108,29 +108,18 @@ const execution = () => {
 		})
 	}
 }
-const ensure = (produce, namedTests, {
-	maxDuration = defaultMaxDuration,
-} = {}) => {
-	produce = ensureThenable(produce)
-	const tests = Object.keys(namedTests).map((name) => {
-		return {
-			name,
-			test: namedTests[name]
-		}
-	})
-
-	let run = (...args) => {
-		const compositeDetail = {}
+const expect = (...tests) => {
+	let run = (transmittedValue, maxDuration = defaultMaxDuration) => {
+		const compositeDetail = []
 		let i = 0
 		const j = tests.length
 		let currentTest
-		let transmittedValue
 
 		const transmit = (value) => {
 			transmittedValue = value
 		}
 		const runTest = () => {
-			const returnValue = currentTest.test(transmittedValue, transmit)
+			const returnValue = currentTest(transmittedValue, transmit)
 			return Thenable.resolve(returnValue).then(
 				(value) => {
 					if (value === true) {
@@ -157,109 +146,80 @@ const ensure = (produce, namedTests, {
 			i++
 
 			return runTest().then((output) => {
-				compositeDetail[currentTest.name] = output
+				compositeDetail.push(output)
 				if (output.status === 'failed') {
-					return fail(`expectation failed: ${currentTest.name}`, compositeDetail)
+					return fail(`expectation failed`, compositeDetail)
 				}
 				return next()
 			})
 		}
-		const start = () => {
-			return produce(...args).then((value) => {
-				transmit(value)
-				return next()
-			})
-		}
 
-		return start()
+		return terminationBefore(next)(maxDuration)
 	}
-	run = terminationBefore(run, maxDuration)
-
 	return run
 }
+const forward = (fn) => {
+	return (value, transmit) => {
+		return transmit(fn(value))
+	}
+}
+const forwardThrow = (fn) => {
+	return (value, transmit) => {
+		try {
+			fn(value)
+			return fail('expected to throw')
+		}
+		catch (e) {
+			transmit(e)
+		}
+	}
+}
+const forwardResolution = () => {
+	return (value, transmit) => {
+		return Promise.resolve(value).then(transmit)
+	}
+}
 
-module.exports = ensure
-ensure.rejection = rejection
-ensure.execution = execution
-ensure.terminationBefore = terminationBefore
+module.exports = expect
+expect.rejection = rejection
+expect.execution = execution
+expect.terminationBefore = terminationBefore
 // ensure.pendingAfter would be the opposite of terminationBefore
-ensure.sequencing = sequencing
+expect.sequencing = sequencing
 
+const isString = () => {
+	return (value) => {
+		if (typeof value === 'string') {
+			return pass('string')
+		}
+		return fail('not a string')
+	}
+}
+const isFunction = () => {
+	return (value) => {
+		if (typeof value === 'function') {
+			return pass('function')
+		}
+		return fail('not a function')
+	}
+}
+
+// multiple expect + forwarding
 {
-	/*
-	voir si y'aurais pas une meilleur api
-
-	je sais pas ptet
-
-const usedHas10AndIsNamedDamien = expect(
-	{age: 10, name: 'damien'},
-	expect(
-		(value) => value.age,
-		equals(10)
-	),
-	expect(
-		(value) => value.name,
-		equals('damien'),
-		isString()
-	)
-)
-
-const spyIsCalledWith10AsFirstArg = expect(
-	spy(),
-	expect(
-		(value) => spy.firstCall()
+	const usedHas10AndIsNamedDamien = expect(
 		expect(
-			(call) => call.args[0],
+			forward((value) => value.age),
 			equals(10)
+		),
+		expect(
+			forward((value) => value.name),
+			equals('damien'),
+			isString()
 		)
 	)
-)
-
-const spySequencing = expect(
-	() => [spy(), spy(), spy()],
-	(spies) => {
-			return sequencing(spies)(
-				...Promise.all(spies.map((spy) => spy.firstCall())
-			)
-		}
-	)
-)
-
-elle est cool cet api, l'avantage c'est que c'est très lisible
-
-*/
-
-	const test = ensure(
-		() => {
-			const method = spy()
-			method('foo')
-			return {
-				value: Promise.resolve(10),
-				method,
-			}
-		},
-		{
-			'value property thenable resolution': ensure(
-				(v) => v.value,
-				{
-					'is 10': equals(10)
-				}
-			),
-			'method': ensure(
-				(v) => v.method,
-				{
-					'called': execution(),
-					'args': (call) => {
-						if (call.args[0] !== 'foo') {
-							return fail('first arg is not foo')
-						}
-						return pass('first arg is foo')
-					}
-				}
-			)
-		}
-	)
-	test().then(
+	usedHas10AndIsNamedDamien({
+		age: 10, name: 'damien'
+	}).then(
 		(output) => {
 			console.log('test output', output)
 		},
@@ -268,25 +228,19 @@ elle est cool cet api, l'avantage c'est que c'est très lisible
 		}
 	)
 }
+// forwardThrow
 {
-	const test = ensure(
-		() => {
-			return [
-				spy(),
-				spy(),
-				spy()
-			]
-		},
-		{
-			'call them': (spies) => {
-				spies.forEach((spy) => spy())
-			},
-			'sequencing': (spies) => {
-				return sequencing(...spies)()
-			}
-		}
+	const fooMethodThrowWith10 = expect(
+		forward((value) => value.foo),
+		isFunction(),
+		forwardThrow((foo) => foo()),
+		equals(10)
 	)
-	test().then(
+	fooMethodThrowWith10({
+		foo() {
+			throw 10 // eslint-disable-line no-throw-literal
+		}
+	}).then(
 		(output) => {
 			console.log('test output', output)
 		},
@@ -295,3 +249,27 @@ elle est cool cet api, l'avantage c'est que c'est très lisible
 		}
 	)
 }
+// forwardResolution on spy
+{
+	const spyedMethodCalledWith10 = expect(
+		forward((value) => value.foo),
+		forward((spy) => spy.firstCall()),
+		forwardResolution(),
+		forward((firstCall) => firstCall.args[0]),
+		equals(10)
+	)
+	const object = {foo: spy()}
+	object.foo(10)
+	spyedMethodCalledWith10(object).then(
+		(output) => {
+			console.log('test output', output)
+		},
+		(reason) => {
+			console.log('unexpected test error', reason)
+		}
+	)
+}
+// todo: forwardRejection
+// todo: pendingAfter()
+// todo: settledBefore()
+// todo: sequencing of spy
