@@ -1,4 +1,4 @@
-const ensureRejectedWith = (thenable) => {
+const ensureRejected = (thenable) => {
 	return thenable.then(
 		(value) => {
 			throw new Error(`expected to reject but resolved with ${value}`)
@@ -7,4 +7,4 @@ const ensureRejectedWith = (thenable) => {
 	)
 }
 
-module.exports = ensureRejectedWith
+module.exports = ensureRejected
