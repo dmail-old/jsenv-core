@@ -24,7 +24,7 @@ const getNodeFilename = (filename) => {
 
 	var nodeFilename
 	if (filename.indexOf("file:///") === 0) {
-		nodeFilename = filename.slice("file:///".length)
+		nodeFilename = filename.slice("file://".length)
 	}
 	else {
 		nodeFilename = filename
@@ -152,6 +152,9 @@ function parse(entryRelativeHref, options = {}) {
 
 	baseHref = baseHref || process.cwd()
 	baseHref = normalize(baseHref)
+	if (baseHref[0] === '/') {
+		baseHref = `file://${baseHref}`
+	}
 	if (baseHref[0].match(/[a-z]/i) && baseHref[1] === ':' && baseHref[2] === '/') {
 		baseHref = `file:///${baseHref}`
 	}

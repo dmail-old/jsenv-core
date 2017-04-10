@@ -1,6 +1,6 @@
-const parse = require("./parse.js")
+const parse = require("../parse.js")
 const assert = require('assert') // eslint-disable-line
-const ensureThenable = require("../util/ensure-thenable.js")
+const ensureThenable = require("../../util/ensure-thenable.js")
 
 const test = (name) => {
 	const testFn = require(`${__dirname}/fixtures/${name}/test.js`) // eslint-disable-line import/no-dynamic-require

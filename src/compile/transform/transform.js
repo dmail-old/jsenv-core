@@ -6,6 +6,7 @@ const createCommentImport = require(
 
 const ensureThenable = require("../util/ensure-thenable.js")
 const traverseGraphAsync = require("../util/traverse-graph-async.js")
+const ressourceUtil = require("../babel-plugin-parse-ressources/util.js")
 
 function transform(tree, {
 	exclude = () => false
@@ -18,14 +19,20 @@ function transform(tree, {
 			// only rootNode descendant can be excluded
 			if (dependent) {
 				const ressource = dependent.ressources.find((ressource) => {
-					return ressource.type !== "export" && ressource.href === dependent.href
+					return ressource.type !== "export" && ressource.href === node.href
 				})
+				if (!ressource) {
+					throw new Error(
+						`malformed tree : cannot find ressource ${node.href} in ${dependent.id}`
+					)
+				}
 				// only empty import can be excluded
-				if (ressource.type === "import" && ressource.name === undefined) {
+				if (ressourceUtil.isEmptyImport(ressource)) {
 					return exclude(node.id, dependent.id).then((isExcluded) => {
 						if (isExcluded) {
+							console.log('the excluded ressource', ressource)
 							ressource.excluded = true
-							return "continue"
+							return "skip"
 						}
 					})
 				}
@@ -61,15 +68,16 @@ function transform(tree, {
 			}),
 			createTransformModule()
 		]
+		return transpiler
 	}
 	const transpileStep = () => {
 		return traverseGraphAsync(root, (node) => {
 			const ast = node.ast
 			const transpiler = getTranspiler(node)
-			return transpiler.transpileFromAst(ast, node.content, {
+			return Promise.resolve(transpiler.transpileFromAst(ast, node.content, {
 				moduleId: node.id,
 				filename: node.href
-			}).then((result) => {
+			})).then((result) => {
 				node.transpiledContent = result.code
 				// node.sourceMap = result.map;
 				// node.ast = result.ast;

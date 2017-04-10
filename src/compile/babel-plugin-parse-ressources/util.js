@@ -1,3 +1,8 @@
+const isEmptyImport = (ressource) => {
+	return ressource.type === 'import' && ressource.name === undefined
+}
+exports.isEmptyImport = isEmptyImport
+
 const isExternal = (ressource) => {
 	return ressource.type === "import" || ressource.type === "reexport"
 }

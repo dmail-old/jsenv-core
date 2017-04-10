@@ -1,4 +1,7 @@
+const ensureThenable = require('./ensure-thenable.js')
+
 const traverseGraphAsync = (rootNode, fn) => {
+	fn = ensureThenable(fn)
 	const visited = []
 	const visit = (node, dependent) => {
 		if (visited.includes(node)) {
@@ -7,8 +10,8 @@ const traverseGraphAsync = (rootNode, fn) => {
 		visited.push(node)
 
 		return fn(node, dependent).then((returnValue) => {
-			// when fn returns continue, ignore dependencies
-			if (returnValue === "continue") {
+			// when fn returns skip, skip dependencies
+			if (returnValue === "skip") {
 				return
 			}
 			return Promise.all(node.dependencies.map((dependency) => {
