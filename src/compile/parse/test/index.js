@@ -10,7 +10,7 @@ const test = (name) => {
 [
 	// 'variable',
 	"consume-two",
-	// "missing-default-export",
+	"missing-default-export",
 ].reduce((previous, name) => {
 	return previous.then(() => {
 		return test(name)

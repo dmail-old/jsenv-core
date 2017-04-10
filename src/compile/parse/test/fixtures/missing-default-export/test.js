@@ -1,10 +1,13 @@
-const ensureRejectedWith = require('../../../util/ensure-rejected-with.js')
+const ensureRejected = require('../../../../util/ensure-rejected.js')
+const assert = require('assert')
 
 module.exports = (parse) => {
-	const dir = `${__dirname}/missing-default-export`
-
-	return ensureRejectedWith(parse(`${dir}/main.js`), (e) => {
-		console.log(e)
-		return e.code === "MISSING_EXPORT"
+	return ensureRejected(
+		parse('./main.js', __dirname)
+	).then((e) => {
+		assert.equal(e.message, 'default is not exported by ./file.js')
+		assert.equal(e.code, 'MISSING_EXPORT')
+		assert.equal(e.loc.line, 1)
+		assert.equal(e.loc.column, 7)
 	})
 }
