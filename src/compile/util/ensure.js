@@ -1,3 +1,4 @@
+/* eslint-disable max-nested-callbacks */
 /*
 https://theintern.github.io/intern/#terminology
 https://facebook.github.io/jest/docs/getting-started.html#content
@@ -35,104 +36,17 @@ const resolveBefore = (fn, ms) => {
 }
 // ensure.pendingAfter would be the opposite of resolveBefore
 
-const createContext = ({value, output, maxDuration} = {}) => {
-	output = output || {
-		status: 'pending'
-	}
-
-	const context = {
-		value,
-		output,
-		maxDuration,
-	}
-	context.pass = (reason, detail) => {
-		if (output.status === 'pending') {
-			Object.assign(output, {
-				status: 'passed',
-				reason,
-				detail,
-			})
+const assert = (value, fn) => {
+	return new Promise((resolve, reject) => {
+		const returnValue = fn(value)
+		if (returnValue === true) {
+			resolve('returned-true')
 		}
-	}
-	context.fail = (reason, detail) => {
-		if (output.status === 'pending') {
-			Object.assign(output, {
-				status: 'failed',
-				reason,
-				detail,
-			})
+		if (returnValue === false) {
+			reject('returned-false')
 		}
-	}
-	return context
-}
-const nextContext = (context) => {
-	const next = createContext({
-		value: context.value
+		resolve(returnValue)
 	})
-	next.previous = context
-	return next
-}
-const expect = (...tests) => {
-	let run = (context = createContext({
-		maxDuration: defaultMaxDuration
-	})) => {
-		let i = 0
-		const j = tests.length
-		let currentTest
-		let currentContext = context
-
-		const runTest = () => {
-			const output = currentContext.output
-			const returnValue = currentTest(currentContext)
-			return Thenable.resolve(returnValue).then(
-				(value) => {
-					if (value === currentContext) {
-						// something special if we return the context?
-						// je sais pas trop mais en tous cas il faut un truc genre composeContext
-						// pour qu'on puisse composer le résultat de deux expect()
-					}
-					if (output.status === 'pending') {
-						if (value === true) {
-							currentContext.pass('resolved-to-true')
-						}
-						else if (value === false) {
-							currentContext.fail('resolved-to-false')
-						}
-						else {
-							currentContext.pass('resolved', value)
-						}
-					}
-				},
-				(reason) => {
-					currentContext.fail('rejected', reason)
-				}
-			)
-		}
-		const next = () => {
-			if (i === j) {
-				context.pass('all-passed', currentContext)
-				return context
-			}
-			currentTest = tests[i]
-			i++
-
-			currentContext = nextContext(currentContext)
-			return runTest().then(() => {
-				if (currentContext.output.status === 'failed') {
-					context.fail('last-content-failed')
-					return context
-				}
-				return next()
-			})
-		}
-
-		const {maxDuration} = context
-		if (maxDuration) {
-			return resolveBefore(next, maxDuration)(context)
-		}
-		return next()
-	}
-	return run
 }
 module.exports = expect
 
@@ -238,12 +152,21 @@ expect.spy = spy
 // expect.sequencing = sequencing
 
 const test = 1
+const expectRejection = 1
 
 {
 	const unit = test('age is 10 and name is damien', () => {
-		return expect({age: 10, name: 'damien'}).branch(
-			(expectation) => expectation.at('age').equals(10),
-			(expectation) => expectation.at('damien').equals('damien').isString()
+		return expect(
+			{age: 10, name: 'damien'},
+			(user) => expect(
+				user.age,
+				(age) => equals(age, 10)
+			),
+			(user) => expect(
+				user.name,
+				(name) => equals(name, 'damien'),
+				(name) => isString(name)
+			)
 		)
 	})
 	unit().then(
@@ -254,14 +177,36 @@ const test = 1
 			console.log('unexpected test error', reason)
 		}
 	)
+
+	/*
+	pourrait y avoir un helper genre
+	expect(
+		{name: 'dam'},
+		property(
+			'dam',
+			(dam) => true
+		)
+	)
+	*/
+
 }
 {
 	const unit = test('foo method throw with 10', () => {
-		return expect({
-			foo() {
-				throw 10 // eslint-disable-line no-throw-literal
-			}
-		}).at('foo').isFunction().atException((value) => value()).equals(10)
+		return expect(
+			{
+				foo() {
+					throw 10 // eslint-disable-line no-throw-literal
+				}
+			},
+			(object) => expect(
+				object.foo,
+				(foo) => isFunction(foo),
+				(foo) => expectRejection(
+					foo(),
+					(error) => equals(error, 10)
+				)
+			)
+		)
 	})
 	unit().then(
 		(output) => {
@@ -276,7 +221,22 @@ const test = 1
 	const unit = test('spy is called with 5 as first arg', () => {
 		const object = {foo: spy()}
 		object.foo(5)
-		return expect(object).at('foo').at((foo) => foo.firstCall()).at('args').at(0).equals(5)
+		return expect(
+			object,
+			(object) => expect(
+				object.foo,
+				(foo) => expect(
+					foo.firstCall(),
+					(firstCall) => expect(
+						firstCall.args,
+						(args) => expect(
+							args[0],
+							(firstArg) => equals(firstArg, 5)
+						)
+					)
+				)
+			)
+		)
 	})
 	unit().then(
 		(output) => {
@@ -305,8 +265,7 @@ const transpile = (strings, ...values) => {
 						return function(a = defaultA, b = defaultB) {
 							return [a, b]
 						}
-					})`
-				).all(
+					})`,
 					'use default with a missing argument',
 					(fn) => {
 						const defaultA = 1
@@ -332,8 +291,7 @@ const transpile = (strings, ...values) => {
 							a = 10
 							return arguments
 						}
-					})`
-				).branch(
+					})`,
 					(fn) => {
 						const defaultValue = 1
 						const value = 2
@@ -348,8 +306,7 @@ const transpile = (strings, ...values) => {
 						return function(a = defaultValue, b = a) {
 							return [a, b]
 						}
-					})`
-				).branch(
+					})`,
 					(fn) => {
 						const defaultValue = 1
 						const result = fn(defaultValue)()
@@ -363,8 +320,7 @@ const transpile = (strings, ...values) => {
 				return expect(
 					transpile`(function(foo, ...rest) {
 						return [foo, rest];
-					})`
-				).branch(
+					})`,
 					(fn) => {
 						const first = 1
 						const second = 2
@@ -383,8 +339,7 @@ const transpile = (strings, ...values) => {
 							function(a, ...b) {},
 							function(...c) {}
 						]
-					})`
-				).branch(
+					})`,
 					(fn) => {
 						const result = fn()
 						return (
@@ -400,8 +355,7 @@ const transpile = (strings, ...values) => {
 				return expect(
 					transpile`(function([a]) {
 						return a
-					})`
-				).branch(
+					})`,
 					(fn) => {
 						const value = 1
 						const result = fn([value])
@@ -414,8 +368,7 @@ const transpile = (strings, ...values) => {
 				return expect(
 					transpile`(function({a}) {
 						return a
-					})`
-				).branch(
+					})`,
 					(fn) => {
 						const value = 1
 						const result = fn({a: value})
@@ -443,10 +396,15 @@ const transpile = (strings, ...values) => {
 				return transform(tree, {
 					exclude,
 				})
-			})
-		).all(
-			() => expect(exclude).calledWith('file.js', 'main.js'),
-			(expectation) => expectation.at((v) => v.root.ressources[0].excluded).isTrue()
+			}),
+			() => expect(
+				exclude,
+				(v) => calledWith(v, 'file.js', 'main.js')
+			),
+			(tree) => expect(
+				tree.root.ressources[0].excluded,
+				(excluded) => equals(excluded, true)
+			)
 		)
 	})
 	console.log(suite)
