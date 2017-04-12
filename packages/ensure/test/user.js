@@ -1,20 +1,22 @@
 const test = require('../ensure.js')
 
-const {equals, isString} = test
+const {equals, isString, pipe} = test
 
 const suite = test(
 	'ensure age is 10',
 	(user) => test(
+		pipe(() => user.age),
 		'is 10',
 		(age) => equals(age, 10)
-	)(user.age),
+	),
 	'ensure name is damien & is as string',
 	(user) => test(
+		pipe(() => user.name),
 		'is damien',
 		(name) => equals(name, 'damien'),
 		'is a string',
 		(name) => isString(name)
-	)(user.name)
+	)
 )
 
 module.exports = () => {
