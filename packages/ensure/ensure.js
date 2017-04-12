@@ -1,3 +1,43 @@
+/*
+Inspirations :
+- https://facebook.github.io/jest/docs/getting-started.html#content
+- https://theintern.github.io/intern/#terminology
+
+Notes :
+- avoir un rapport de résultat plus précis que all-passed
+all-passed c'est cool pour le moment et c'est ce qu'on veut savoir
+de manière absolue
+mais savoir combien de test ont été run, en combien de temps
+combien d'assertion, lesquelles etc ce serais pas du luxe
+
+https://github.com/jsenv/core/tree/without-rollup/src/features/performance/now
+
+- tester & gérer le timeout
+en gros il faut pouvoir avoir un timeout global pour qu'un test
+fail s'il ne se résoud pas dans un laps de temps imparti
+il faudra pouvoir override ce timeout globallement et localement
+
+- test.catch
+la fonction qui génère ce qu'on test doit throw ou reject
+sinon on c'est une assertionError, de plus la valeur qui est throw/reject
+devient ce qu'on teste
+
+- test.sync
+la valeur produite par producer n'est pas resolve
+une promesse reste non-résolue
+pour la résoudre par la suite faudra écrire
+(thenable) => test(
+	'resolution value',
+	() => thenable,
+	(value) => value === 1
+)
+
+- test.skip
+
+- test.todo
+
+*/
+
 const timeFunction = require('./time-function.js')
 
 const createAssertionError = (code, message, detail) => {
@@ -33,9 +73,18 @@ const collectAssertions = (...args) => {
 	}
 	return assertions
 }
+const createFailedReport = (duration, name, value) => {
+	const report = {
+		name,
+		state: 'failed',
+		duration,
+		detail: value
+	}
+	return report
+}
 const test = (name, producer, ...args) => {
 	if (typeof name !== 'string') {
-		throw new TypeError('test first arg must be a number')
+		throw new TypeError('test first arg must be a string')
 	}
 	if (typeof producer !== 'function') {
 		throw new TypeError('test second arg must be a function')
@@ -62,10 +111,13 @@ const test = (name, producer, ...args) => {
 						const value = result.value
 
 						if (index > 0 && value === false) {
-							console.log(name, 'resolved to false')
-							throw createAssertionError(
-								'RESOLVED_TO_FALSE',
-								`${name} assertion resolved to false`
+							return createFailedReport(
+								name,
+								createAssertionError(
+									'RESOLVED_TO_FALSE',
+									`${name} assertion resolved to false`
+								),
+								result.duration
 							)
 						}
 
@@ -80,13 +132,7 @@ const test = (name, producer, ...args) => {
 					(result) => {
 						const value = result.value
 						if (value && value.name === 'AssertionError') {
-							const report = {
-								duration: result.duration,
-								name,
-								state: 'failed',
-								detail: value
-							}
-							return report
+							return createFailedReport(name, value, result.duration)
 						}
 						return Promise.reject(value)
 					}
@@ -135,74 +181,10 @@ const test = (name, producer, ...args) => {
 const equals = (value, expectedValue) => {
 	return value === expectedValue
 }
+test.equals = equals
 const isString = (value) => {
 	return typeof value === 'string'
 }
+test.isString = isString
 
-/*
-Inspirations :
-- https://facebook.github.io/jest/docs/getting-started.html#content
-- https://theintern.github.io/intern/#terminology
-
-Notes :
-- avoir un rapport de résultat plus précis que all-passed
-all-passed c'est cool pour le moment et c'est ce qu'on veut savoir
-de manière absolue
-mais savoir combien de test ont été run, en combien de temps
-combien d'assertion, lesquelles etc ce serais pas du luxe
-
-https://github.com/jsenv/core/tree/without-rollup/src/features/performance/now
-
-- tester & gérer le timeout
-en gros il faut pouvoir avoir un timeout global pour qu'un test
-fail s'il ne se résoud pas dans un laps de temps imparti
-il faudra pouvoir override ce timeout globallement et localement
-
-- test.catch
-la fonction qui génère ce qu'on test doit throw ou reject
-sinon on c'est une assertionError, de plus la valeur qui est throw/reject
-devient ce qu'on teste
-
-- test.sync
-la valeur produite par producer n'est pas resolve
-une promesse reste non-résolue
-pour la résoudre par la suite faudra écrire
-(thenable) => test(
-	'resolution value',
-	() => thenable,
-	(value) => value === 1
-)
-
-- test.skip
-
-- test.todo
-
-*/
-const suite = test(
-	'generate user',
-	() => ({age: 10, name: 'damien'}),
-	'ensure age is 10',
-	(user) => test(
-		'age',
-		() => user.age,
-		'is 10',
-		(age) => equals(age, 10)
-	),
-	'ensure name is damien & is as string',
-	(user) => test(
-		'name',
-		() => user.name,
-		'is damien',
-		(name) => equals(name, 'damien'),
-		'is a string',
-		(name) => isString(name)
-	)
-)
-suite().then(
-	(value) => {
-		console.log('test result', value)
-	},
-	(reason) => {
-		console.log('unexpected test error', reason)
-	}
-)
+module.exports = test
