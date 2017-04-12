@@ -3,27 +3,22 @@ const test = require('../ensure.js')
 const {equals, isString} = test
 
 const suite = test(
-	'generate user',
-	() => ({age: 10, name: 'damien'}),
 	'ensure age is 10',
 	(user) => test(
-		'age',
-		() => user.age,
 		'is 10',
 		(age) => equals(age, 10)
-	),
+	)(user.age),
 	'ensure name is damien & is as string',
 	(user) => test(
-		'name',
-		() => user.name,
 		'is damien',
 		(name) => equals(name, 'damien'),
 		'is a string',
 		(name) => isString(name)
-	)
+	)(user.name)
 )
+
 module.exports = () => {
-	suite().then(
+	suite({age: 10, name: 'damien'}).then(
 		(value) => {
 			console.log('test result', value)
 		},

@@ -4,13 +4,26 @@ Inspirations :
 - https://theintern.github.io/intern/#terminology
 
 Notes :
-- avoir un rapport de résultat plus précis que all-passed
-all-passed c'est cool pour le moment et c'est ce qu'on veut savoir
-de manière absolue
-mais savoir combien de test ont été run, en combien de temps
-combien d'assertion, lesquelles etc ce serais pas du luxe
+- test.setup
+pouvoir setup un test, par ex
+test.setup(
+	() => {
+		const server = http.createServer()
+		return server.open().then(() => {
+			return () => server.close()
+		})
+	},
+	...assertions
+)
+cela signifique démarre un serveur pendent ce test et arrête le à la fin
 
-https://github.com/jsenv/core/tree/without-rollup/src/features/performance/now
+plusieurs choses : en cas d'erreur il faut appeler le teardown
+à la fin des tests il faut aussi appeler le teardown
+vu qu'on utilise Promise.all() pour run les assertions
+il faut que si une assertion throw et que d'autre assertions sont encore en cours
+de réalisation on apelle aussi le teardown
+
+on va en permier écrire les tests puis faire l'implémentation
 
 - tester & gérer le timeout
 en gros il faut pouvoir avoir un timeout global pour qu'un test
@@ -19,7 +32,7 @@ il faudra pouvoir override ce timeout globallement et localement
 
 - test.catch
 la fonction qui génère ce qu'on test doit throw ou reject
-sinon on c'est une assertionError, de plus la valeur qui est throw/reject
+sinon c'est une assertionError, de plus la valeur qui est throw/reject
 devient ce qu'on teste
 
 - test.sync
@@ -56,18 +69,26 @@ const collectAssertions = (...args) => {
 		const arg = args[i]
 		if (typeof arg === 'string') {
 			i++
-			if (i < j) {
-				assertions.push({
-					name: arg,
-					fn: args[i]
-				})
+			if (i === j) {
+				throw new TypeError('last arg must not be a string')
 			}
+			const nextArg = args[i]
+			if (typeof nextArg !== 'function') {
+				throw new TypeError('a string must be followed by a function')
+			}
+			assertions.push({
+				name: arg,
+				fn: nextArg
+			})
 		}
-		else {
+		else if (typeof arg === 'function') {
 			assertions.push({
 				name: arg.name || 'anonymous',
 				fn: arg
 			})
+		}
+		else {
+			throw new TypeError('expecting string or number')
 		}
 		i++
 	}
@@ -82,16 +103,10 @@ const createFailedReport = (duration, name, value) => {
 	}
 	return report
 }
-const test = (name, producer, ...args) => {
-	if (typeof name !== 'string') {
-		throw new TypeError('test first arg must be a string')
-	}
-	if (typeof producer !== 'function') {
-		throw new TypeError('test second arg must be a function')
-	}
+const test = (...args) => {
 	const assertions = collectAssertions(...args)
 
-	const run = (initialValue) => {
+	const run = (value) => {
 		const runAll = () => {
 			const getResult = (fn, value, previousResult) => {
 				return timeFunction(fn)(value).then((result) => {
@@ -139,22 +154,20 @@ const test = (name, producer, ...args) => {
 				)
 			}
 
-			const reports = []
-			return runAssertion(name, producer, initialValue, 0).then((producerReport) => {
-				reports.push(producerReport)
-				const value = producerReport.detail
+			return Promise.resolve(value).then((value) => {
+				const reports = []
 				const promises = assertions.map((assertion, index) => {
 					return runAssertion(
 						assertion.name,
 						assertion.fn,
 						value,
 						index + 1
-					)
+					).then((report) => {
+						reports.push(report)
+					})
 				})
-				return Promise.all(promises).then((assertionReports) => {
-					reports.push(...assertionReports)
-				})
-			}).then(() => reports)
+				return Promise.all(promises).then(() => reports)
+			})
 		}
 
 		const globalReport = {}

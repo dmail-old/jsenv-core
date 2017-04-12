@@ -8,42 +8,24 @@ le script ne rend pas la main
 
 module.exports = (test, assert) => {
 	assert.equal(typeof test, 'function')
-	assert.throws(() => test(), (e) => e.message === 'test first arg must be a string')
-	assert.throws(() => test(true), (e) => e.message === 'test first arg must be a string')
-	assert.throws(() => test(''), (e) => e.message === 'test second arg must be a function')
-	assert.throws(() => test('', true), (e) => e.message === 'test second arg must be a function')
+	assert.throws(() => test(''), (e) => e.message === 'last arg must not be a string')
+	assert.throws(() => test('', true), (e) => e.message === 'a string must be followed by a function')
 	assert.equal(typeof test('', () => 1), 'function')
 
 	const asyncTests = {
-		'producer called with initialValue'() {
-			let producerArgs
-			const initialValue = {}
-			return test(
-				'name',
-				(...args) => {
-					producerArgs = args
-				}
-			)(initialValue).then(() => {
-				assert.equal(producerArgs[0], initialValue)
-			})
-		},
-		'assertion called with producer return value'() {
+		'assertion called with first test arg'() {
 			let assertionArgs
-			const producerValue = 10
+			const value = 10
 			return test(
-				'name',
-				() => producerValue,
 				(...args) => {
 					assertionArgs = args
 				}
-			)().then(() => {
-				assert.equal(assertionArgs[0], producerValue)
+			)(value).then(() => {
+				assert.equal(assertionArgs[0], value)
 			})
 		},
 		'assertion returning false means failed'() {
 			return test(
-				'name',
-				() => 10,
 				() => false
 			)().then((report) => {
 				assert.equal(report.state, 'failed')
