@@ -19,23 +19,37 @@ module.exports = {
 			(reason) => assert.equal(reason, value)
 		)
 	},
-	'assertionError are expected and populate the report'(test, assert) {
-
-	},
-	'assertion returning false creates an assertionError'(test, assert) {
+	'assertion can throw assertion error'(test) {
 		return test(
-			'i am false',
-			() => false
-		).then(
-			(report) => {
-				assert.equal(report.state, 'failed')
-				const assertionReport = report.detail[0]
-				assert.equal(assertionReport.state, 'failed')
-				const assertionError = assertionReport.detail
-				assert.equal(assertionError.name, 'AssertionError')
-				assert.equal(assertionError.code, 'RESOLVED_TO_FALSE')
-				assert.equal(assertionError.message, 'i am false resolved to false')
+			() => {
+				throw test.fail({code: 'MY_CODE', message: 'my failed assertion message'})
 			}
+		)
+	},
+	'assertion can return false to fail'(test, assert) {
+		let called = false
+		return test(
+			() => false,
+			() => {
+				called = true
+			}
+		).then(
+			() => assert(called === false)
+		)
+	},
+	'assertion are runned in parallel'(test, assert) {
+		let callOrder = []
+		return test(
+			() => new Promise((resolve) => {
+				setTimeout(resolve, 10)
+			}).then(() => {
+				callOrder.push('first-resolved')
+			}),
+			() => {
+				callOrder.push('second')
+			}
+		).then(
+			() => assert.equal(callOrder.join(), 'first-resolved,second')
 		)
 	}
 }

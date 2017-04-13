@@ -2,6 +2,8 @@
 
 */
 
+const {createPromiseResolvedIn} = require('../helpers.js')
+
 module.exports = {
 	'setup must be the first assertion'(test, assert) {
 		assert.throws(
@@ -17,13 +19,9 @@ module.exports = {
 	'assertion must await setup'(test, assert) {
 		let callOrder = []
 		return test(
-			test.setup(() => {
-				return new Promise((res) => {
-					setTimeout(res, 50)
-				}).then(() => {
-					callOrder.push('setup')
-				})
-			}),
+			test.setup(() => createPromiseResolvedIn(50).then(() => {
+				callOrder.push('setup')
+			})),
 			() => {
 				callOrder.push('assertion')
 			}

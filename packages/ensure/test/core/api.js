@@ -1,9 +1,4 @@
 /*
-- tester le rapport de résultat (il doit bien contenir le report de tous les tests)
-vérifier que les assertions sont run en parallèle
--> comment fait-on si une assertion A throw et B était run en parallèle MAIS B avait set un timeout
-ou un truc du genre ? il faudrait que B puisse unset son timeout ou quoi sinon
-le script ne rend pas la main
 */
 
 module.exports = {
@@ -30,11 +25,16 @@ module.exports = {
 			assert.equal(assertionArgs[0], value)
 		})
 	},
-	'assertion returning false means failed'(test, assert) {
+	'can timeout test after a given duration'(test, assert) {
 		return test(
-			() => false
-		)().then((report) => {
-			assert.equal(report.state, 'failed')
-		})
-	}
+			() => new Promise(() => {})
+		)({timeout: 50}).then(
+			(report) => {
+				const {state, detail} = report
+				assert.equal(state, 'failed')
+				assert.equal(detail.code, 'TEST_TIMEOUT')
+			}
+		)
+	},
+	// 'test timeout is correctly cleared when an other related test fails'
 }

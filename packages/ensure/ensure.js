@@ -4,29 +4,6 @@ Inspirations :
 - https://theintern.github.io/intern/#terminology
 
 Notes :
-- test setup
-
-- tester & gérer le timeout
-en gros il faut pouvoir avoir un timeout global pour qu'un test
-fail s'il ne se résoud pas dans un laps de temps imparti
-il faudra pouvoir override ce timeout globallement et localement
--> test()({timeout: 100})
-
-- pipeRejection
-la fonction qui génère ce qu'on test doit throw ou reject
-sinon c'est une assertionError, de plus la valeur qui est throw/reject
-devient ce qu'on teste
-
-- pipeSync
-la valeur produite par producer n'est pas resolve
-une promesse reste non-résolue
-pour la résoudre par la suite faudra écrire
-(thenable) => test(
-	'resolution value',
-	() => thenable,
-	(value) => value === 1
-)
-
 - test.skip
 
 - test.todo
