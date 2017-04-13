@@ -10,7 +10,7 @@ Notes :
 
 */
 
-const timeFunction = require('./time-function.js')
+const timeFunction = require('./util/time-function.js')
 
 const createAssertionError = (code, message, detail) => {
 	const error = new Error()
@@ -149,14 +149,5 @@ const test = (...args) => {
 	run.isTest = true
 	return run
 }
-
-const equals = (value, expectedValue) => {
-	return value === expectedValue
-}
-test.equals = equals
-const isString = (value) => {
-	return typeof value === 'string'
-}
-test.isString = isString
 
 module.exports = test

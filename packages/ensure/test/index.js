@@ -1,5 +1,5 @@
 const assert = require('assert')
-const test = require('../ensure.js')
+const test = require('../index.js')
 
 const names = [
 	'api'
