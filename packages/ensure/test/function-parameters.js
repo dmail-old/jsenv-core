@@ -9,13 +9,11 @@ module.exports = (test) => {
 			'default',
 			test(
 				'base',
-				pipe(
-					() => transpile`(function(defaultA, defaultB) {
-						return function(a = defaultA, b = defaultB) {
-							return [a, b]
-						}
-					})`
-				),
+				pipe(() => transpile`(function(defaultA, defaultB) {
+					return function(a = defaultA, b = defaultB) {
+						return [a, b]
+					}
+				})`),
 				'use default with a missing argument',
 				(fn) => {
 					const defaultA = 1

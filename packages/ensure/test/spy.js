@@ -5,7 +5,6 @@ module.exports = (test) => {
 	const pipe = 1
 
 	const suite = test(
-		'exclude is called and exclude the corresponding ressource',
 		pipe(() => System.import('parse').then((parse) => {
 			return Promise.all([
 				parse(`./main.js`, __dirname),
