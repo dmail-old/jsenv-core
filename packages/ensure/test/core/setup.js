@@ -1,27 +1,94 @@
 /*
-- test.setup
-pouvoir setup un test, par ex
-test(
-	setup(() => {
-		const server = http.createServer()
-		return server.open().then(() => {
-			return () => server.close()
-		})
-	}),
-	...assertions
-)
-cela signifique démarre un serveur pendent ce test et arrête le à la fin
-
-plusieurs choses : en cas d'erreur il faut appeler le teardown
-à la fin des tests il faut aussi appeler le teardown
-vu qu'on utilise Promise.all() pour run les assertions
-il faut que si une assertion throw et que d'autre assertions sont encore en cours
-de réalisation on apelle aussi le teardown
-
-on va en permier écrire les tests puis faire l'implémentation
-
-- setup doit se trouver en tout premier (interdit de mettre ot chose qu'une string avant)
-- setup retourne une fonction un peu spéciale que le test runner reconnaitra et considèrera
-comme une fonction a éxécuter en amont et dont le retour doit être éxécute en aval
 
 */
+
+module.exports = {
+	'setup must be the first assertion'(test, assert) {
+		assert.throws(
+			() => {
+				test(
+					() => {},
+					test.setup(() => {})
+				)
+			},
+			(error) => error.message === 'setup must be the first assertion'
+		)
+	},
+	'assertion must await setup'(test, assert) {
+		let callOrder = []
+		return test(
+			test.setup(() => {
+				return new Promise((res) => {
+					setTimeout(res, 50)
+				}).then(() => {
+					callOrder.push('setup')
+				})
+			}),
+			() => {
+				callOrder.push('assertion')
+			}
+		)().then(
+			() => assert.equal(callOrder.join(), 'setup,assertion')
+		)
+	},
+	'teardown must be called after assertion'(test, assert) {
+		let teardownCalled = false
+		return test(
+			test.setup(() => {
+				return () => {
+					teardownCalled = true
+				}
+			}),
+			() => {}
+		)().then(
+			() => assert(teardownCalled)
+		)
+	},
+	'teardown must be called even if assertion failed'(test, assert) {
+		let teardownCalled = false
+		return test(
+			test.setup(() => {
+				return () => {
+					teardownCalled = true
+				}
+			}),
+			() => false
+		)().then(
+			() => assert(teardownCalled)
+		)
+	},
+	'teardown must be called even with unexpected assertion exception'(test, assert) {
+		let teardownCalled = false
+		return test(
+			test.setup(() => {
+				return () => {
+					teardownCalled = true
+				}
+			}),
+			() => {
+				throw new Error()
+			}
+		)().then(
+			() => assert.fail('resolved', 'rejected', 'expected to reject'),
+			() => assert(teardownCalled)
+		)
+	},
+	'teardown must be called if parallel assertion fail'(test, assert) {
+		// here we test that even if an assertion coming after is failing
+		// while the first is still pending, the teardown is still called
+		let teardownCalled = false
+		return test(
+			() => test(
+				test.setup(() => {
+					return () => {
+						teardownCalled = true
+					}
+				}),
+				() => new Promise() // wait forever
+			),
+			() => false
+		).then(
+			() => assert(teardownCalled)
+		)
+	}
+}
