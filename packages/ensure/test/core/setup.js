@@ -16,6 +16,17 @@ module.exports = {
 			(error) => error.message === 'setup must be the first assertion'
 		)
 	},
+	'only one setup assertion allowed per test'({test, setup}, assert) {
+		assert.throws(
+			() => {
+				test(
+					setup(() => {}),
+					setup(() => {})
+				)
+			},
+			(error) => error.message === 'only one setup assertion allowed per test'
+		)
+	},
 	'assertion must await setup'({test, setup}, assert) {
 		let callOrder = []
 		return test(

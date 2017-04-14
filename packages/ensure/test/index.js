@@ -5,26 +5,31 @@ const ensure = {
 	test,
 }
 
-const names = [
-	'api'
-]
-names.reduce((memo, filename) => {
-	return memo.then(() => {
-		// eslint-disable-next-line import/no-dynamic-require
-		const fileExports = require(`./${filename}.js`)
+const asyncSerie = (array, fn) => {
+	return array.reduce((acc, value) => {
+		return acc.then(() => fn(value))
+	}, Promise.resolve())
+}
 
-		return Object.keys(fileExports).reduce((acc, name) => {
-			return acc.then(() => {
-				return fileExports[name](ensure, assert)
-			}).catch((reason) => {
-				if (reason && reason.name === 'AssertionError') {
-					reason.message = `${name} failed: ${reason.message}`
-				}
-				return Promise.reject(reason)
-			})
-		}, Promise.resolve())
+const names = [
+	'core/api'
+]
+asyncSerie(names, (filename) => {
+	// eslint-disable-next-line import/no-dynamic-require
+	const fileExports = require(`./${filename}.js`)
+
+	return asyncSerie(Object.keys(fileExports), (name) => {
+		return new Promise((resolve) => {
+			resolve(fileExports[name](ensure, assert))
+		}).catch((reason) => {
+			if (reason && reason.name === 'AssertionError') {
+				reason.message = `${name} failed: ${reason.message}`
+				console.log('failed', reason.message)
+			}
+			return Promise.reject(reason)
+		})
 	})
-}, Promise.resolve()).then(
+}).then(
 	() => {
 		console.log('all test passed')
 	},

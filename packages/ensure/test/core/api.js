@@ -12,7 +12,7 @@ module.exports = {
 		assert.throws(() => test('', true), (e) => e.message === 'a string must be followed by a function')
 	},
 	'test returns a function'({test}, assert) {
-		assert.equal(typeof test('', () => 1), 'function')
+		assert.equal(typeof test(() => {}), 'function')
 	},
 	'can pass a first argument using test({value})'({test}, assert) {
 		let assertionArgs
@@ -25,16 +25,16 @@ module.exports = {
 			assert.equal(assertionArgs[0], value)
 		})
 	},
-	'can timeout test after a given duration'({test}, assert) {
-		return test(
-			() => new Promise(() => {})
-		)({timeout: 50}).then(
-			(report) => {
-				const {state, detail} = report
-				assert.equal(state, 'failed')
-				assert.equal(detail.code, 'TEST_TIMEOUT')
-			}
-		)
-	},
+	// 'can timeout test after a given duration'({test}, assert) {
+	// 	return test(
+	// 		() => new Promise(() => {})
+	// 	)({timeout: 50}).then(
+	// 		(report) => {
+	// 			const {state, detail} = report
+	// 			assert.equal(state, 'failed')
+	// 			assert.equal(detail.code, 'TEST_TIMEOUT')
+	// 		}
+	// 	)
+	// },
 	// 'test timeout is correctly cleared when an other related test fails'
 }
