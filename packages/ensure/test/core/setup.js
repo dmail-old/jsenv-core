@@ -5,21 +5,21 @@
 const {createPromiseResolvedIn} = require('../helpers.js')
 
 module.exports = {
-	'setup must be the first assertion'(test, assert) {
+	'setup must be the first assertion'({test, setup}, assert) {
 		assert.throws(
 			() => {
 				test(
 					() => {},
-					test.setup(() => {})
+					setup(() => {})
 				)
 			},
 			(error) => error.message === 'setup must be the first assertion'
 		)
 	},
-	'assertion must await setup'(test, assert) {
+	'assertion must await setup'({test, setup}, assert) {
 		let callOrder = []
 		return test(
-			test.setup(() => createPromiseResolvedIn(50).then(() => {
+			setup(() => createPromiseResolvedIn(50).then(() => {
 				callOrder.push('setup')
 			})),
 			() => {
@@ -29,10 +29,10 @@ module.exports = {
 			() => assert.equal(callOrder.join(), 'setup,assertion')
 		)
 	},
-	'teardown must be called after assertion'(test, assert) {
+	'teardown must be called after assertion'({test, setup}, assert) {
 		let teardownCalled = false
 		return test(
-			test.setup(() => {
+			setup(() => {
 				return () => {
 					teardownCalled = true
 				}
@@ -42,10 +42,10 @@ module.exports = {
 			() => assert(teardownCalled)
 		)
 	},
-	'teardown must be called even if assertion failed'(test, assert) {
+	'teardown must be called even if assertion failed'({test, setup}, assert) {
 		let teardownCalled = false
 		return test(
-			test.setup(() => {
+			setup(() => {
 				return () => {
 					teardownCalled = true
 				}
@@ -55,10 +55,10 @@ module.exports = {
 			() => assert(teardownCalled)
 		)
 	},
-	'teardown must be called even with unexpected assertion exception'(test, assert) {
+	'teardown must be called even with unexpected assertion exception'({test, setup}, assert) {
 		let teardownCalled = false
 		return test(
-			test.setup(() => {
+			setup(() => {
 				return () => {
 					teardownCalled = true
 				}
@@ -71,13 +71,13 @@ module.exports = {
 			() => assert(teardownCalled)
 		)
 	},
-	'teardown must be called if parallel assertion fail'(test, assert) {
+	'teardown must be called if parallel assertion fail'({test, setup}, assert) {
 		// here we test that even if an assertion coming after is failing
 		// while the first is still pending, the teardown is still called
 		let teardownCalled = false
 		return test(
 			() => test(
-				test.setup(() => {
+				setup(() => {
 					return () => {
 						teardownCalled = true
 					}

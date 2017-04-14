@@ -1,10 +1,10 @@
 module.exports = {
-	'fail returns an assertionError'(test, assert) {
-		const error = test.fail()
+	'fail returns an assertionError'({fail}, assert) {
+		const error = fail()
 		assert.equal(error.name, 'AssertionError')
 	},
-	'fail accept a code param'(test, assert) {
-		const error = test.fail({code: 'ERROR_CODE'})
+	'fail accept a code param'({fail}, assert) {
+		const error = fail({code: 'ERROR_CODE'})
 		assert.equal(error.code, 'ERROR_CODE')
 	}
 }

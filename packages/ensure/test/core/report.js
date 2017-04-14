@@ -6,7 +6,7 @@ const {createPromiseResolvedIn} = require('../helpers.js')
 
 module.exports = {
 	// tester le rapport de résultat (il doit bien contenir le report de tous les tests)
-	'assertion returning false'(test, assert) {
+	'assertion returning false'({test}, assert) {
 		return test(
 			'i am false',
 			() => false
@@ -22,7 +22,7 @@ module.exports = {
 			}
 		)
 	},
-	'duration of sync function'(test, assert) {
+	'duration of sync function'({test}, assert) {
 		return test(
 			() => {}
 		).then(
@@ -33,7 +33,7 @@ module.exports = {
 			}
 		)
 	},
-	'duration of async function'(test, assert) {
+	'duration of async function'({test}, assert) {
 		return test(
 			() => createPromiseResolvedIn(50)
 		).then(

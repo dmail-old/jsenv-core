@@ -19,14 +19,14 @@ import {
 export default test(
   pipe(() => ({name: 'damien', age: 20}),
   'user name is a string equals to dam',
-  (user) => test(
-    pipe(() => user.name),
+  test(
+    pipe((user) => user.name),
     (name) => typeof name === 'string',
     (name) => name === 'dam'
-  )
+  ),
   'user age equals 20',
-  (user) => test(
-    pipe(() => user.age),
+  test(
+    pipe((user) => user.age),
     (age) => age === 20
   )
 )
@@ -178,10 +178,17 @@ This is the report I got applied to the [example](#Example)
       "duration": 0.20000,
       "state": "failed",
       "detail": [
+        // report below is corresponding to pipe((user) => user.name)
         {
           "duration": 1,
           "state": "passed"
         },
+        // report below is corresponding to (name) => typeof name === 'string'
+        {
+          "duration": 1,
+          "state": "passed"
+        },
+        // report below is corresponding to (name) => name === 'dam'
         {
           "duration": 2,
           "state": "failed",
@@ -198,6 +205,12 @@ This is the report I got applied to the [example](#Example)
       "duration": 3,
       "state": "passed",
       "detail": [
+        // report below is corresponding to pipe((user) => user.age)
+        {
+          "state": "passed",
+          "duration": 1
+        },
+        // report below is corresponding to (age) => age === 20
         {
           "state": "passed",
           "duration": 1

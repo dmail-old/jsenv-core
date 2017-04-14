@@ -1,6 +1,10 @@
 const assert = require('assert')
 const test = require('../index.js')
 
+const ensure = {
+	test,
+}
+
 const names = [
 	'api'
 ]
@@ -11,7 +15,7 @@ names.reduce((memo, filename) => {
 
 		return Object.keys(fileExports).reduce((acc, name) => {
 			return acc.then(() => {
-				return fileExports[name](test, assert)
+				return fileExports[name](ensure, assert)
 			}).catch((reason) => {
 				if (reason && reason.name === 'AssertionError') {
 					reason.message = `${name} failed: ${reason.message}`

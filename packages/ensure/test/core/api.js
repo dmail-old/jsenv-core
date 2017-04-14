@@ -2,19 +2,19 @@
 */
 
 module.exports = {
-	'test is a function'(test, assert) {
+	'test is a function'({test}, assert) {
 		assert.equal(typeof test, 'function')
 	},
-	'last arg must not be a string'(test, assert) {
+	'last arg must not be a string'({test}, assert) {
 		assert.throws(() => test(''), (e) => e.message === 'last arg must not be a string')
 	},
-	'a string must be followed by a function'(test, assert) {
+	'a string must be followed by a function'({test}, assert) {
 		assert.throws(() => test('', true), (e) => e.message === 'a string must be followed by a function')
 	},
-	'test returns a function'(test, assert) {
+	'test returns a function'({test}, assert) {
 		assert.equal(typeof test('', () => 1), 'function')
 	},
-	'can pass a first argument using test({value})'(test, assert) {
+	'can pass a first argument using test({value})'({test}, assert) {
 		let assertionArgs
 		const value = 10
 		return test(
@@ -25,7 +25,7 @@ module.exports = {
 			assert.equal(assertionArgs[0], value)
 		})
 	},
-	'can timeout test after a given duration'(test, assert) {
+	'can timeout test after a given duration'({test}, assert) {
 		return test(
 			() => new Promise(() => {})
 		)({timeout: 50}).then(
