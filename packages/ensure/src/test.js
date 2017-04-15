@@ -154,7 +154,11 @@ const runners = {
 		const fn = ensureThenable(node.value)
 
 		return {
-			run: (options) => fn(options.value, options).then(
+			run: (options, {cancel}) => fn(options.value, options, (fn) => {
+				fn = timeFunction(fn)
+				fn = reportCancel(fn, node)
+				cancel(fn)
+			}).then(
 				(value) => {
 					if (value === false) {
 						throw createAssertionError(
@@ -172,7 +176,7 @@ const runners = {
 		const fn = ensureThenable(node.value)
 
 		return {
-			run: (options) => fn(options.value, options).then(
+			run: (options, hooks) => fn(options.value, options, hooks).then(
 				(value) => {
 					options.value = value
 				}
@@ -192,40 +196,19 @@ const runners = {
 		const {value} = node
 		const setup = ensureThenable(value)
 		return {
-			run: (options, registerTeardown) => {
+			run: (options, {teardown}) => {
 				return setup(options.value).then((value) => {
 					if (typeof value === 'function') {
 						// we want to time & get a report from teardown as well
-						value = timeFunction(value)
-						value = reportExpectation(value, node.name)
-						registerTeardown(value)
+						let fn = value
+						fn = timeFunction(fn)
+						fn = reportTeardown(fn, node)
+						teardown(fn)
 					}
 				})
 			},
 			supportConcurrency: false
 		}
-	}
-}
-const reportExpectation = (fn, name) => {
-	return (...args) => {
-		return fn.apply(this, args).then(
-			(result) => {
-				const report = {
-					duration: result.duration,
-					name,
-					state: 'passed',
-					detail: result.value
-				}
-				return report
-			},
-			(result) => {
-				const value = result.value
-				if (value && value.name === 'AssertionError') {
-					return createFailedReport(name, value, result.duration)
-				}
-				return Promise.reject(value)
-			}
-		)
 	}
 }
 const reportTest = (fn) => {
@@ -250,101 +233,172 @@ const reportTest = (fn) => {
 		)
 	}
 }
+const reportExpectation = (fn, node) => {
+	return (...args) => {
+		return fn.apply(this, args).then(
+			(result) => {
+				const report = {
+					name: node.name,
+					state: 'passed',
+					duration: result.duration,
+					detail: result.value
+				}
+				return report
+			},
+			(result) => {
+				const value = result.value
+				if (value && value.name === 'AssertionError') {
+					return createFailedReport(name, value, result.duration)
+				}
+				return Promise.reject(value)
+			}
+		)
+	}
+}
+const reportCancel = (fn, node) => {
+	return (...args) => {
+		return fn.apply(this, args).then(
+			(result) => {
+				const report = {
+					name: `cancel: ${node.name}`,
+					state: 'passed',
+					duration: result.duration,
+					detail: result.value
+				}
+				return report
+			},
+			(result) => Promise.reject(result.value)
+		)
+	}
+}
+const reportTeardown = (fn, node) => {
+	return (...args) => {
+		return fn.apply(this, args).then(
+			(result) => {
+				const report = {
+					name: `teardown: ${node.name}`,
+					state: 'passed',
+					duration: result.duration,
+					detail: result.value
+				}
+				return report
+			},
+			(result) => Promise.reject(result.value)
+		)
+	}
+}
 const createRunner = (node) => {
 	const {type} = node
 	if (type in runners) {
 		const runner = runners[type](node)
 		runner.run = timeFunction(runner.run)
-		runner.run = reportExpectation(runner.run)
+		runner.run = reportExpectation(runner.run, node)
 		return runner
 	}
 	throw new Error(`no runner for ${type}`)
 }
-// there is a problem here: teardown cannot change
-// globalResult state if its considered resolved
-// we have to change all this a bit
-// in short execAndMonitor should not behave the same for teardown
 const execAndMonitorAll = (runners, options) => {
 	const globalResult = {
 		state: 'created',
-		results: runners.map(() => {
-			return {
-				state: 'created'
-			}
-		})
+		results: []
+	}
+	const {results} = globalResult
+	const addResult = () => {
+		const result = {state: 'created'}
+		results.push(result)
+		return result
+	}
+	const monitor = (fn, result) => {
+		return function() {
+			return fn.apply(this, arguments).then(
+				(value) => {
+					result.state = 'rejected'
+					result.value = value
+					return result
+				},
+				(reason) => {
+					result.state = 'rejected'
+					result.value = reason
+					return result
+				}
+			)
+		}
+	}
+	const execAndMonitor = (fn, result, ...args) => {
+		return monitor(fn, result)(...args)
 	}
 
-	return new Promise((resolve, reject) => {
+	return new Promise((resolve) => {
 		let startedCount = 0
 		let doneCount = 0
-		const {results} = globalResult
+
 		let teardown = () => Promise.resolve()
 		const registerTeardown = (fn) => {
 			teardown = fn
 		}
-
-		const execAndMonitor = (fn, result) => {
-			result.state = 'pending'
-			return fn(options, registerTeardown).then(
-				(value) => {
-					if (globalResult.state === 'pending') {
-						result.state = 'resolved'
-						result.value = value
-						doneCount++
-						next()
-					}
-				},
-				(reason) => {
-					if (globalResult.state === 'pending') {
-						result.state = 'rejected'
-						result.value = reason
+		const done = () => {
+			const pendingRunners = runners.filter((runner, index) => {
+				return results[index].state === 'pending'
+			})
+			const pendingRunnersWithCancel = pendingRunners.filter((runner) => {
+				return typeof runner.cancel === 'function'
+			})
+			return Promise.all(pendingRunnersWithCancel.map(
+				(runner) => execAndMonitor(runner.cancel, addResult())
+			)).then(
+				() => execAndMonitor(teardown, addResult())
+			).then(
+				() => {
+					const rejectedResults = results.filter((result) => result.state === 'rejected')
+					if (rejectedResults.length > 0) {
 						globalResult.state = 'rejected'
-						globalResult.value = reason
-						done()
+						globalResult.value = rejectedResults[0].value
+						if (rejectedResults.length > 1) {
+							console.warn('More than one result has rejected, you can check the report')
+						}
 					}
-					else if (globalResult.state === 'rejected') {
-						// an error occured inside the teardown
-						// let's just ignore that error for now
+					else {
+						const resolvedResults = results.filter((result) => result.state === 'resolved')
+						if (resolvedResults.length < results.length) {
+							throw new Error('done expect all result to be resolved')
+						}
+						globalResult.state = 'resolved'
 					}
+					resolve(globalResult)
 				}
 			)
 		}
-		const done = () => {
-			let donePromise
-
-			if (globalResult.state === 'rejected') {
-				const pendingRunners = runners.filter((runner, index) => {
-					return results[index].state === 'pending'
-				})
-				const pendingRunnersWithCancel = pendingRunners.filter((runner) => {
-					return typeof runner.cancel === 'function'
-				})
-				donePromise = Promise.all(
-					pendingRunnersWithCancel.map((runner) => runner.cancel())
-				)
-			}
-			else {
-				globalResult.state = 'resolved'
-				donePromise = Promise.resolve()
-			}
-
-			donePromise.then(() => {
-				const teardownResult = {
-					state: 'created'
-				}
-				results.push(teardownResult)
-				return execAndMonitor(teardown, teardownResult)
-			}).then(resolve, reject)
-		}
 		const next = () => {
-			if (doneCount === runners.length) {
-				done()
-			}
-			else if (startedCount < runners.length) {
+			if (startedCount < runners.length) {
 				const runner = runners[startedCount]
 				const result = results[startedCount]
 				startedCount++
-				execAndMonitor(runner.run, result)
+				// selon le runner c'est soit register teardown
+				// soit register cancel
+				// y a t-il une diff en teardown et cancel ???
+				// oui une: teardown est toujours appelé alors que cancel
+				// qui si encore running
+				execAndMonitor(runner.run, result, options, {
+					teardown: registerTeardown,
+					cancel: (fn) => {
+						runner.cancel = fn
+					}
+				}).then(
+					() => {
+						if (result.state === 'resolved') {
+							doneCount++
+							if (doneCount === runners.length) {
+								done()
+							}
+							else {
+								next()
+							}
+						}
+						else {
+							done()
+						}
+					}
+				)
 				if (runner.supportConcurrency) {
 					next()
 				}
