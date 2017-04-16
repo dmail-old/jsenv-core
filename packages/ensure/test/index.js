@@ -1,9 +1,5 @@
 const assert = require('assert')
-const test = require('../index.js')
-
-const ensure = {
-	test,
-}
+const ensure = require('../index.js')
 
 const asyncSerie = (array, fn) => {
 	return array.reduce((acc, value) => {

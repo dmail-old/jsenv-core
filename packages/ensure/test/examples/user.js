@@ -4,14 +4,14 @@ const {equals, isString, pipe} = test
 
 const suite = test(
 	'ensure age is 10',
-	(user) => test(
-		pipe(() => user.age),
+	test(
+		pipe((user) => user.age),
 		'is 10',
 		(age) => equals(age, 10)
 	),
 	'ensure name is damien & is as string',
-	(user) => test(
-		pipe(() => user.name),
+	test(
+		pipe((user) => user.name),
 		'is damien',
 		(name) => equals(name, 'damien'),
 		'is a string',

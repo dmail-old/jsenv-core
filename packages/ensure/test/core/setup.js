@@ -43,10 +43,8 @@ module.exports = {
 	'teardown must be called after assertion'({test, setup}, assert) {
 		let teardownCalled = false
 		return test(
-			setup(() => {
-				return () => {
-					teardownCalled = true
-				}
+			setup(() => () => {
+				teardownCalled = true
 			}),
 			() => {}
 		)().then(
@@ -56,10 +54,8 @@ module.exports = {
 	'teardown must be called even if assertion failed'({test, setup}, assert) {
 		let teardownCalled = false
 		return test(
-			setup(() => {
-				return () => {
-					teardownCalled = true
-				}
+			setup(() => () => {
+				teardownCalled = true
 			}),
 			() => false
 		)().then(
@@ -69,10 +65,8 @@ module.exports = {
 	'teardown must be called even with unexpected assertion exception'({test, setup}, assert) {
 		let teardownCalled = false
 		return test(
-			setup(() => {
-				return () => {
-					teardownCalled = true
-				}
+			setup(() => () => {
+				teardownCalled = true
 			}),
 			() => {
 				throw new Error()
@@ -87,11 +81,9 @@ module.exports = {
 		// while the first is still pending, the teardown is still called
 		let teardownCalled = false
 		return test(
-			() => test(
-				setup(() => {
-					return () => {
-						teardownCalled = true
-					}
+			test(
+				setup(() => () => {
+					teardownCalled = true
 				}),
 				() => new Promise() // wait forever
 			),

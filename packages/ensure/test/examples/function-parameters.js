@@ -8,7 +8,6 @@ module.exports = (test) => {
 		test(
 			'default',
 			test(
-				'base',
 				pipe(() => transpile`(function(defaultA, defaultB) {
 					return function(a = defaultA, b = defaultB) {
 						return [a, b]
