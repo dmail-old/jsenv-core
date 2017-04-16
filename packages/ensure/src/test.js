@@ -21,9 +21,9 @@ const createAssertionError = (code, message, detail) => {
 	error.detail = detail
 	return error
 }
-const createFailedReport = (duration, name, value) => {
+const createFailedReport = (node, value, duration) => {
 	const report = {
-		name,
+		name: node.name,
 		state: 'failed',
 		duration,
 		detail: value
@@ -31,18 +31,15 @@ const createFailedReport = (duration, name, value) => {
 	return report
 }
 
-const isPipeAssertion = () => {
-	return false
+const mark = Symbol()
+const markAs = (fn, what) => {
+	fn[mark] = what
 }
-const isSetupAssertion = () => {
-	return false
-}
-const isTestAssertion = () => {
-	return false
-}
-const isNormalAssertion = () => {
-	return true
-}
+const isPipeAssertion = (fn) => fn && fn[mark] === 'pipe'
+const isSetupAssertion = (fn) => fn && fn[mark] === 'setup'
+const isTestAssertion = (fn) => fn && fn[mark] === 'test'
+const isNormalAssertion = (fn) => fn && mark in fn === false
+
 const tokenize = (args) => {
 	const createToken = (type, value) => {
 		const token = {
@@ -151,19 +148,26 @@ const transform = () => {}
 
 const runners = {
 	'assertion'(node) {
-		const fn = ensureThenable(node.value)
+		const fn = ensureThenable(node.value, (value) => {
+			if (value && isTestAssertion(value)) {
+				const error = new Error('malformed test: assertion cannot return test')
+				error.code = 'CANNOT_RETURN_TEST_IN_ASSERTION'
+				throw error
+			}
+			return value
+		})
 
 		return {
-			run: (context) => fn(context.value, context, (fn) => {
-				fn = timeFunction(fn)
-				fn = reportCancel(fn, node)
-				context.cancel(fn)
+			run: (context) => fn(context.value, context, (clean) => {
+				clean = timeFunction(clean)
+				clean = reportCancel(clean, node)
+				context.cancel(clean)
 			}).then(
 				(value) => {
 					if (value === false) {
 						throw createAssertionError(
 							'RESOLVED_TO_FALSE',
-							`${name} assertion resolved to false`
+							`${node.name} assertion resolved to false`
 						)
 					}
 					return value
@@ -199,7 +203,6 @@ const runners = {
 			run: (context) => {
 				return setup(context.value, context).then((value) => {
 					if (typeof value === 'function') {
-						// we want to time & get a report from teardown as well
 						let fn = value
 						fn = timeFunction(fn)
 						fn = reportTeardown(fn, node)
@@ -212,8 +215,8 @@ const runners = {
 	}
 }
 const reportTest = (fn) => {
-	return (...args) => {
-		return fn.apply(this, args).then(
+	return function() {
+		return fn.apply(this, arguments).then(
 			(result) => {
 				const {duration} = result
 				const reports = result.value
@@ -230,8 +233,8 @@ const reportTest = (fn) => {
 	}
 }
 const reportExpectation = (fn, node) => {
-	return (...args) => {
-		return fn.apply(this, args).then(
+	return function() {
+		return fn.apply(this, arguments).then(
 			(result) => {
 				const report = {
 					name: node.name,
@@ -244,7 +247,7 @@ const reportExpectation = (fn, node) => {
 			(result) => {
 				const value = result.value
 				if (value && value.name === 'AssertionError') {
-					return createFailedReport(name, value, result.duration)
+					return createFailedReport(node, value, result.duration)
 				}
 				return Promise.reject(value)
 			}
@@ -252,8 +255,8 @@ const reportExpectation = (fn, node) => {
 	}
 }
 const reportCancel = (fn, node) => {
-	return (...args) => {
-		return fn.apply(this, args).then(
+	return function() {
+		return fn.apply(this, arguments).then(
 			(result) => {
 				const report = {
 					name: `cancel: ${node.name}`,
@@ -268,8 +271,8 @@ const reportCancel = (fn, node) => {
 	}
 }
 const reportTeardown = (fn, node) => {
-	return (...args) => {
-		return fn.apply(this, args).then(
+	return function() {
+		return fn.apply(this, arguments).then(
 			(result) => {
 				const report = {
 					name: `teardown: ${node.name}`,
@@ -436,6 +439,7 @@ const generate = (nodes) => {
 		return testRunnerWithReport(context)
 	}
 
+	markAs(run, 'test')
 	return run
 }
 const compile = (args) => {

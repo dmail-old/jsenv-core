@@ -1,4 +1,4 @@
-const {createPromiseResolvedIn} = require('../helpers.js')
+// const {createPromiseResolvedIn} = require('../helpers.js')
 
 module.exports = {
 	'assertion cannot return test'({test}, assert) {
@@ -15,11 +15,10 @@ module.exports = {
 
 		return test(
 			() => test()
-		)().then(
-			(report) => {
-				const assertionError = report.detail[0].detail
-				assert.equal(assertionError.code, 'CANNOT_RETURN_TEST_IN_ASSERTION')
-				assert.equal(assertionError.message, 'malformed test: assertion cannot return test')
+		)().catch(
+			(reason) => {
+				assert.equal(reason.code, 'CANNOT_RETURN_TEST_IN_ASSERTION')
+				assert.equal(reason.message, 'malformed test: assertion cannot return test')
 			}
 		)
 	},
@@ -29,7 +28,7 @@ module.exports = {
 			() => {
 				throw value
 			}
-		).then(
+		)().then(
 			() => assert.fail('resolved', 'rejected', 'test must be rejected'),
 			(reason) => assert.equal(reason, value)
 		)
@@ -38,7 +37,7 @@ module.exports = {
 		const value = {}
 		return test(
 			() => Promise.reject(value)
-		).then(
+		)().then(
 			() => assert.fail('resolved', 'rejected', 'test must be rejected'),
 			(reason) => assert.equal(reason, value)
 		)
@@ -51,27 +50,26 @@ module.exports = {
 		)
 	},
 	'assertion can return false to fail'({test}, assert) {
-		let called = false
 		return test(
-			() => false,
-			() => {
-				called = true
-			}
-		).then(
-			() => assert(called === false)
+			() => false
+		)().then(
+			(report) => assert.equal(report.state, 'failed')
 		)
 	},
 	'assertion are runned in parallel'({test}, assert) {
 		let callOrder = []
 		return test(
-			() => createPromiseResolvedIn(10).then(() => {
-				callOrder.push('first-resolved')
-			}),
+			() => {
+				callOrder.push('first')
+				return Promise.resolve().then(() => {
+					callOrder.push('first-resolved')
+				})
+			},
 			() => {
 				callOrder.push('second')
 			}
-		).then(
-			() => assert.equal(callOrder.join(), 'first-resolved,second')
+		)().then(
+			() => assert.equal(callOrder.join(), 'first,second,first-resolved')
 		)
 	}
 }

@@ -12,7 +12,8 @@ const asyncSerie = (array, fn) => {
 }
 
 const names = [
-	'core/api'
+	// 'core/api',
+	'core/assertion',
 ]
 asyncSerie(names, (filename) => {
 	// eslint-disable-next-line import/no-dynamic-require

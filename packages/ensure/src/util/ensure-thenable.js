@@ -1,7 +1,10 @@
-const ensureThenable = (fn) => {
+const ensureThenable = (fn, transform) => {
 	return function ensureReturnValueIsThenable() {
 		try {
-			const returnValue = fn.apply(this, arguments)
+			let returnValue = fn.apply(this, arguments)
+			if (transform) {
+				returnValue = transform(returnValue)
+			}
 			if (returnValue && typeof returnValue.then === "function") {
 				return returnValue
 			}
