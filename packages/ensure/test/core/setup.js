@@ -96,7 +96,7 @@ module.exports = {
 				() => new Promise() // wait forever
 			),
 			() => false
-		).then(
+		)().then(
 			() => assert(teardownCalled)
 		)
 	}

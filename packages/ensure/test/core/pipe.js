@@ -22,7 +22,7 @@ module.exports = {
 			(...args) => {
 				assertionArgs = args
 			}
-		).then(() => {
+		)().then(() => {
 			assert.equal(assertionArgs[0], value)
 		})
 	},

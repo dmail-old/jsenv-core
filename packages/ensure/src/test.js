@@ -12,15 +12,8 @@ Notes :
 
 const ensureThenable = require('./util/ensure-thenable.js')
 const timeFunction = require('./util/time-function.js')
+const fail = require('./fail.js')
 
-const createAssertionError = (code, message, detail) => {
-	const error = new Error()
-	error.code = code
-	error.name = 'AssertionError'
-	error.message = message
-	error.detail = detail
-	return error
-}
 const createFailedReport = (node, value, duration) => {
 	const report = {
 		name: node.name,
@@ -165,10 +158,10 @@ const runners = {
 			}).then(
 				(value) => {
 					if (value === false) {
-						throw createAssertionError(
-							'RESOLVED_TO_FALSE',
-							`${node.name} assertion resolved to false`
-						)
+						throw fail({
+							code: 'RESOLVED_TO_FALSE',
+							message: `${node.name} assertion resolved to false`
+						})
 					}
 					return value
 				}

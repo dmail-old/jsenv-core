@@ -1,4 +1,4 @@
-// const {createPromiseResolvedIn} = require('../helpers.js')
+const {createPromiseResolvedIn} = require('../helpers.js')
 
 module.exports = {
 	'assertion cannot return test'({test}, assert) {
@@ -70,6 +70,90 @@ module.exports = {
 			}
 		)().then(
 			() => assert.equal(callOrder.join(), 'first,second,first-resolved')
+		)
+	},
+	// canceller: to be tested
+	'assertion canceller called when self fail'({test}, assert) {
+		let called = false
+		return test(
+			(value, context) => {
+				context.cancel = () => {
+					called = true
+				}
+				return false
+			}
+		)().then(
+			() => assert(called === true)
+		)
+	},
+	'assertion canceller called when self reject'({test}, assert) {
+		let called = false
+		return test(
+			(value, context) => {
+				context.cancel = () => {
+					called = true
+				}
+				throw new Error('here')
+			}
+		)().then(
+			() => assert.fail('resolved', 'rejected'),
+			() => assert(called === true)
+		)
+	},
+	'assertion canceller called when pending & something else fails'({test}, assert) {
+		let called = false
+		return test(
+			(value, context) => {
+				context.cancel = () => {
+					called = true
+				}
+				return createPromiseResolvedIn(10)
+			},
+			() => false
+		)().then(
+			() => assert(called === true)
+		)
+	},
+	'assertion canceller not called when not pending & something else fails'({test}, assert) {
+		let called = false
+		return test(
+			(value, context) => {
+				context.cancel = () => {
+					called = true
+				}
+			},
+			() => false
+		)().then(
+			() => assert(called === false)
+		)
+	},
+	'assertion canceller is called when pending & something else reject'({test}, assert) {
+		let called = false
+		return test(
+			(value, context) => {
+				context.cancel = () => {
+					called = true
+				}
+				return createPromiseResolvedIn(10)
+			},
+			() => Promise.reject('yo')
+		)().then(
+			() => assert.fail('resolved', 'rejected'),
+			() => assert(called === true)
+		)
+	},
+	'assertion canceller not called when not pending & something else rejects'({test}, assert) {
+		let called = false
+		return test(
+			(value, context) => {
+				context.cancel = () => {
+					called = true
+				}
+			},
+			() => Promise.reject('yo')
+		)().then(
+			() => assert.fail('resolved', 'rejected'),
+			() => assert(called === false)
 		)
 	}
 }

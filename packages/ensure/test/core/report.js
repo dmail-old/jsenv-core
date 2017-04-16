@@ -10,7 +10,7 @@ module.exports = {
 		return test(
 			'i am false',
 			() => false
-		).then(
+		)().then(
 			(report) => {
 				assert.equal(report.state, 'failed')
 				const assertionReport = report.detail[0]
@@ -25,7 +25,7 @@ module.exports = {
 	'duration of sync function'({test}, assert) {
 		return test(
 			() => {}
-		).then(
+		)().then(
 			(report) => {
 				const assertionReport = report.detail[0]
 				const {duration} = assertionReport
@@ -36,7 +36,7 @@ module.exports = {
 	'duration of async function'({test}, assert) {
 		return test(
 			() => createPromiseResolvedIn(50)
-		).then(
+		)().then(
 			(report) => {
 				const assertionReport = report.detail[0]
 				const {duration} = assertionReport
