@@ -154,10 +154,10 @@ const runners = {
 		const fn = ensureThenable(node.value)
 
 		return {
-			run: (options, {cancel}) => fn(options.value, options, (fn) => {
+			run: (context) => fn(context.value, context, (fn) => {
 				fn = timeFunction(fn)
 				fn = reportCancel(fn, node)
-				cancel(fn)
+				context.cancel(fn)
 			}).then(
 				(value) => {
 					if (value === false) {
@@ -176,9 +176,9 @@ const runners = {
 		const fn = ensureThenable(node.value)
 
 		return {
-			run: (options, hooks) => fn(options.value, options, hooks).then(
+			run: (context) => fn(context.value, context).then(
 				(value) => {
-					options.value = value
+					context.value = value
 				}
 			),
 			supportConcurrency: false
@@ -196,14 +196,14 @@ const runners = {
 		const {value} = node
 		const setup = ensureThenable(value)
 		return {
-			run: (options, {teardown}) => {
-				return setup(options.value).then((value) => {
+			run: (context) => {
+				return setup(context.value, context).then((value) => {
 					if (typeof value === 'function') {
 						// we want to time & get a report from teardown as well
 						let fn = value
 						fn = timeFunction(fn)
 						fn = reportTeardown(fn, node)
-						teardown(fn)
+						context.teardown(fn)
 					}
 				})
 			},
@@ -217,9 +217,7 @@ const reportTest = (fn) => {
 			(result) => {
 				const {duration} = result
 				const reports = result.value
-				const allPassed = reports.every((report) => {
-					return report.state === 'passed'
-				})
+				const allPassed = reports.every((report) => report.state === 'passed')
 				const report = {
 					state: allPassed ? 'passed' : 'failed',
 					duration,
@@ -227,9 +225,7 @@ const reportTest = (fn) => {
 				}
 				return report
 			},
-			(result) => {
-				return Promise.reject(result.value)
-			}
+			(result) => Promise.reject(result.value)
 		)
 	}
 }
@@ -297,7 +293,7 @@ const createRunner = (node) => {
 	}
 	throw new Error(`no runner for ${type}`)
 }
-const execAndMonitorAll = (runners, options) => {
+const execAndMonitorAll = (runners, context) => {
 	const globalResult = {
 		state: 'created',
 		results: []
@@ -308,11 +304,13 @@ const execAndMonitorAll = (runners, options) => {
 		results.push(result)
 		return result
 	}
+	runners.forEach(() => addResult())
 	const monitor = (fn, result) => {
+		result.state = 'pending'
 		return function() {
 			return fn.apply(this, arguments).then(
 				(value) => {
-					result.state = 'rejected'
+					result.state = 'resolved'
 					result.value = value
 					return result
 				},
@@ -324,15 +322,15 @@ const execAndMonitorAll = (runners, options) => {
 			)
 		}
 	}
-	const execAndMonitor = (fn, result, ...args) => {
-		return monitor(fn, result)(...args)
+	const execAndMonitor = (fn, result, context) => {
+		return monitor(fn, result)(context)
 	}
 
 	return new Promise((resolve) => {
 		let startedCount = 0
 		let doneCount = 0
 
-		let teardown = () => Promise.resolve()
+		let teardown
 		const registerTeardown = (fn) => {
 			teardown = fn
 		}
@@ -344,9 +342,13 @@ const execAndMonitorAll = (runners, options) => {
 				return typeof runner.cancel === 'function'
 			})
 			return Promise.all(pendingRunnersWithCancel.map(
-				(runner) => execAndMonitor(runner.cancel, addResult())
+				(runner) => execAndMonitor(runner.cancel, addResult(), context)
 			)).then(
-				() => execAndMonitor(teardown, addResult())
+				() => {
+					if (teardown) {
+						return execAndMonitor(teardown, addResult(), context)
+					}
+				}
 			).then(
 				() => {
 					const rejectedResults = results.filter((result) => result.state === 'rejected')
@@ -378,12 +380,14 @@ const execAndMonitorAll = (runners, options) => {
 				// y a t-il une diff en teardown et cancel ???
 				// oui une: teardown est toujours appelé alors que cancel
 				// qui si encore running
-				execAndMonitor(runner.run, result, options, {
-					teardown: registerTeardown,
-					cancel: (fn) => {
-						runner.cancel = fn
-					}
-				}).then(
+
+				const runnerContext = Object.assign({}, context)
+				runnerContext.teardown = registerTeardown
+				runnerContext.cancel = (fn) => {
+					runner.cancel = fn
+				}
+
+				execAndMonitor(runner.run, result, runnerContext).then(
 					() => {
 						if (result.state === 'resolved') {
 							doneCount++
@@ -394,7 +398,7 @@ const execAndMonitorAll = (runners, options) => {
 								next()
 							}
 						}
-						else {
+						else if (result.state === 'rejected') {
 							done()
 						}
 					}
@@ -411,10 +415,10 @@ const execAndMonitorAll = (runners, options) => {
 }
 const generate = (nodes) => {
 	const runners = nodes.map(createRunner)
-	const testRunner = (options) => {
-		return Promise.resolve(options.value).then((value) => {
-			options.value = value
-			return execAndMonitorAll(runners, options).then((result) => {
+	const testRunner = (context) => {
+		return Promise.resolve(context.value).then((value) => {
+			context.value = value
+			return execAndMonitorAll(runners, context).then((result) => {
 				if (result.state === 'rejected') {
 					return Promise.reject(result.value)
 				}
@@ -424,7 +428,13 @@ const generate = (nodes) => {
 	}
 	const testRunnerWithTime = timeFunction(testRunner)
 	const testRunnerWithReport = reportTest(testRunnerWithTime)
-	const run = (options = {}) => testRunnerWithReport(options)
+	const run = (options = {}) => {
+		const context = {
+			options,
+			value: options.value,
+		}
+		return testRunnerWithReport(context)
+	}
 
 	return run
 }

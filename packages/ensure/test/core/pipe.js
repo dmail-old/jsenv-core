@@ -1,4 +1,14 @@
 /*
+possible names
+pipe
+	+ current name
+	- there may be better name ?
+give
+	+
+	-
+transform
+	+
+	-
 */
 
 const {createPromiseResolvedIn} = require('../helpers.js')
