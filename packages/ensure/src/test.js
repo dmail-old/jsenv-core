@@ -8,12 +8,69 @@ Notes :
 
 - test.todo
 
+il manque la propagation du cancel en gros
+lorsque j'apelle cancel sur un test on pourrait propager le cancel à ses sous-test
+
 */
 
 const ensureThenable = require('./util/ensure-thenable.js')
 const timeFunction = require('./util/time-function.js')
 const fail = require('./fail.js')
 
+const isCreated = (observer) => observer.state === 'created'
+const isPending = (observer) => observer.state === 'pending'
+const isResolved = (observer) => observer.state === 'resolved'
+const isRejected = (observer) => observer.state === 'rejected'
+const isCancelled = (observer) => observer.state === 'cancelled'
+const isDone = (observer) => isCreated(observer) === false && isPending(observer) === false
+const monitor = (fn, observer) => {
+	if (typeof observer !== 'object') {
+		throw new TypeError('observer must be an object')
+	}
+
+	return function() {
+		if (isCreated(observer) === false) {
+			throw new Error('observer state must be created')
+		}
+
+		let resolve
+		const promise = new Promise((res) => {
+			resolve = res
+		})
+		const cancel = () => {
+			if (isPending(observer)) {
+				observer.state = 'cancelled'
+				resolve(observer)
+			}
+		}
+		observer.cancel = cancel
+		observer.state = 'pending'
+		fn.apply(this, arguments).then(
+			(value) => {
+				if (isPending(observer)) {
+					observer.state = 'resolved'
+					observer.value = value
+					resolve(observer)
+				}
+			},
+			(reason) => {
+				if (isPending(observer)) {
+					observer.state = 'rejected'
+					observer.value = reason
+					resolve(observer)
+				}
+			}
+		)
+
+		return promise
+	}
+}
+
+const wrap = (fn, behaviour) => {
+	return function(...args) {
+		return behaviour.apply(this, [fn, ...args])
+	}
+}
 const createFailedReport = (node, value, duration) => {
 	const report = {
 		name: node.name,
@@ -139,93 +196,7 @@ const parse = (tokens) => {
 
 const transform = () => {}
 
-const runners = {
-	'assertion'(node) {
-		const fn = ensureThenable(node.value, (value) => {
-			if (value && isTestAssertion(value)) {
-				const error = new Error('malformed test: assertion cannot return test')
-				error.code = 'CANNOT_RETURN_TEST_IN_ASSERTION'
-				throw error
-			}
-			return value
-		})
-
-		return {
-			run: (context) => fn(context.value, context, (clean) => {
-				clean = timeFunction(clean)
-				clean = reportCancel(clean, node)
-				context.cancel(clean)
-			}).then(
-				(value) => {
-					if (value === false) {
-						throw fail({
-							code: 'RESOLVED_TO_FALSE',
-							message: `${node.name} assertion resolved to false`
-						})
-					}
-					return value
-				}
-			),
-			supportConcurrency: true
-		}
-	},
-	'pipe'(node) {
-		const fn = ensureThenable(node.value)
-
-		return {
-			run: (context) => fn(context.value, context).then(
-				(value) => {
-					context.value = value
-				}
-			),
-			supportConcurrency: false
-		}
-	},
-	'test'(node) {
-		const {value} = node.value
-		// here value is the function returned by a test() call
-		return {
-			run: value,
-			supportConcurrency: true
-		}
-	},
-	'setup'(node) {
-		const {value} = node
-		const setup = ensureThenable(value)
-		return {
-			run: (context) => {
-				return setup(context.value, context).then((value) => {
-					if (typeof value === 'function') {
-						let fn = value
-						fn = timeFunction(fn)
-						fn = reportTeardown(fn, node)
-						context.teardown(fn)
-					}
-				})
-			},
-			supportConcurrency: false
-		}
-	}
-}
-const reportTest = (fn) => {
-	return function() {
-		return fn.apply(this, arguments).then(
-			(result) => {
-				const {duration} = result
-				const reports = result.value
-				const allPassed = reports.every((report) => report.state === 'passed')
-				const report = {
-					state: allPassed ? 'passed' : 'failed',
-					duration,
-					detail: reports,
-				}
-				return report
-			},
-			(result) => Promise.reject(result.value)
-		)
-	}
-}
-const reportExpectation = (fn, node) => {
+const reportAssertion = (fn, node) => {
 	return function() {
 		return fn.apply(this, arguments).then(
 			(result) => {
@@ -247,12 +218,13 @@ const reportExpectation = (fn, node) => {
 		)
 	}
 }
-const reportCancel = (fn, node) => {
+const reportPipe = reportAssertion
+const reportAfterAssertion = (fn, node) => {
 	return function() {
 		return fn.apply(this, arguments).then(
 			(result) => {
 				const report = {
-					name: `cancel: ${node.name}`,
+					name: `after: ${node.name}`,
 					state: 'passed',
 					duration: result.duration,
 					detail: result.value
@@ -263,175 +235,236 @@ const reportCancel = (fn, node) => {
 		)
 	}
 }
-const reportTeardown = (fn, node) => {
+const reportTest = (fn, node) => {
 	return function() {
 		return fn.apply(this, arguments).then(
 			(result) => {
-				const report = {
-					name: `teardown: ${node.name}`,
-					state: 'passed',
-					duration: result.duration,
-					detail: result.value
+				const {duration} = result
+				const observer = result.value
+				const observers = observer.value
+				const someIsCancelled = observers.some(isCancelled)
+				if (someIsCancelled) {
+					const report = {
+						name: node ? node.name : undefined,
+						state: 'cancelled',
+						duration,
+						detail: reports
+					}
+					return report
 				}
+
+				const reports = observers.map((observer) => observer.value)
+				const allPassed = reports.every((report) => report.state === 'passed')
+				const report = {
+					name: node ? node.name : undefined,
+					state: allPassed ? 'passed' : 'failed',
+					duration,
+					detail: reports
+				}
+
 				return report
 			},
 			(result) => Promise.reject(result.value)
 		)
+	}
+}
+const reportBeforeTest = reportAssertion
+const reportAfterTest = reportAssertion
+
+const runners = {
+	'assertion'(node) {
+		const {value} = node
+		let fn = value
+		fn = ensureThenable(value, (returnValue) => {
+			if (returnValue && isTestAssertion(returnValue)) {
+				const error = new Error('malformed test: assertion cannot return test')
+				error.code = 'CANNOT_RETURN_TEST_IN_ASSERTION'
+				throw error
+			}
+			return returnValue
+		})
+		fn = wrap(fn, (fn, context) => {
+			const {after} = context
+			context.after = (fn) => {
+				fn = ensureThenable(fn)
+				fn = timeFunction(fn)
+				fn = reportAfterAssertion(fn, node)
+				after(fn)
+			}
+			return fn(context.value, context).then(
+				(value) => {
+					if (value === false) {
+						throw fail({
+							code: 'RESOLVED_TO_FALSE',
+							message: `${node.name} assertion resolved to false`
+						})
+					}
+					return value
+				}
+			)
+		})
+		fn = timeFunction(fn)
+		fn = reportAssertion(fn, node)
+
+		return {
+			run: fn,
+			supportConcurrency: true
+		}
+	},
+	'pipe'(node) {
+		const {value} = node.value
+		let fn = value
+		fn = ensureThenable(value)
+		fn = wrap(fn, (fn, context) => {
+			return fn(context.value, context).then(
+				(value) => {
+					context.value = value
+				}
+			)
+		})
+		fn = timeFunction(fn)
+		fn = reportPipe(fn, node)
+
+		return {
+			run: fn,
+			supportConcurrency: false
+		}
+	},
+	'test'(node) {
+		const {value} = node.value
+		let fn = value
+
+		return {
+			run: fn,
+			supportConcurrency: true
+		}
+	},
+	'setup'(node) {
+		const {value} = node
+		let fn = value
+		fn = ensureThenable(value)
+		fn = wrap(fn, (fn, context) => {
+			return fn(context.value, context).then((value) => {
+				if (typeof value === 'function') {
+					let fn = ensureThenable(fn)
+					fn = timeFunction(fn)
+					fn = reportAfterTest(fn, node)
+					context.afterAll(fn)
+				}
+			})
+		})
+		fn = timeFunction(fn)
+		fn = reportBeforeTest(fn, node)
+
+		return {
+			run: fn,
+			supportConcurrency: false
+		}
 	}
 }
 const createRunner = (node) => {
 	const {type} = node
 	if (type in runners) {
 		const runner = runners[type](node)
-		runner.run = timeFunction(runner.run)
-		runner.run = reportExpectation(runner.run, node)
 		return runner
 	}
 	throw new Error(`no runner for ${type}`)
 }
+const execAndMonitor = (fn, observer, context) => {
+	return monitor(fn, observer)(context)
+}
 const execAndMonitorAll = (runners, context) => {
-	const globalResult = {
-		state: 'created',
-		results: []
-	}
-	const {results} = globalResult
-	const addResult = () => {
-		const result = {state: 'created'}
-		results.push(result)
-		return result
-	}
-	runners.forEach(() => addResult())
-	const monitor = (fn, result) => {
-		result.state = 'pending'
-		return function() {
-			return fn.apply(this, arguments).then(
-				(value) => {
-					result.state = 'resolved'
-					result.value = value
-					return result
-				},
-				(reason) => {
-					result.state = 'rejected'
-					result.value = reason
-					return result
-				}
-			)
+	const compositeObserver = {state: 'created'}
+
+	return monitor((context) => {
+		const observers = []
+		const addObserver = function() {
+			const observer = {state: 'created'}
+			observers.push(observer)
+			return observer
 		}
-	}
-	const execAndMonitor = (fn, result, context) => {
-		return monitor(fn, result)(context)
-	}
+		const assertionObservers = runners.map(() => addObserver())
 
-	return new Promise((resolve) => {
-		let startedCount = 0
-		let doneCount = 0
+		return new Promise((resolve) => {
+			let assertionStartedCount = 0
 
-		let teardown
-		const registerTeardown = (fn) => {
-			teardown = fn
-		}
-		const done = () => {
-			const pendingRunners = runners.filter((runner, index) => {
-				return results[index].state === 'pending'
-			})
-			const pendingRunnersWithCancel = pendingRunners.filter((runner) => {
-				return typeof runner.cancel === 'function'
-			})
-			return Promise.all(pendingRunnersWithCancel.map(
-				(runner) => execAndMonitor(runner.cancel, addResult(), context)
-			)).then(
-				() => {
-					if (teardown) {
-						return execAndMonitor(teardown, addResult(), context)
-					}
-				}
-			).then(
-				() => {
-					const rejectedResults = results.filter((result) => result.state === 'rejected')
-					if (rejectedResults.length > 0) {
-						globalResult.state = 'rejected'
-						globalResult.value = rejectedResults[0].value
-						if (rejectedResults.length > 1) {
-							console.warn('More than one result has rejected, you can check the report')
-						}
-					}
-					else {
-						const resolvedResults = results.filter((result) => result.state === 'resolved')
-						if (resolvedResults.length < results.length) {
-							throw new Error('done expect all result to be resolved')
-						}
-						globalResult.state = 'resolved'
-					}
-					resolve(globalResult)
-				}
-			)
-		}
-		const next = () => {
-			if (startedCount < runners.length) {
-				const runner = runners[startedCount]
-				const result = results[startedCount]
-				startedCount++
-				// selon le runner c'est soit register teardown
-				// soit register cancel
-				// y a t-il une diff en teardown et cancel ???
-				// oui une: teardown est toujours appelé alors que cancel
-				// qui si encore running
-
-				const runnerContext = Object.assign({}, context)
-				runnerContext.teardown = registerTeardown
-				runnerContext.cancel = (fn) => {
-					runner.cancel = fn
-				}
-
-				execAndMonitor(runner.run, result, runnerContext).then(
-					() => {
-						if (result.state === 'resolved') {
-							doneCount++
-							if (doneCount === runners.length) {
-								done()
-							}
-							else {
-								next()
-							}
-						}
-						else if (result.state === 'rejected') {
-							done()
-						}
-					}
-				)
-				if (runner.supportConcurrency) {
-					next()
+			const done = () => {
+				resolve(observers)
+			}
+			const checkDone = () => {
+				if (observers.every(isDone)) {
+					done()
 				}
 			}
-		}
+			const cancelRemaining = () => {
+				const pendingObservers = assertionObservers.filter(isPending)
+				pendingObservers.forEach((observer) => observer.cancel())
+			}
+			const next = () => {
+				if (assertionStartedCount < assertionObservers.length) {
+					const runner = runners[assertionStartedCount]
+					const observer = assertionObservers[assertionStartedCount]
+					assertionStartedCount++
 
-		globalResult.state = 'pending'
-		next()
-	}).then(() => globalResult)
+					const runnerContext = Object.assign({}, context)
+					// runnerContext.afterAll = (fn) => {
+					// 	afterAll = fn
+					// }
+					runnerContext.after = (fn) => {
+						runner.after = fn
+					}
+
+					execAndMonitor(runner.run, observer, runnerContext).then(
+						() => {
+							if (isCancelled(observer)) {
+								// noop
+							}
+							else if (isResolved(observer)) {
+								next()
+							}
+							else if (isRejected(observer)) {
+								cancelRemaining()
+							}
+
+							if (runner.after) {
+								execAndMonitor(runner.after, addObserver(), context).then(checkDone)
+							}
+							else {
+								checkDone()
+							}
+						}
+					)
+					if (runner.supportConcurrency) {
+						next()
+					}
+				}
+			}
+			next()
+		})
+	}, compositeObserver)(context)
 }
 const generate = (nodes) => {
 	const runners = nodes.map(createRunner)
-	const testRunner = (context) => {
+	let fn = (context) => {
 		return Promise.resolve(context.value).then((value) => {
 			context.value = value
-			return execAndMonitorAll(runners, context).then((result) => {
-				if (result.state === 'rejected') {
-					return Promise.reject(result.value)
+			return execAndMonitorAll(runners, context).then((observer) => {
+				if (observer.state === 'rejected') {
+					return Promise.reject(observer.value)
 				}
-				return result.results.map((localResult) => localResult.value)
+				return observer
 			})
 		})
 	}
-	const testRunnerWithTime = timeFunction(testRunner)
-	const testRunnerWithReport = reportTest(testRunnerWithTime)
+	fn = timeFunction(fn)
+	fn = reportTest(fn)
 	const run = (options = {}) => {
 		const context = {
 			options,
 			value: options.value,
 		}
-		return testRunnerWithReport(context)
+		return fn(context)
 	}
-
 	markAs(run, 'test')
 	return run
 }

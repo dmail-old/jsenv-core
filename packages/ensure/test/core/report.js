@@ -5,7 +5,6 @@
 const {createPromiseResolvedIn} = require('../helpers.js')
 
 module.exports = {
-	// tester le rapport de résultat (il doit bien contenir le report de tous les tests)
 	'assertion returning false'({test}, assert) {
 		return test(
 			'i am false',
@@ -21,6 +20,11 @@ module.exports = {
 				assert.equal(assertionError.message, 'i am false resolved to false')
 			}
 		)
+	},
+	'cancelled report'() {
+		// imaginong que je cancel une partie du test
+		// qu'est ce qu'on obtient comme rapport ?
+		// un rapport imcomplet mais de quelle nature ?
 	},
 	'duration of sync function'({test}, assert) {
 		return test(

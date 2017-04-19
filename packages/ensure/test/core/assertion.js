@@ -72,27 +72,27 @@ module.exports = {
 			() => assert.equal(callOrder.join(), 'first,second,first-resolved')
 		)
 	},
-	// canceller: to be tested
-	'assertion canceller called when self fail'({test}, assert) {
+	// after: to be tested
+	'after called when self fail'({test}, assert) {
 		let called = false
 		return test(
 			(value, context) => {
-				context.cancel = () => {
+				context.after(() => {
 					called = true
-				}
+				})
 				return false
 			}
 		)().then(
 			() => assert(called === true)
 		)
 	},
-	'assertion canceller called when self reject'({test}, assert) {
+	'after called when self reject'({test}, assert) {
 		let called = false
 		return test(
 			(value, context) => {
-				context.cancel = () => {
+				context.after(() => {
 					called = true
-				}
+				})
 				throw new Error('here')
 			}
 		)().then(
@@ -100,13 +100,25 @@ module.exports = {
 			() => assert(called === true)
 		)
 	},
-	'assertion canceller called when pending & something else fails'({test}, assert) {
+	'after called when self pass'({test}, assert) {
 		let called = false
 		return test(
 			(value, context) => {
-				context.cancel = () => {
+				context.after(() => {
 					called = true
-				}
+				})
+			}
+		)().then(
+			() => assert(called === true)
+		)
+	},
+	'after called when something else fails'({test}, assert) {
+		let called = false
+		return test(
+			(value, context) => {
+				context.after(() => {
+					called = true
+				})
 				return createPromiseResolvedIn(10)
 			},
 			() => false
@@ -114,46 +126,19 @@ module.exports = {
 			() => assert(called === true)
 		)
 	},
-	'assertion canceller not called when not pending & something else fails'({test}, assert) {
+	'after called when something else reject'({test}, assert) {
 		let called = false
 		return test(
 			(value, context) => {
-				context.cancel = () => {
+				context.after(() => {
 					called = true
-				}
-			},
-			() => false
-		)().then(
-			() => assert(called === false)
-		)
-	},
-	'assertion canceller is called when pending & something else reject'({test}, assert) {
-		let called = false
-		return test(
-			(value, context) => {
-				context.cancel = () => {
-					called = true
-				}
+				})
 				return createPromiseResolvedIn(10)
 			},
 			() => Promise.reject('yo')
 		)().then(
 			() => assert.fail('resolved', 'rejected'),
 			() => assert(called === true)
-		)
-	},
-	'assertion canceller not called when not pending & something else rejects'({test}, assert) {
-		let called = false
-		return test(
-			(value, context) => {
-				context.cancel = () => {
-					called = true
-				}
-			},
-			() => Promise.reject('yo')
-		)().then(
-			() => assert.fail('resolved', 'rejected'),
-			() => assert(called === false)
 		)
 	}
 }
